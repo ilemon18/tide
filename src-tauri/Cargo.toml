@@ -1,0 +1,65 @@
+[package]
+name = "tide"
+version = "0.0.1"
+description = "Tide — a lightweight code editor"
+authors = ["Tide"]
+license = "MIT"
+edition = "2021"
+rust-version = "1.82"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+# 单实例：第二次启动（双击图标 / 命令行）交给已经运行的进程开窗口，而不是再起一个进程
+tauri-plugin-single-instance = "2"
+# Windows 的 canonicalize 会给路径加 `\\?\` verbatim 前缀：git 不认、显示难看，
+# 更重要的是文件监听事件里的路径不带这个前缀，前缀比较会全部失效。dunce 会给出可用的普通路径。
+dunce = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+portable-pty = "0.9"
+# 应用内更新（见 src/update.rs）：检查 / 下载都在 Rust 里做，webview 不碰网络。
+# native-tls 在 macOS 走 Security.framework、Windows 走 schannel，两个平台都不需要
+# OpenSSL 头文件（只有 Linux 的 CI 会装 libssl-dev）。
+reqwest = { version = "0.12", default-features = false, features = ["json", "native-tls"] }
+tokio = { version = "1", features = ["fs", "io-util", "rt", "time"] }
+# 下载完成后的完整性校验：SHA-256 来自 release 里的 latest.json
+sha2 = "0.10"
+# 工作区 / .git 文件监听：终端里执行 git 后同步 UI 状态
+notify = "6"
+# 全局搜索：直接复用 ripgrep 的忽略规则实现
+ignore = "0.4"
+regex = "1"
+parking_lot = "0.12"
+# 关闭终端时结束整个进程组，避免 dev server 之类的子进程被落下
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+# macOS Dock 右键菜单：Tauri 没有这个 API，只能直接调 AppKit
+# （版本和 tauri→tao 已解析的一致，不会多编一份）
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSObject", "NSString"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSMenu", "NSMenuItem", "NSResponder"] }
+
+
+# 低内存 / 小体积的 release 配置
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+incremental = false
+
+# debug 包也要能流畅跑起来：给依赖开 1 级优化，自身保持 0 级便于调试
+[profile.dev]
+incremental = true
+# debug 包只保留行号级调试信息，减小二进制体积与常驻映射
+debug = 1
+
+[profile.dev.package."*"]
+opt-level = 1

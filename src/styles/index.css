@@ -1,0 +1,666 @@
+@import 'tailwindcss';
+@import '@xterm/xterm/css/xterm.css';
+
+/* Bundled mono font: one variable file covers 100–800 so system fonts don't look different across machines */
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('../assets/fonts/JetBrainsMono-Variable.ttf') format('truetype');
+  font-weight: 100 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* Other selectable code fonts: latin subset only, regular/bold; CJK still falls back to system fonts */
+@font-face {
+  font-family: 'Fira Code';
+  src: url('../assets/fonts/FiraCode-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Fira Code';
+  src: url('../assets/fonts/FiraCode-Bold.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'IBM Plex Mono';
+  src: url('../assets/fonts/IBMPlexMono-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'IBM Plex Mono';
+  src: url('../assets/fonts/IBMPlexMono-Bold.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Source Code Pro';
+  src: url('../assets/fonts/SourceCodePro-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Source Code Pro';
+  src: url('../assets/fonts/SourceCodePro-Bold.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
+
+/* Semantic color mapping: real values are written into CSS variables at runtime by src/theme/apply.ts */
+@theme inline {
+  --color-bg: var(--c-bg);
+  --color-panel: var(--c-panel);
+  --color-panel-alt: var(--c-panel-alt);
+  /* Leftmost activity bar: one step darker than the sidebar */
+  --color-activity-bar: var(--c-activity-bar);
+  --color-line: var(--c-border);
+  --color-fg: var(--c-fg);
+  --color-muted: var(--c-muted);
+  --color-accent: var(--c-accent);
+  --color-accent-fg: var(--c-accent-fg);
+  --color-hover: var(--c-hover);
+  --color-active: var(--c-active);
+  --color-selection: var(--c-selection);
+  --color-success: var(--c-success);
+  --color-warning: var(--c-warning);
+  --color-danger: var(--c-danger);
+
+  /* Hover is uniformly a translucent foreground overlay: works on panel / bg / menus,
+     upgrades all 57 hover:bg-hover uses at once instead of touching each JSX site.
+     Legacy solid-fill uses keep --c-hover as hover-solid. */
+  --color-hover: var(--c-hover-soft);
+  --color-hover-strong: var(--c-hover-strong);
+  --color-hover-solid: var(--c-hover);
+
+  /* Derived semantic colors: computed from the current palette, so all 19 themes inherit without per-theme tuning */
+  --color-row-selected: var(--c-row-selected);
+  --color-row-selected-inactive: var(--c-row-selected-inactive);
+  --color-tab-edge: var(--c-tab-active-border);
+  --color-line-soft: var(--c-border-soft);
+
+  /* Metric tokens: radii, motion (palette-independent) */
+  --radius-row: var(--r-row);
+  --radius-sel: var(--r-sel);
+  --radius-control: var(--r-control);
+  --radius-tab: var(--r-tab);
+  --radius-popup: var(--r-popup);
+  --radius-dialog: var(--r-dialog);
+
+  --ease-island: var(--ease-islands);
+  --transition-duration-fast: var(--dur-fast);
+  --transition-duration-normal: var(--dur);
+
+  /* Elevation: popovers/dialogs/tabs lift */
+  --shadow-popup: var(--elev-popup);
+  --shadow-dialog: var(--elev-dialog);
+  --shadow-lift: var(--elev-tab);
+
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, 'Hiragino Sans',
+    'Apple SD Gothic Neo', monospace;
+  --font-sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue',
+    'PingFang SC', 'Hiragino Sans', 'Hiragino Sans GB', 'Apple SD Gothic Neo', 'Malgun Gothic',
+    sans-serif;
+
+  /* One type scale: everything follows the "UI font size" setting instead of 9 scattered px values */
+  --text-2xs: calc(var(--ui-fs) - 2px);
+  --text-xs: calc(var(--ui-fs) - 1px);
+  --text-sm: var(--ui-fs);
+  --text-md: calc(var(--ui-fs) + 1px);
+  /* Set line heights explicitly so Tailwind's default 1.4+ doesn't stretch compact rows */
+  --text-2xs--line-height: 1.35;
+  --text-xs--line-height: 1.4;
+  --text-sm--line-height: 1.45;
+  --text-md--line-height: 1.4;
+}
+
+:root {
+  /* UI font size: adjustable in settings, all --text-* derive from it */
+  --ui-fs: 13px;
+
+  /* Tide (default): first-paint fallback matching src/theme/palettes.ts */
+  --c-bg: #ffffff;
+  --c-panel: #fafafa;
+  --c-panel-alt: #f3f3f3;
+  --c-border: #e5e5e5;
+  --c-fg: #242424;
+  --c-muted: #666666;
+  --c-accent: #0a726e;
+  --c-accent-fg: #ffffff;
+  --c-hover: #f2f2f2;
+  --c-active: #eaeaea;
+  --c-selection: #e4e8ea;
+  --c-success: #1a7d4a;
+  --c-warning: #8a6403;
+  --c-danger: #c4374b;
+  --c-tab: #ffffff;
+  --c-shadow: rgba(15, 15, 30, 0.12);
+  --c-activity-bar: var(--c-panel-alt);
+
+  /* ---- Metric tokens (Islands style): palette-independent, shared by all 19 themes ---- */
+  --r-row: 4px; /* rows, menu items */
+  --r-sel: 5px; /* list selection block */
+  --r-control: 4px; /* buttons, inputs, segmented controls */
+  --r-tab: 6px; /* tab pills */
+  --r-popup: 8px; /* menus, dropdowns, popovers */
+  --r-dialog: 10px; /* dialogs, settings panel */
+
+  --ease-islands: cubic-bezier(0.2, 0, 0, 1);
+  --dur-fast: 80ms;
+  --dur: 140ms;
+
+  /* Elevation: three levels — popovers use popup, dialogs use dialog */
+  --elev-tab: 0 1px 2px color-mix(in srgb, var(--c-shadow) 45%, transparent);
+  --elev-popup: 0 6px 20px var(--c-shadow);
+  --elev-dialog: 0 12px 36px var(--c-shadow);
+
+  /* ---- Derived semantic colors: all mixed from the current palette ---- */
+  /* Hover: translucent foreground overlay — airier than opaque gray and doesn't hide inline swatches */
+  --c-hover-soft: color-mix(in srgb, var(--c-fg) 6%, transparent);
+  --c-hover-strong: color-mix(in srgb, var(--c-fg) 10%, transparent);
+  /* Solid equivalent of row hover: the explorer's hover overlay needs an opaque fill for gradients, so it must match the row background */
+  --c-row-hover-solid: color-mix(in srgb, var(--c-fg) 6%, var(--c-panel));
+  /* Selected: light accent tint; falls back to neutral when the window loses focus */
+  --c-row-selected: color-mix(in srgb, var(--c-accent) 18%, var(--c-panel));
+  --c-row-selected-inactive: color-mix(in srgb, var(--c-fg) 9%, var(--c-panel));
+  /* 1px border for the selected tab */
+  --c-tab-active-border: color-mix(in srgb, var(--c-accent) 34%, var(--c-border));
+  --c-border-soft: color-mix(in srgb, var(--c-border) 70%, transparent);
+  --c-scrollbar: color-mix(in srgb, var(--c-fg) 20%, transparent);
+  --c-scrollbar-hover: color-mix(in srgb, var(--c-fg) 34%, transparent);
+  /* Indent guides: one step fainter than dividers so they don't pull attention from the code */
+  --c-indent-guide: color-mix(in srgb, var(--c-fg) 13%, transparent);
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+    margin: 0;
+    overflow: hidden;
+    background-color: var(--c-bg);
+  }
+
+  body {
+    background-color: var(--c-bg);
+    color: var(--c-fg);
+    font-family: var(--font-sans);
+    font-size: var(--ui-fs);
+    -webkit-font-smoothing: antialiased;
+    user-select: none;
+    -webkit-user-select: none;
+    cursor: default;
+  }
+
+  /* Global scrollbar: follows the theme */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--c-scrollbar) transparent;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--c-scrollbar);
+    border-radius: 5px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--c-scrollbar-hover);
+    background-clip: content-box;
+  }
+
+  input,
+  textarea {
+    font-family: inherit;
+    font-size: inherit;
+    color: inherit;
+  }
+
+  button {
+    font: inherit;
+    color: inherit;
+  }
+
+  :focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--c-accent) 70%, transparent);
+    outline-offset: 1px;
+  }
+}
+
+@layer components {
+  .app-region-drag {
+    -webkit-app-region: drag;
+    app-region: drag;
+  }
+
+  .app-region-no-drag {
+    -webkit-app-region: no-drag;
+    app-region: no-drag;
+  }
+
+  .cm-editor {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    user-select: text;
+    -webkit-user-select: text;
+  }
+
+  /* CodeMirror base layout fallback: gutters and content side by side, scroller bounded by the container */
+  .cm-scroller {
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: flex-start !important;
+    height: 100% !important;
+  }
+
+  /* Line numbers + fold arrows are two gutters side by side, so this must be a row (which is the default;
+     forcing column stacked the fold column under the line numbers).
+     Leave height to CodeMirror: it writes an inline min-height (= full content height) on .cm-gutters, and
+     overriding it to one screen with !important here clips the line numbers in overflow:hidden and skews scrolling. */
+  .cm-gutters {
+    flex-direction: row !important;
+    /* Line numbers / fold arrows shouldn't be selectable: WKWebView's support for unprefixed user-select is
+       unreliable, so with only one of them mouse dragging still paints a selection over the numbers */
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  /* Tab strip: the horizontal scrollbar shouldn't take content height or cover the tab bottoms */
+  .tab-strip {
+    scrollbar-width: none;
+  }
+
+  .tab-strip::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+    display: none;
+  }
+
+  .cm-content {
+    display: block;
+  }
+
+  /* Indent guides: one 1px vertical line per indent step, drawn only as wide as this line's own indent depth.
+     --cm-indent-w (step in px) is measured from the font by editor/indentGuides.ts;
+     --cm-indent (depth) is written on the inline style by the line decoration. */
+  .cm-line.cm-indent-guide {
+    background-image: repeating-linear-gradient(
+      to right,
+      transparent 0 calc(var(--cm-indent-w, 8px) - 1px),
+      var(--c-indent-guide) calc(var(--cm-indent-w, 8px) - 1px) var(--cm-indent-w, 8px)
+    );
+    background-repeat: no-repeat;
+    background-size: calc(var(--cm-indent, 0) * var(--cm-indent-w, 8px)) 100%;
+  }
+
+  .cm-editor.cm-focused {
+    outline: none !important;
+  }
+
+  .xterm {
+    user-select: text;
+    -webkit-user-select: text;
+    padding: 6px 8px;
+  }
+
+  .xterm-viewport {
+    background-color: transparent !important;
+  }
+
+  .row-hover {
+    background-color: transparent;
+  }
+
+  .row-hover:hover {
+    background-color: var(--c-hover-soft);
+  }
+
+  /* Git panel file rows: the trailing action buttons float absolutely over the name without taking row width,
+     and the 16px gradient on the left fades the text out so long names can run to the row end */
+  .row-actions-float {
+    background-image: linear-gradient(to right, transparent, var(--c-row-hover-solid) 16px);
+  }
+
+  /* Git panel rows: the directory suffix is secondary. It is truncated from its left, so what stays
+     visible is the parent folder closest to the file, not the top of the path */
+  .git-file-dir {
+    direction: rtl;
+    text-align: left;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .git-file-dir > span {
+    direction: ltr;
+    unicode-bidi: isolate;
+  }
+
+  /* ---- Tab pills (Islands): the selected state is a rounded pill + 1px border, no underline ---- */
+  .tab-pill {
+    border-radius: var(--r-tab);
+    transition:
+      background-color var(--dur-fast) var(--ease-islands),
+      color var(--dur-fast) var(--ease-islands);
+  }
+
+  /* The selected background can only be set here: @layer components is below utilities,
+     so a bg-* utility on the card would override it */
+  .tab-pill[data-active='true'] {
+    background-color: var(--c-bg);
+    box-shadow:
+      inset 0 0 0 1px var(--c-tab-active-border),
+      var(--elev-tab);
+  }
+
+  /* Lift while dragging: keep the border, only raise the shadow a level (a shadow-* utility can't take over,
+     it would wipe out the inset border above) */
+  .tab-pill[data-dragging='true'] {
+    box-shadow: var(--elev-popup);
+  }
+
+  .tab-pill[data-active='true'][data-dragging='true'] {
+    box-shadow:
+      inset 0 0 0 1px var(--c-tab-active-border),
+      var(--elev-popup);
+  }
+
+  /* While hovering another pane, this tab in its source strip is in a "picked up" state */
+  .tab-pill[data-away='true'] {
+    opacity: 0;
+  }
+
+  /* Cursor-following ghost for cross-pane dragging (on body so the tab strip's overflow can't clip it) */
+  .tab-drag-ghost {
+    position: fixed;
+    z-index: 1000;
+    pointer-events: none;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    max-width: 220px;
+    height: 28px;
+    padding: 0 10px;
+    border-radius: var(--r-control);
+    background-color: var(--c-bg);
+    color: var(--c-fg);
+    font-size: 13px;
+    white-space: nowrap;
+    overflow: hidden;
+    box-shadow: var(--elev-popup);
+    outline: 1px solid var(--c-tab-active-border);
+  }
+
+  /* Drop target pane: light tint + an accent outline */
+  [data-group][data-drop-target='true']::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 30;
+    pointer-events: none;
+    border: 1px solid color-mix(in srgb, var(--c-accent) 55%, transparent);
+    background-color: color-mix(in srgb, var(--c-accent) 6%, transparent);
+  }
+
+  /* ---- List rows (explorer tree): rounded selection block that follows container focus, accent tint vs neutral ---- */
+  .tree-row {
+    --row-fill: transparent;
+    border-radius: var(--r-sel);
+    background-color: var(--row-fill);
+    transition: background-color var(--dur-fast) var(--ease-islands);
+  }
+
+  /* Order matters: selected must come after hover / focus to win over them */
+  .tree-row:hover,
+  .tree-row:focus-within {
+    --row-fill: var(--c-row-hover-solid);
+  }
+
+  .tree-row[data-selected='true'] {
+    --row-fill: var(--c-row-selected-inactive);
+  }
+
+  /* A file / folder is being dragged onto this folder row (move, not open) */
+  .tree-row[data-drop-active='true'] {
+    --row-fill: var(--c-row-selected);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c-accent) 55%, transparent);
+  }
+
+  .tree-pane:focus-within .tree-row[data-selected='true'] {
+    --row-fill: var(--c-row-selected);
+  }
+
+  .tree-guide {
+    border-left: 1px solid color-mix(in srgb, var(--c-border) 80%, transparent);
+  }
+
+  .splitter-v {
+    width: 4px;
+    cursor: col-resize;
+    background: transparent;
+    transition:
+      background-color var(--dur-fast) var(--ease-islands),
+      border-radius var(--dur-fast) var(--ease-islands);
+  }
+
+  .splitter-v:hover,
+  .splitter-v[data-dragging='true'] {
+    background: color-mix(in srgb, var(--c-accent) 45%, transparent);
+    border-radius: 2px;
+  }
+
+  .splitter-v[data-dragging='true'] {
+    background: color-mix(in srgb, var(--c-accent) 70%, transparent);
+  }
+
+  .splitter-h {
+    height: 4px;
+    cursor: row-resize;
+    background: transparent;
+    transition:
+      background-color var(--dur-fast) var(--ease-islands),
+      border-radius var(--dur-fast) var(--ease-islands);
+  }
+
+  .splitter-h:hover,
+  .splitter-h[data-dragging='true'] {
+    background: color-mix(in srgb, var(--c-accent) 45%, transparent);
+    border-radius: 2px;
+  }
+
+  .splitter-h[data-dragging='true'] {
+    background: color-mix(in srgb, var(--c-accent) 70%, transparent);
+  }
+
+  /* Editor split: a hairline marks the boundary between the two panes. The sidebar / panel splitters keep
+     their "invisible until hovered" look — there a line would only add noise. */
+  .splitter-v[data-tone='editor'],
+  .splitter-h[data-tone='editor'] {
+    position: relative;
+  }
+
+  .splitter-v[data-tone='editor']::after,
+  .splitter-h[data-tone='editor']::after {
+    content: '';
+    position: absolute;
+    background-color: color-mix(in srgb, var(--c-fg) 14%, transparent);
+    transition: opacity var(--dur-fast) var(--ease-islands);
+  }
+
+  .splitter-v[data-tone='editor']::after {
+    inset-block: 0;
+    left: 50%;
+    width: 1px;
+    transform: translateX(-50%);
+  }
+
+  .splitter-h[data-tone='editor']::after {
+    inset-inline: 0;
+    top: 50%;
+    height: 1px;
+    transform: translateY(-50%);
+  }
+
+  /* Hover / drag already paint the whole handle: the hairline underneath would only muddy it */
+  .splitter-v[data-tone='editor']:hover::after,
+  .splitter-h[data-tone='editor']:hover::after,
+  .splitter-v[data-tone='editor'][data-dragging='true']::after,
+  .splitter-h[data-tone='editor'][data-dragging='true']::after {
+    opacity: 0;
+  }
+
+  /* Brief highlight when jumping to a search result */
+  .cm-flash {
+    background-color: color-mix(in srgb, var(--c-accent) 34%, transparent);
+    border-radius: 2px;
+    animation: flash-fade 1.4s ease-out forwards;
+  }
+
+  @keyframes flash-fade {
+    0% {
+      background-color: color-mix(in srgb, var(--c-accent) 55%, transparent);
+    }
+    100% {
+      background-color: color-mix(in srgb, var(--c-accent) 24%, transparent);
+    }
+  }
+
+  }
+
+/* ---- CodeMirror inline decorations (outside @layer so they beat injected styles) ---- */
+.cm-blame {
+  margin-left: 1.6em;
+  padding: 0 3px;
+  font-size: 0.85em;
+  color: color-mix(in srgb, var(--c-muted) 80%, transparent);
+  /* Hit testing must stay open so hovering shows the full commit info; the widget's ignoreEvent already makes the editor ignore events */
+  pointer-events: auto;
+  cursor: default;
+  white-space: nowrap;
+  opacity: 0.9;
+  /* Commit titles can be long: ellipsize the overflow so the line doesn't push the code out of sight */
+  display: inline-block;
+  max-width: 42em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+}
+
+.cm-flash {
+  background-color: color-mix(in srgb, var(--c-accent) 34%, transparent) !important;
+  border-radius: 2px;
+}
+
+/* Jump target highlight: doesn't fade out on its own, waits for a click elsewhere or blur */
+.cm-flash-sticky {
+  background-color: color-mix(in srgb, var(--c-accent) 30%, transparent) !important;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c-accent) 45%, transparent);
+  border-radius: 2px;
+}
+
+/* Empty lines / zero-length targets have no character to mark, use the whole row background */
+.cm-flash-line {
+  background-color: color-mix(in srgb, var(--c-accent) 18%, transparent) !important;
+}
+
+/* Fold arrow: a column right of the line numbers, brightens only on hover (same as VSCode).
+   A 16×16 hit area with a ~10px icon, so the mouse doesn't have to aim. */
+.cm-fold-marker {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  color: color-mix(in srgb, var(--c-muted) 70%, transparent);
+  transition: color var(--dur-fast) var(--ease-islands);
+}
+
+.cm-fold-marker svg {
+  display: block;
+  transition: transform var(--dur-fast) var(--ease-islands);
+}
+
+/* Collapsed arrows point right (the expanded icon already points down) */
+.cm-fold-marker-closed svg {
+  transform: rotate(-90deg);
+}
+
+.cm-fold-marker:hover {
+  color: var(--c-fg);
+  background-color: var(--c-row-hover-solid);
+}
+
+/* Clickable affordance for import paths: the code stays as-is, it only shows while ⌘ / Ctrl is held */
+.cm-import-link {
+  border-radius: 2px;
+}
+
+.cm-cmd-hint .cm-import-link {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+/* ---- Conflict ruler: conflict markers on the editor's right edge (clear of the 10px native scrollbar) ---- */
+.cm-conflict-ruler {
+  position: absolute;
+  top: 0;
+  right: 12px;
+  bottom: 0;
+  width: 8px;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 5;
+}
+
+.cm-conflict-ruler-mark {
+  position: absolute;
+  right: 1px;
+  width: 6px;
+  height: 3px;
+  border-radius: 1px;
+  background: var(--c-danger);
+  opacity: 0.7;
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.cm-conflict-ruler-mark:hover {
+  opacity: 1;
+}
+
+/* ---- Tide: plain light island ---------------------------------------------
+   No decorative tint: the base is white with neutral, very light surfaces (panel #fafafa, borders #e5e5e5).
+   The accent stays functional only — buttons, focus rings, badges, links — so the window reads as a plain
+   light editor, not a tinted one. Selection and the active tab border are neutral greys here. */
+[data-theme='tide'] {
+  --c-row-selected: color-mix(in srgb, var(--c-fg) 8%, var(--c-panel));
+  --c-tab-active-border: color-mix(in srgb, var(--c-fg) 16%, var(--c-border));
+}

@@ -1,0 +1,13 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Tide 主窗口的最小权限集合：只开放核心 IPC 与原生文件选择对话框，文件系统 / Git / PTY 全部走自研命令。新窗口（win-*）共享同一套权限。",
+  "windows": ["main", "win-*"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-start-dragging",
+    "core:window:allow-set-theme",
+    "core:webview:allow-internal-toggle-devtools",
+    "dialog:default"
+  ]
+}

@@ -1,0 +1,383 @@
+# Push a `vX.Y.Z` tag and this workflow builds installers for both platforms and publishes them:
+#
+#   tide-macos-X.Y.Z.dmg   Universal binary (Apple Silicon + Intel)
+#   tide-win-X.Y.Z.exe     NSIS installer (x64, per-user install)
+#   latest.json            Manifest the app reads when checking for updates (version / file name / size / SHA-256)
+#
+# The version shown in the app comes from the tag: `scripts/set-version.mjs` rewrites
+# package.json, tauri.conf.json, Cargo.toml and Cargo.lock before the build, so the About page,
+# installer and release name always match.
+#
+# Signing is **optional** — without secrets you get unsigned artifacts.
+# tauri-cli reads the APPLE_* variables itself (imports the .p12 into a temporary keychain, skips notarization when credentials are missing).
+# Windows has no such environment-variable entry point, so we import the .pfx manually here and pass its thumbprint
+# through `--config`.
+#
+#   APPLE_CERTIFICATE              base64 of the Developer ID Application .p12
+#   APPLE_CERTIFICATE_PASSWORD     .p12 password
+#   APPLE_SIGNING_IDENTITY         "Developer ID Application: Name (TEAMID)"
+#   APPLE_ID / APPLE_PASSWORD / APPLE_TEAM_ID    notarization
+#   WINDOWS_CERTIFICATE            base64 of the Authenticode .pfx
+#   WINDOWS_CERTIFICATE_PASSWORD   .pfx password
+#
+# Unsigned downloads: on macOS right-click -> Open the first time; Windows shows a SmartScreen prompt. See README.
+
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to build and publish, e.g. 0.0.1 or v0.0.1"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  version:
+    name: Resolve version
+    runs-on: ubuntu-latest
+    outputs:
+      value: ${{ steps.resolve.outputs.value }}
+    steps:
+      - name: Resolve version from tag or input
+        id: resolve
+        shell: bash
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            raw="${INPUT_VERSION}"
+          else
+            raw="${GITHUB_REF_NAME}"
+          fi
+          version="${raw#v}"
+          if ! [[ "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.]+)?(\+[0-9A-Za-z.]+)?$ ]]; then
+            echo "::error::'${raw}' is not a release version (expected vX.Y.Z)"
+            exit 1
+          fi
+          echo "Preparing release v${version}"
+          echo "value=${version}" >> "${GITHUB_OUTPUT}"
+
+  build:
+    name: Build ${{ matrix.name }}
+    needs: version
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS (Universal)
+            # Deliberately pinned to an Intel image. `macos-latest` is an Apple Silicon runner,
+            # and that pool is tight: jobs queue for a long time, sometimes ending with
+            # "not acquired by Runner of type hosted" before a single step runs. The Intel pool queues separately,
+            # and an x86_64 host cross-compiles both targets fine, so the universal bundle is unaffected.
+            os: macos-15-intel
+            target: universal-apple-darwin
+            bundles: dmg
+            rust_targets: aarch64-apple-darwin,x86_64-apple-darwin
+            asset_prefix: tide-macos
+            bundle_dir: dmg
+            extension: dmg
+          - name: Windows (x64)
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            bundles: nsis
+            rust_targets: x86_64-pc-windows-msvc
+            asset_prefix: tide-win
+            bundle_dir: nsis
+            extension: exe
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Install Rust toolchain and targets
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_targets }}
+
+      # Must be restored before the version bump: rust-cache hashes Cargo.lock,
+      # and rewriting the tide line on every tag would miss the cache every release.
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: ${{ matrix.target }}
+
+      # No .ico means no NSIS installer: say it in five seconds,
+      # instead of failing after twenty minutes of compilation.
+      - name: Validate packaging prerequisites
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -f src-tauri/icons/icon.ico ]; then
+            echo "::error::src-tauri/icons/icon.ico is missing; the Windows installer requires it"
+            exit 1
+          fi
+          for t in $(echo "${{ matrix.rust_targets }}" | tr ',' ' '); do
+            rustup target list --installed | grep -qx "$t" \
+              || { echo "::error::Rust target $t is not installed"; exit 1; }
+          done
+
+      - name: Write version from tag
+        shell: bash
+        run: node scripts/set-version.mjs "${{ needs.version.outputs.value }}"
+
+      - run: pnpm check
+
+      # Secrets cannot appear in `if:` expressions, so probe them here;
+      # later steps branch on this step's outputs.
+      - name: Detect signing secrets
+        id: signing
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          apple_cert=false
+          if [ -n "${APPLE_CERTIFICATE:-}" ] && [ -n "${APPLE_CERTIFICATE_PASSWORD:-}" ] && [ -n "${APPLE_SIGNING_IDENTITY:-}" ]; then
+            apple_cert=true
+          fi
+          notarize=false
+          if [ -n "${APPLE_ID:-}" ] && [ -n "${APPLE_PASSWORD:-}" ] && [ -n "${APPLE_TEAM_ID:-}" ]; then
+            notarize=true
+          fi
+          windows=false
+          if [ -n "${WINDOWS_CERTIFICATE:-}" ] && [ -n "${WINDOWS_CERTIFICATE_PASSWORD:-}" ]; then
+            windows=true
+          fi
+          # Always write variables as ${...}: when a `$apple_cert` is followed directly by a full-width comma, bash
+          # on the runner counts the multibyte bytes as part of the variable name, and `set -u` reports "apple_cert: unbound variable".
+          echo "apple=${apple_cert}" >> "${GITHUB_OUTPUT:?}"
+          echo "notarize=${notarize}" >> "${GITHUB_OUTPUT:?}"
+          echo "windows=${windows}" >> "${GITHUB_OUTPUT:?}"
+          echo "Apple signing: ${apple_cert}, Apple notarization: ${notarize}, Windows signing: ${windows}"
+
+          # Half-configured combinations fail only after minutes of compilation; say it now.
+          if [ -n "${APPLE_CERTIFICATE:-}${APPLE_CERTIFICATE_PASSWORD:-}${APPLE_SIGNING_IDENTITY:-}" ] && [ "${apple_cert}" = false ]; then
+            echo "::error::Apple signing is only partially configured (requires APPLE_CERTIFICATE + APPLE_CERTIFICATE_PASSWORD + APPLE_SIGNING_IDENTITY)"
+            exit 1
+          fi
+          if [ -n "${APPLE_ID:-}${APPLE_PASSWORD:-}${APPLE_TEAM_ID:-}" ] && [ "${notarize}" = false ]; then
+            echo "::error::Apple notarization is only partially configured (requires APPLE_ID + APPLE_PASSWORD + APPLE_TEAM_ID)"
+            exit 1
+          fi
+          if [ -n "${WINDOWS_CERTIFICATE:-}${WINDOWS_CERTIFICATE_PASSWORD:-}" ] && [ "${windows}" = false ]; then
+            echo "::error::Windows signing is only partially configured (requires WINDOWS_CERTIFICATE + WINDOWS_CERTIFICATE_PASSWORD)"
+            exit 1
+          fi
+
+      # tauri-cli imports APPLE_CERTIFICATE itself, and a bad certificate fails after twenty minutes
+      # of compilation with an opaque "SecKeychainItemImport: Unable to decode the provided data".
+      # Validate here first with the same tool (`security import`), strip the newlines that
+      # `base64 cert.p12` adds (decoding with them yields garbage), and only pass it to the build via $GITHUB_ENV if it validates —
+      # with signing off, tauri sees none of these variables.
+      - name: Prepare Apple signing
+        id: applesign
+        if: runner.os == 'macOS' && steps.signing.outputs.apple == 'true'
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          NOTARIZE: ${{ steps.signing.outputs.notarize }}
+          REQUIRE_SIGNING: ${{ vars.REQUIRE_SIGNING }}
+        run: |
+          set -euo pipefail
+          cert_b64="$(printf '%s' "${APPLE_CERTIFICATE:-}" | tr -d '[:space:]')"
+          cert_file="${RUNNER_TEMP:-/tmp}/apple-cert.p12"
+          node -e 'require("fs").writeFileSync(process.argv[2], Buffer.from(process.argv[1], "base64"))' \
+            "$cert_b64" "$cert_file"
+
+          # Validate with the same tool tauri-cli uses (`security import`), importing into a temporary keychain:
+          # a rejection here means tauri would reject it too. PEM bundles also pass.
+          reason=""
+          keychain="${RUNNER_TEMP:-/tmp}/tide-validate.keychain-db"
+          if [ ! -s "$cert_file" ]; then
+            reason="APPLE_CERTIFICATE decodes to 0 bytes"
+          else
+            security delete-keychain "$keychain" >/dev/null 2>&1 || true
+            security create-keychain -p "" "$keychain" >/dev/null 2>&1 || true
+            security unlock-keychain -p "" "$keychain" >/dev/null 2>&1 || true
+            if ! import_out=$(security import "$cert_file" -k "$keychain" \
+              -P "${APPLE_CERTIFICATE_PASSWORD:-}" -T /usr/bin/codesign 2>&1); then
+              reason="security import rejected the file: $(echo "$import_out" | tail -n 1)"
+            elif ! security find-identity -v -p codesigning "$keychain" | grep -q '"'; then
+              reason="the file imported but contains no code-signing identity (certificate only, no private key?)"
+            fi
+            security delete-keychain "$keychain" >/dev/null 2>&1 || true
+          fi
+          rm -f "$cert_file"
+
+          if [ -n "$reason" ]; then
+            echo "::error::APPLE_CERTIFICATE cannot be used for signing: ${reason}"
+            echo "::error::Export it in Keychain Access -> My Certificates -> Developer ID Application -> Export as .p12, then run: base64 -i cert.p12 | pbcopy"
+            if [ "${REQUIRE_SIGNING:-}" = "true" ]; then
+              echo "::error::REQUIRE_SIGNING is set, so this run stops instead of publishing an unsigned build"
+              exit 1
+            fi
+            echo "::warning::Continuing with an UNSIGNED macOS bundle. Remove the APPLE_* secrets to silence this warning, or set the repository variable REQUIRE_SIGNING=true to make it fatal."
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          {
+            echo "APPLE_CERTIFICATE=$cert_b64"
+            echo "APPLE_CERTIFICATE_PASSWORD=${APPLE_CERTIFICATE_PASSWORD:-}"
+            echo "APPLE_SIGNING_IDENTITY=${APPLE_SIGNING_IDENTITY:-}"
+            if [ "${NOTARIZE:-false}" = "true" ]; then
+              echo "APPLE_ID=${APPLE_ID:-}"
+              echo "APPLE_PASSWORD=${APPLE_PASSWORD:-}"
+              echo "APPLE_TEAM_ID=${APPLE_TEAM_ID:-}"
+            fi
+          } >> "${GITHUB_ENV:?GITHUB_ENV is required}"
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
+          echo "Apple signing material validated; notarization: ${NOTARIZE:-false}"
+
+      - name: Import Windows certificate
+        id: winsign
+        if: runner.os == 'Windows' && steps.signing.outputs.windows == 'true'
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          $pfx = Join-Path $env:RUNNER_TEMP "codesign.pfx"
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE))
+          $password = ConvertTo-SecureString -String $env:WINDOWS_CERTIFICATE_PASSWORD -AsPlainText -Force
+          $cert = Import-PfxCertificate -FilePath $pfx -CertStoreLocation Cert:\CurrentUser\My -Password ${password}
+          Remove-Item $pfx -Force
+          Write-Host "Imported certificate $($cert.Thumbprint)"
+          "thumbprint=$($cert.Thumbprint)" >> $env:GITHUB_OUTPUT
+
+      # Release profile only; `pnpm app:build` is a DEBUG build and must never be used here.
+      # `beforeBuildCommand` runs `pnpm build` (vite) for us.
+      - name: Build release installers
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+          BUNDLES: ${{ matrix.bundles }}
+          WINDOWS_CERT_THUMBPRINT: ${{ steps.winsign.outputs.thumbprint }}
+          # No APPLE_* here: "Prepare Apple signing" only writes to
+          # $GITHUB_ENV after the certificate validates, so a bad secret never reaches tauri-cli.
+        run: |
+          set -euo pipefail
+          args=(--target "$TARGET" --bundles "$BUNDLES")
+          if [ -n "${WINDOWS_CERT_THUMBPRINT:-}" ]; then
+            args+=(--config "{\"bundle\":{\"windows\":{\"certificateThumbprint\":\"${WINDOWS_CERT_THUMBPRINT}\",\"digestAlgorithm\":\"sha256\",\"timestampUrl\":\"http://timestamp.digicert.com\"}}}")
+          fi
+          echo "pnpm tauri build ${args[*]}"
+          pnpm tauri build "${args[@]}"
+
+      # Expected files:
+      #   macOS  : src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+      #   Windows: src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
+      # Assert with a glob plus exact count, so a future tauri-cli filename template change won't break it;
+      # hardcoded file names would.
+      - name: Collect artifacts
+        id: package
+        shell: bash
+        env:
+          VERSION: ${{ needs.version.outputs.value }}
+        run: |
+          set -euo pipefail
+          src_dir="src-tauri/target/${{ matrix.target }}/release/bundle/${{ matrix.bundle_dir }}"
+          shopt -s nullglob
+          found=("${src_dir}"/*.${{ matrix.extension }})
+          if [ "${#found[@]}" -ne 1 ]; then
+            echo "::error::${src_dir} should contain exactly one *.${{ matrix.extension }}, found ${#found[@]}"
+            ls -la "${src_dir}" || true
+            exit 1
+          fi
+          dest="${{ matrix.asset_prefix }}-${VERSION}.${{ matrix.extension }}"
+          cp "${found[0]}" "${dest}"
+          ls -lh "${dest}"
+          echo "path=${dest}" >> "${GITHUB_OUTPUT}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset_prefix }}-${{ needs.version.outputs.value }}
+          path: ${{ steps.package.outputs.path }}
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    name: Publish release
+    needs: [version, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      # `dist/latest.json` is generated by scripts/make-latest-json.mjs in the repo.
+      # This job only has the downloaded installers, so without checkout
+      # `node scripts/...` would fail with MODULE_NOT_FOUND.
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Show what was collected
+        run: ls -lh dist
+
+      # `latest.json` is what the app actually reads (releases/latest/download/latest.json),
+      # so update checks don't consume GitHub API quota. It must ship with the installers in the release
+      # and must never enter the repo: it describes **this** build's version, size and SHA-256.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Generate update manifest
+        env:
+          VERSION: ${{ needs.version.outputs.value }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          node scripts/make-latest-json.mjs --dist dist --version "${VERSION}" --repo "${REPO}"
+          cat dist/latest.json
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.version.outputs.value }}
+          name: Tide v${{ needs.version.outputs.value }}
+          # With workflow_dispatch the tag is created on the dispatched commit;
+          # when triggered by a tag push the tag already exists and this is ignored.
+          target_commitish: ${{ github.sha }}
+          generate_release_notes: true
+          prerelease: ${{ contains(needs.version.outputs.value, '-') }}
+          fail_on_unmatched_files: true
+          files: |
+            dist/tide-macos-*.dmg
+            dist/tide-win-*.exe
+            dist/latest.json

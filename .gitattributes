@@ -1,0 +1,16 @@
+# 工作流和脚本一律 LF：
+# Windows runner 上若按 CRLF 检出，`run: |` 里的 bash 片段会带 \r，
+# shebang 和多行脚本都可能直接报错；`$变量` 后面也会多出一个 \r。
+* text=auto
+
+*.yml   text eol=lf
+*.yaml  text eol=lf
+*.sh    text eol=lf
+*.mjs   text eol=lf
+*.js    text eol=lf
+*.ts    text eol=lf
+*.tsx   text eol=lf
+*.rs    text eol=lf
+*.toml  text eol=lf
+*.json  text eol=lf
+*.md    text eol=lf
