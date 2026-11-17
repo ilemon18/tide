@@ -22,7 +22,7 @@ export type PromptRequest = {
   resolve: (value: string | null) => void
 }
 
-export type ActivityView = 'explorer' | 'search' | 'git'
+export type ActivityView = 'explorer' | 'search' | 'git' | 'structure'
 
 type UiStore = {
   activityView: ActivityView

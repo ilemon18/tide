@@ -44,6 +44,9 @@ git status change** — only a file that really vanished from disk gets closed.
   file is rewritten whole and the diff becomes the entire file.
 - Indent/newline are per file (`tab.indentSize` / `tab.useTabs` / `tab.eol`); `settings.tabSize` is only
   the fallback when detection found nothing.
+- **Structure outline** walks the Lezer tree, not the text: a declaration is a leaf unless it is a container
+  (class / struct / interface / module). Descending into function bodies would list locals. `ensureSyntaxTree`
+  is forced only under 512KB, so a very large file may show a viewport-only tree.
 - A diff tab is re-pulled by `useTabs.diffEpoch[root]`, not by closing and recreating it.
 - Editor DOM built by extensions (conflict buttons, inline blame, fold arrows) does not re-render with
   React: a locale switch must dispatch `localeEffect` from `src/editor/locale.ts`, and the unsubscribe

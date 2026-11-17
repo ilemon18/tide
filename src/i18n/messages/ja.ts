@@ -79,6 +79,8 @@ export const ja: Messages = {
     'エディターとターミナルで共通。日本語はシステムフォントを使用します',
   'settings.appearance.uiFontSize': 'UI の文字サイズ',
   'settings.appearance.editorFontSize': 'エディターの文字サイズ',
+  'settings.appearance.ligatures': 'リガチャ',
+  'settings.appearance.ligaturesHint': '== や => などの記号の組み合わせを 1 つの字形で表示します（既定ではオフ）',
   'theme.group.light': 'ライト',
   'theme.group.dark': 'ダーク',
   'theme.group.eyecare': 'アイケア',
@@ -296,7 +298,7 @@ export const ja: Messages = {
   'tabs.stagedName': '{name}（ステージ済み）',
   'tabs.pinnedSuffix': ' · 固定中',
 
-  'quickopen.placeholder': 'ファイルを検索、または :行番号 で移動',
+  'quickopen.placeholder': 'ファイルを検索、@ でシンボル、:行番号 で移動',
   'quickopen.indexing': 'インデックス作成中…',
   'quickopen.truncated':
     'プロジェクトのファイルが多すぎるため、インデックスは途中で打ち切られました。一部のファイルは見つからない可能性があります',
@@ -648,6 +650,24 @@ export const ja: Messages = {
   'error.update.installFailed': 'インストールスクリプトを起動できません：{error}',
   'error.update.noExe': '実行中のプログラムが見つかりません：{error}',
   'error.update.revealFailed': 'ファイルの場所を開けません：{error}',
+
+  // ---------------------------------------------------------------- 構造アウトライン
+  'activity.structureTip': '構造 ({keys})',
+  'sidebar.structure': '構造',
+  'structure.filterPlaceholder': 'シンボルを絞り込む',
+  'structure.empty': 'このファイルにシンボルはありません',
+  'structure.noFile': 'ファイルを開くと構造を表示します',
+  'structure.unsupported': 'このファイル形式の構造は利用できません',
+  'structure.noMatches': '一致するシンボルがありません',
+  'structure.truncated': 'シンボルが多すぎるため、一覧を省略しました',
+  'structure.expand': '展開',
+  'structure.collapse': '折りたたむ',
+  'quickopen.symbolNoFile': 'ファイルを開くとシンボルで移動できます',
+  'quickopen.symbolUnsupported': 'このファイル形式に利用できるシンボルはありません',
+  'quickopen.symbolNoResults': '一致するシンボルがありません',
+  'quickopen.symbolEmpty': 'このファイルにシンボルはありません',
+  'commands.view.structure': '構造を表示',
+  'commands.view.goToSymbol': 'ファイル内のシンボルへ移動…',
 
   // @i18n-anchor
 }

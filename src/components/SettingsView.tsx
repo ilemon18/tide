@@ -295,10 +295,10 @@ export function SettingsView() {
           </Row>
           <div className="border-b border-line/60 px-4 py-3">
             <div
-              className="truncate rounded-[var(--r-control)] border border-line/70 bg-bg/60 px-3 py-2 text-xs text-fg/80"
+              className="code-font-preview truncate rounded-[var(--r-control)] border border-line/70 bg-bg/60 px-3 py-2 text-xs text-fg/80"
               style={{ fontFamily: monoStack(settings.fontFamily) }}
             >
-              const tide = () =&gt; {'{'} font-family: 0123456789 {'}'}
+              const tide = (a, b) =&gt; a == b ? 0123456789 : b
             </div>
           </div>
           <Row label={t('settings.appearance.uiFontSize')}>
@@ -311,6 +311,12 @@ export function SettingsView() {
           </Row>
           <Row label={t('settings.appearance.editorFontSize')}>
             <Stepper value={settings.fontSize} min={10} max={24} onChange={(v) => set('fontSize', v)} />
+          </Row>
+          <Row
+            label={t('settings.appearance.ligatures')}
+            hint={t('settings.appearance.ligaturesHint')}
+          >
+            <Toggle value={settings.ligatures} onChange={(v) => set('ligatures', v)} />
           </Row>
         </Card>
       </>

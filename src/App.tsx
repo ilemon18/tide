@@ -6,6 +6,7 @@ import { ActivityBar } from './components/ActivityBar'
 import { FileTree, ExplorerHeader } from './components/FileTree'
 import { SearchPanel } from './components/SearchPanel'
 import { GitPanel } from './components/GitPanel'
+import { StructurePanel } from './components/StructurePanel'
 import { EditorArea } from './components/EditorArea'
 import { StatusBar } from './components/StatusBar'
 import { Splitter } from './components/Splitter'
@@ -324,6 +325,18 @@ export function App() {
       ui.openQuickOpen(':')
       return true
     }
+    // ⌘U / Ctrl+U: reveal Structure (a letter from "outline"; VS Code's output panel does not exist here)
+    if (key === 'u' && !shift) {
+      // With Ctrl as the modifier, Ctrl+U still belongs to the field that has focus: readline's kill-line
+      // in the terminal, and the same editing key in macOS text fields. ⌘U on macOS is unused.
+      if (e.ctrlKey && !e.metaKey) {
+        const target = e.target as HTMLElement | null
+        if (terminalFocused() || target?.closest('input, textarea, [contenteditable="true"]')) return false
+      }
+      ui.setActivityView('structure')
+      if (!settingsStore.sidebarVisible) settingsStore.patch({ sidebarVisible: true })
+      return true
+    }
     if (['c', 'v', 'x', 'a', 'z', 'y', 'u', 'g'].includes(key)) return false
     if (shortcut === 'arrowleft' || shortcut === 'arrowright') return false
 
@@ -507,14 +520,17 @@ export function App() {
   }, [activityView])
 
   const hasRoots = useWorkspace((s) => s.roots.length > 0)
-  const sidebarVisible = sidebarVisibleSetting && hasRoots
+  // The structure view has its own empty state and does not need a project.
+  const sidebarVisible = sidebarVisibleSetting && (hasRoots || activityView === 'structure')
   const panelVisible = panelVisibleSetting && terminalVisible
   const sidebarTitle =
     activityView === 'explorer'
       ? t('sidebar.explorer')
       : activityView === 'search'
         ? t('sidebar.search')
-        : t('sidebar.git')
+        : activityView === 'git'
+          ? t('sidebar.git')
+          : t('sidebar.structure')
 
   // Before the first frame: themed background only, no half-restored layout (see `hydrated`)
   if (!hydrated) return <div className="h-full w-full bg-bg" />
@@ -559,8 +575,10 @@ export function App() {
                     <FileTree />
                   ) : activityView === 'search' ? (
                     <SearchPanel focusSeq={panelSearchFocus} />
-                  ) : (
+                  ) : activityView === 'git' ? (
                     <GitPanel />
+                  ) : (
+                    <StructurePanel />
                   )}
                 </ErrorBoundary>
               </div>

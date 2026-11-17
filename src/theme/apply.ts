@@ -53,6 +53,13 @@ export function applyMonoFont(stack: string) {
   document.documentElement.style.setProperty('--font-mono', stack)
 }
 
+/** Code ligatures (== / => drawn as one glyph): off unless the setting turns them on */
+export function applyLigatures(enabled: boolean) {
+  const root = document.documentElement
+  if (enabled) root.dataset.ligatures = 'on'
+  else delete root.dataset.ligatures
+}
+
 /** Watch system appearance changes (only effective when mode === 'system') */
 export function watchSystemTheme(getMode: () => ThemeMode, onChange: (p: Palette) => void) {
   const mq = window.matchMedia?.('(prefers-color-scheme: dark)')

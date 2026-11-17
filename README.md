@@ -24,6 +24,7 @@
 
 - **Light on memory**: Tauri-based, no bundled Chromium, most rarely used VS Code features removed, and tabs and caches released on demand.
 - **Familiar editing**: VS Code shortcuts, command palette, tabs, split view, and find & replace.
+- **Structure outline**: a per-file symbol tree in the sidebar, plus `@` symbol jump in quick open.
 - **Built-in Git**: Stage, commit, push/pull, diffs, inline blame, and conflict resolution.
 - **Native terminal**: Multi-tab PTY starting in the current file's directory.
 - **Global search**: Respects .gitignore, with regex, path filters, and batch replace.

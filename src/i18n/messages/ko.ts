@@ -79,6 +79,8 @@ export const ko: Messages = {
     '편집기와 터미널이 공유합니다. 한글은 시스템 글꼴을 사용합니다',
   'settings.appearance.uiFontSize': '인터페이스 크기',
   'settings.appearance.editorFontSize': '편집기 크기',
+  'settings.appearance.ligatures': '글꼴 합자',
+  'settings.appearance.ligaturesHint': '==, => 같은 기호 조합을 하나의 글리프로 표시합니다(기본값: 꺼짐)',
   'theme.group.light': '라이트',
   'theme.group.dark': '다크',
   'theme.group.eyecare': '아이케어',
@@ -297,7 +299,7 @@ export const ko: Messages = {
   'tabs.stagedName': '{name} (스테이지됨)',
   'tabs.pinnedSuffix': ' · 고정됨',
 
-  'quickopen.placeholder': '파일 검색, 또는 :줄번호 입력하여 이동',
+  'quickopen.placeholder': '파일 검색, @로 심볼, :줄번호로 이동',
   'quickopen.indexing': '인덱싱 중…',
   'quickopen.truncated':
     '프로젝트 파일이 너무 많아 인덱스가 잘렸습니다. 일부 파일이 검색되지 않을 수 있습니다',
@@ -649,4 +651,22 @@ export const ko: Messages = {
   'error.update.installFailed': '설치 스크립트를 시작하지 못했습니다: {error}',
   'error.update.noExe': '실행 중인 프로그램을 찾을 수 없습니다: {error}',
   'error.update.revealFailed': '파일 위치를 열지 못했습니다: {error}',
+  // ---------------------------------------------------------------- 구조 개요
+  'activity.structureTip': '구조 ({keys})',
+  'sidebar.structure': '구조',
+  'structure.filterPlaceholder': '심볼 필터',
+  'structure.empty': '파일에 심볼이 없습니다',
+  'structure.noFile': '파일을 열면 구조를 볼 수 있습니다',
+  'structure.unsupported': '이 파일 형식은 구조를 지원하지 않습니다',
+  'structure.noMatches': '일치하는 심볼이 없습니다',
+  'structure.truncated': '심볼이 너무 많아 목록이 잘렸습니다',
+  'structure.expand': '펼치기',
+  'structure.collapse': '접기',
+  'quickopen.symbolNoFile': '파일을 열면 심볼로 이동할 수 있습니다',
+  'quickopen.symbolUnsupported': '이 파일 형식에는 사용할 수 있는 심볼이 없습니다',
+  'quickopen.symbolNoResults': '일치하는 심볼이 없습니다',
+  'quickopen.symbolEmpty': '파일에 심볼이 없습니다',
+  'commands.view.structure': '구조 보기',
+  'commands.view.goToSymbol': '파일 내 심볼로 이동…',
+
 }

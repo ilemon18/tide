@@ -1,6 +1,12 @@
 import { create } from 'zustand'
 import { api, errorText, type MonoFont, type Settings } from '../lib/ipc'
-import { applyMonoFont, applyTheme, applyUiFontSize, watchSystemTheme } from '../theme/apply'
+import {
+  applyLigatures,
+  applyMonoFont,
+  applyTheme,
+  applyUiFontSize,
+  watchSystemTheme,
+} from '../theme/apply'
 import {
   palettes,
   CYCLE_ORDER,
@@ -15,7 +21,7 @@ import { DEFAULT_MONO_FONT } from '../lib/fonts'
 import { applyLocale, DEFAULT_LOCALE, isLocale } from '../i18n'
 import { applyMemoryProfileChange, setMemoryProfile } from '../lib/memoryBudget'
 
-export const SETTINGS_SCHEMA_VERSION = 8
+export const SETTINGS_SCHEMA_VERSION = 9
 
 export const DEFAULT_SETTINGS: Settings = {
   schemaVersion: SETTINGS_SCHEMA_VERSION,
@@ -33,6 +39,7 @@ export const DEFAULT_SETTINGS: Settings = {
   trimTrailingWhitespace: false,
   insertFinalNewline: false,
   indentGuides: true,
+  ligatures: false,
   formatMode: 'off',
   formatTool: 'auto',
   showHidden: true,
@@ -78,6 +85,7 @@ const SHARED_KEYS = [
   'trimTrailingWhitespace',
   'insertFinalNewline',
   'indentGuides',
+  'ligatures',
   'formatMode',
   'formatTool',
   'showHidden',
@@ -218,6 +226,7 @@ function migrate(raw: Settings): Settings {
   // an unknown value (added later, then downgraded) also falls back, so the UI never renders empty.
   if (!isLocale(next.locale)) next.locale = DEFAULT_LOCALE
 
+  // v8 -> v9 adds ligatures: DEFAULT_SETTINGS covers it, off by default.
   next.schemaVersion = SETTINGS_SCHEMA_VERSION
 
   // Theme / icon set / font: only check the type, keep unknown-but-valid strings so an older version does not
@@ -260,6 +269,7 @@ export const useSettings = create<SettingsStore>((set, get) => ({
     const palette = applyTheme(settings.theme as ThemeMode)
     applyLocale(settings.locale)
     applyUiFontSize(settings.uiFontSize)
+    applyLigatures(settings.ligatures)
     applyMonoFont(monoStack(settings.fontFamily))
     setMemoryProfile(settings.lightweightMode ? 'light' : 'normal')
     setEditorLook(palette, settings.fontSize, settings.fontFamily)
@@ -293,6 +303,7 @@ export const useSettings = create<SettingsStore>((set, get) => ({
       setEditorLook(get().palette, get().fontSize, get().fontFamily)
     }
     if (patch.uiFontSize !== undefined) applyUiFontSize(patch.uiFontSize)
+    if (patch.ligatures !== undefined) applyLigatures(patch.ligatures)
     if (patch.fontFamily !== undefined) applyMonoFont(monoStack(patch.fontFamily as MonoFont))
     // Appearance settings persist at once: new / other windows must read the current value
     const immediate =
@@ -338,6 +349,7 @@ export const useSettings = create<SettingsStore>((set, get) => ({
       setEditorLook(get().palette, get().fontSize, get().fontFamily)
     }
     if (patch.uiFontSize !== undefined) applyUiFontSize(patch.uiFontSize)
+    if (patch.ligatures !== undefined) applyLigatures(patch.ligatures)
     if (patch.fontFamily !== undefined) applyMonoFont(monoStack(patch.fontFamily as MonoFont))
 
     // This window may still have a debounced save pending: it holds the pre-merge snapshot and must be dropped

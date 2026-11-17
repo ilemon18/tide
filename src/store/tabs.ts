@@ -314,8 +314,8 @@ type TabsStore = {
   closeUnmodified: (options?: { force?: boolean }) => Promise<void>
   /** Reopen the most recently closed tab (⌘⇧T) */
   reopenClosed: () => Promise<void>
-  /** Go to a line in the current file (⌃G / `:42` in quick open) */
-  jumpToLine: (line: number) => void
+  /** Go to a line in the current file (⌃G / `:42` in quick open; `col` is used by the structure view) */
+  jumpToLine: (line: number, col?: number) => void
   /** Restore last session's files at startup (skips deleted / oversized files) */
   restoreOpenTabs: (root: string, tabs: SavedTab[], activeRel: string | null) => Promise<void>
   pinTab: (id: string, pinned: boolean) => void
@@ -1315,13 +1315,21 @@ export const useTabs = create<TabsStore>((set, get) => ({
     }
   },
 
-  jumpToLine: (line) => {
+  jumpToLine: (line, col = 1) => {
     const state = get()
     const tab = state.tabs.find((t) => t.id === state.activeId)
     if (!tab || tab.kind !== 'file') return
     const editor = getEditorState(tab.id)
     const target = Math.max(1, editor ? Math.min(line, editor.doc.lines) : line)
-    set({ reveal: { tabId: tab.id, line: target, col: 1, nonce: Date.now(), caret: true } })
+    set({
+      reveal: {
+        tabId: tab.id,
+        line: target,
+        col: Math.max(1, col),
+        nonce: Date.now(),
+        caret: true,
+      },
+    })
   },
 
   restoreOpenTabs: async (root, saved, activeRel) => {

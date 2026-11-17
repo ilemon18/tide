@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useWorkspace } from '../store/workspace'
-import { useTabs } from '../store/tabs'
+import { editorStateKey, useTabs } from '../store/tabs'
 import { useUi } from '../store/ui'
 import { useFileIndex } from '../store/fileIndex'
 import { fuzzyMatch } from '../lib/fuzzy'
@@ -9,6 +9,10 @@ import { basename, dirname } from '../lib/paths'
 import { newWindow, openFolderDialog, openWorkspace, removeRoot } from '../lib/actions'
 import { Icon } from './Icon'
 import { FileIcon } from './FileIcon'
+import { SymbolGlyph } from './SymbolGlyph'
+import { getEditorState } from '../editor/stateCache'
+import { resolveLang } from '../editor/languages'
+import { computeOutline, flattenOutline, type FlatOutlineSymbol } from '../editor/outline'
 import { relativeTime } from '../lib/format'
 import { useT } from '../i18n'
 
@@ -58,6 +62,12 @@ type Entry = { root: string; rootName: string; path: string }
 /** Top results kept while scoring: the list only ever shows this many, so no full sorted array is built */
 const MAX_RESULTS = 60
 
+/** Parent portion of a symbol path (`A/B/C` -> `A/B`); empty for root symbols. */
+function symbolParent(path: string): string {
+  const cut = path.lastIndexOf('/')
+  return cut > 0 ? path.slice(0, cut) : ''
+}
+
 function QuickOpen() {
   const t = useT()
   const setOverlay = useUi((s) => s.setOverlay)
@@ -65,6 +75,9 @@ function QuickOpen() {
   const roots = useWorkspace((s) => s.roots)
   const openFile = useTabs((s) => s.openFile)
   const jumpToLine = useTabs((s) => s.jumpToLine)
+  const activeGroupId = useTabs((s) => s.activeGroupId)
+  const groups = useTabs((s) => s.groups)
+  const activeTab = useTabs((s) => s.tabs.find((item) => item.id === s.activeId) ?? null)
 
   const byRoot = useFileIndex((s) => s.byRoot)
   const ensureIndex = useFileIndex((s) => s.ensure)
@@ -73,21 +86,28 @@ function QuickOpen() {
   const [index, setIndex] = useState(0)
   const listRef = useRef<HTMLDivElement>(null)
 
+  /** `@` switches the same panel to the active file's symbols; `:42` still jumps to a line */
+  const symbolMode = query.trimStart().startsWith('@')
+  const symbolFilter = symbolMode ? query.trimStart().slice(1).trim() : ''
+
   /** `:42` jumps to line 42 of the current file (⌃G is this entry point) */
   const gotoLine = useMemo(() => {
+    if (symbolMode) return null
     const match = /^:\s*(\d{1,6})$/.exec(query.trim())
     return match ? Number(match[1]) : null
-  }, [query])
+  }, [query, symbolMode])
 
   // Indexes are cached per root: opening the panel no longer rescans disk, and the store dedupes rebuilds
   const rootsKey = roots.map((r) => r.id).join('|')
   useEffect(() => {
+    // Symbol mode never reads the file index; building it would be wasted I/O.
+    if (symbolMode) return
     for (const root of roots) void ensureIndex(root.id)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rootsKey])
+  }, [rootsKey, symbolMode])
 
   const entries = useMemo<Entry[] | null>(() => {
-    if (roots.length === 0) return []
+    if (symbolMode || roots.length === 0) return []
     // Only a "ready" flag is needed here: the paths themselves are read straight out of the store while
     // scoring, so a 50k-file repo no longer materializes 50k wrapper objects on every open.
     let complete = true
@@ -98,12 +118,12 @@ function QuickOpen() {
     return complete ? [] : null
     // Only changing roots ids require a recompute; tree / expanded changes don't affect the index
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rootsKey, byRoot])
+  }, [rootsKey, byRoot, symbolMode])
 
   const truncated = roots.some((root) => byRoot[root.id]?.truncated)
 
   const results = useMemo(() => {
-    if (!entries) return []
+    if (symbolMode || !entries) return []
     // Bounded insertion: keep the best MAX_RESULTS while scanning, instead of building a scored object
     // per file and sorting tens of thousands of them on every keystroke.
     const best: { entry: Entry; score: number; length: number }[] = []
@@ -129,7 +149,40 @@ function QuickOpen() {
       .slice()
       .sort((a, b) => b.score - a.score || a.length - b.length)
       .map((item) => item.entry)
-  }, [entries, query, roots, byRoot])
+  }, [entries, query, roots, byRoot, symbolMode])
+
+  const activeRel = activeTab?.rel ?? ''
+  const activeState = useMemo(() => {
+    if (!symbolMode || !activeTab || activeTab.kind !== 'file' || activeTab.preview) return null
+    return getEditorState(editorStateKey(activeTab.id, activeGroupId, groups))
+  }, [symbolMode, activeTab, activeGroupId, groups])
+
+  const outline = useMemo(() => {
+    if (!symbolMode || !activeState) return null
+    return computeOutline(activeState, resolveLang(activeRel)?.key ?? null)
+  }, [symbolMode, activeState, activeRel])
+
+  const symbolRows = useMemo(() => (outline ? flattenOutline(outline.symbols) : []), [outline])
+
+  const symbolResults = useMemo(() => {
+    if (!symbolMode) return []
+    if (!symbolFilter) return symbolRows.slice(0, MAX_RESULTS)
+    const hits: FlatOutlineSymbol[] = []
+    for (const row of symbolRows) {
+      if (fuzzyMatch(symbolFilter, { path: row.path, name: row.symbol.name })) hits.push(row)
+      if (hits.length >= MAX_RESULTS) break
+    }
+    return hits
+  }, [symbolMode, symbolRows, symbolFilter])
+
+  const symbolEmptyText =
+    !activeTab || activeTab.kind !== 'file' || activeTab.preview
+      ? t('quickopen.symbolNoFile')
+      : outline && !outline.supported
+        ? t('quickopen.symbolUnsupported')
+        : symbolFilter
+          ? t('quickopen.symbolNoResults')
+          : t('quickopen.symbolEmpty')
 
   useEffect(() => setIndex(0), [query])
   useEffect(() => {
@@ -145,6 +198,10 @@ function QuickOpen() {
     close()
     jumpToLine(line)
   }
+  const goToSymbol = (row: FlatOutlineSymbol) => {
+    close()
+    jumpToLine(row.symbol.line, row.symbol.column)
+  }
 
   return (
     <Shell onClose={close}>
@@ -155,6 +212,22 @@ function QuickOpen() {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => {
+            if (symbolMode) {
+              if (e.key === 'ArrowDown') {
+                e.preventDefault()
+                if (symbolResults.length > 0) {
+                  setIndex((i) => Math.min(symbolResults.length - 1, i + 1))
+                }
+              } else if (e.key === 'ArrowUp') {
+                e.preventDefault()
+                setIndex((i) => Math.max(0, i - 1))
+              } else if (e.key === 'Enter') {
+                e.preventDefault()
+                const hit = symbolResults[index]
+                if (hit) goToSymbol(hit)
+              }
+              return
+            }
             if (e.key === 'ArrowDown') {
               e.preventDefault()
               setIndex((i) => Math.min(results.length - 1, i + 1))
@@ -174,17 +247,45 @@ function QuickOpen() {
           placeholder={t('quickopen.placeholder')}
           className="h-11 flex-1 bg-transparent text-md outline-none placeholder:text-muted/60"
         />
-        {entries === null ? <span className="text-xs text-muted">{t('quickopen.indexing')}</span> : null}
+        {!symbolMode && entries === null ? (
+          <span className="text-xs text-muted">{t('quickopen.indexing')}</span>
+        ) : null}
       </div>
 
-      {truncated ? (
+      {!symbolMode && truncated ? (
         <div className="border-b border-line px-3 py-1 text-2xs text-warning">
           {t('quickopen.truncated')}
         </div>
       ) : null}
 
       <div ref={listRef} className="max-h-[52vh] overflow-y-auto py-1">
-        {gotoLine !== null ? (
+        {symbolMode ? (
+          symbolResults.length === 0 ? (
+            <div className="px-3 py-6 text-center text-sm text-muted">{symbolEmptyText}</div>
+          ) : (
+            symbolResults.map((row, i) => (
+              <button
+                key={row.symbol.id}
+                data-active={i === index}
+                onMouseEnter={() => setIndex(i)}
+                onClick={() => goToSymbol(row)}
+                className={`flex w-full items-center gap-2 py-[5px] pr-3 text-left text-sm ${
+                  i === index ? 'bg-active text-fg' : 'text-fg/90'
+                }`}
+                style={{ paddingLeft: 12 + row.depth * 10 }}
+              >
+                <SymbolGlyph kind={row.symbol.kind} />
+                <span className="truncate">{row.symbol.name}</span>
+                {symbolParent(row.path) ? (
+                  <span className="truncate text-xs text-muted">{symbolParent(row.path)}</span>
+                ) : null}
+                <span className="ml-auto shrink-0 text-2xs tabular-nums text-muted">
+                  {row.symbol.line}
+                </span>
+              </button>
+            ))
+          )
+        ) : gotoLine !== null ? (
           <button
             data-active="true"
             onClick={() => goToLine(gotoLine)}
@@ -194,34 +295,32 @@ function QuickOpen() {
             <span className="truncate">{t('quickopen.gotoLine', { line: gotoLine })}</span>
             <span className="ml-auto shrink-0 text-xs text-muted">{t('quickopen.enter')}</span>
           </button>
-        ) : null}
-        {gotoLine === null && results.length === 0 ? (
+        ) : results.length === 0 ? (
           <div className="px-3 py-6 text-center text-sm text-muted">
             {entries === null ? t('quickopen.building') : t('quickopen.noResults')}
           </div>
-        ) : null}
-        {gotoLine === null
-          ? results.map((entry, i) => (
-              <button
-                key={`${entry.root}:${entry.path}`}
-                data-active={i === index}
-                onMouseEnter={() => setIndex(i)}
-                onClick={() => choose(entry)}
-                className={`flex w-full items-center gap-2 px-3 py-[5px] text-left text-sm ${
-                  i === index ? 'bg-active text-fg' : 'text-fg/90'
-                }`}
-              >
-                <FileIcon name={basename(entry.path)} size={15} />
-                <span className="truncate">{basename(entry.path)}</span>
-                <span className="truncate text-xs text-muted">{dirname(entry.path)}</span>
-                {roots.length > 1 ? (
-                  <span className="ml-auto shrink-0 rounded-full bg-panel-alt px-1.5 text-2xs text-muted">
-                    {entry.rootName}
-                  </span>
-                ) : null}
-              </button>
-            ))
-          : null}
+        ) : (
+          results.map((entry, i) => (
+            <button
+              key={`${entry.root}:${entry.path}`}
+              data-active={i === index}
+              onMouseEnter={() => setIndex(i)}
+              onClick={() => choose(entry)}
+              className={`flex w-full items-center gap-2 px-3 py-[5px] text-left text-sm ${
+                i === index ? 'bg-active text-fg' : 'text-fg/90'
+              }`}
+            >
+              <FileIcon name={basename(entry.path)} size={15} />
+              <span className="truncate">{basename(entry.path)}</span>
+              <span className="truncate text-xs text-muted">{dirname(entry.path)}</span>
+              {roots.length > 1 ? (
+                <span className="ml-auto shrink-0 rounded-full bg-panel-alt px-1.5 text-2xs text-muted">
+                  {entry.rootName}
+                </span>
+              ) : null}
+            </button>
+          ))
+        )}
       </div>
     </Shell>
   )

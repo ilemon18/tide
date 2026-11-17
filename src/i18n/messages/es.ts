@@ -79,6 +79,8 @@ export const es: Messages = {
     'Compartida por editor y terminal; el texto CJK usa las fuentes del sistema',
   'settings.appearance.uiFontSize': 'Tamaño de la interfaz',
   'settings.appearance.editorFontSize': 'Tamaño del editor',
+  'settings.appearance.ligatures': 'Ligaduras',
+  'settings.appearance.ligaturesHint': 'Muestra ==, => y combinaciones similares como un solo glifo (desactivado por defecto)',
   'theme.group.light': 'Claro',
   'theme.group.dark': 'Oscuro',
   'theme.group.eyecare': 'Descanso visual',
@@ -304,7 +306,7 @@ export const es: Messages = {
   'tabs.stagedName': '{name} (preparado)',
   'tabs.pinnedSuffix': ' · fijada',
 
-  'quickopen.placeholder': 'Busca archivos o escribe :línea para saltar',
+  'quickopen.placeholder': 'Busca archivos, @ para símbolos o :línea para saltar',
   'quickopen.indexing': 'Indexando…',
   'quickopen.truncated':
     'Hay demasiados archivos; el índice se ha truncado y puede que falten archivos',
@@ -665,6 +667,24 @@ export const es: Messages = {
   'error.update.installFailed': 'No se puede iniciar el script de instalación: {error}',
   'error.update.noExe': 'No se encuentra el programa en ejecución: {error}',
   'error.update.revealFailed': 'No se puede mostrar el archivo: {error}',
+
+  // ---------------------------------------------------------------- Esquema de estructura
+  'activity.structureTip': 'Estructura ({keys})',
+  'sidebar.structure': 'Estructura',
+  'structure.filterPlaceholder': 'Filtrar símbolos',
+  'structure.empty': 'No hay símbolos en este archivo',
+  'structure.noFile': 'Abre un archivo para ver su estructura',
+  'structure.unsupported': 'Este tipo de archivo no tiene estructura disponible',
+  'structure.noMatches': 'Ningún símbolo coincide',
+  'structure.truncated': 'Hay demasiados símbolos; la lista está truncada',
+  'structure.expand': 'Expandir',
+  'structure.collapse': 'Contraer',
+  'quickopen.symbolNoFile': 'Abre un archivo para buscar sus símbolos',
+  'quickopen.symbolUnsupported': 'Este tipo de archivo no tiene símbolos disponibles',
+  'quickopen.symbolNoResults': 'Ningún símbolo coincide',
+  'quickopen.symbolEmpty': 'No hay símbolos en este archivo',
+  'commands.view.structure': 'Mostrar estructura',
+  'commands.view.goToSymbol': 'Ir al símbolo del archivo…',
 
   // @i18n-anchor
 }

@@ -344,6 +344,17 @@
     outline: none !important;
   }
 
+  /* Ligatures: == / => stay separate glyphs unless the setting opts in. One switch on <html> covers the
+     editor, read-only diff panes and any <pre>/<code>. */
+  :root:not([data-ligatures='on']) .cm-scroller,
+  :root:not([data-ligatures='on']) .diff-selectable,
+  :root:not([data-ligatures='on']) .code-font-preview,
+  :root:not([data-ligatures='on']) code,
+  :root:not([data-ligatures='on']) pre {
+    font-variant-ligatures: none;
+    font-feature-settings: 'calt' 0, 'liga' 0, 'dlig' 0;
+  }
+
   .xterm {
     user-select: text;
     -webkit-user-select: text;

@@ -10,6 +10,10 @@ export const signals = {
   onDocChanged: (_id: string, _update: ViewUpdate) => {},
   onSaved: (_root: string, _rel: string) => {},
   onBlameRefresh: (_id: string) => {},
+  /** The document changed: the structure tree recomputes after a short debounce */
+  onOutlineDirty: (_id: string) => {},
+  /** A tab's EditorState was just mounted; refresh the outline without waiting for a keystroke */
+  onOutlineReady: (_id: string) => {},
   /** ⌘+click on an import path: open the resolved target file */
   onOpenImport: (_root: string, _rel: string) => {},
   /** Whether the editor state is pinned (active or unsaved), used for LRU eviction */

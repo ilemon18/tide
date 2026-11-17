@@ -24,6 +24,7 @@ import { ensureEditorState } from '../editor/openState'
 import { stickyRange } from '../editor/highlight'
 import { setEditorView, setFocusedGroup } from '../editor/viewRef'
 import { linkMirror, unlinkMirror, unlinkView } from '../editor/mirror'
+import { signals } from '../editor/signals'
 import { rememberScroll, restoreScroll, cancelScrollCorrection } from '../editor/scrollMemory'
 import { onLayoutDragging } from '../lib/layoutBus'
 import { Icon } from './Icon'
@@ -267,6 +268,7 @@ export function EditorHost({ groupId }: { groupId: TabGroupId }) {
       }
       shownIdRef.current = activeId
       linkMirror(activeId, groupId, view)
+      signals.onOutlineReady(activeId)
       const head = cached.selection.main.head
       const line = cached.doc.lineAt(head)
       useTabs.getState().markCursor(activeId, line.number, head - line.from + 1)
@@ -321,6 +323,7 @@ export function EditorHost({ groupId }: { groupId: TabGroupId }) {
       })
       shownIdRef.current = activeId
       linkMirror(activeId, groupId, view)
+      signals.onOutlineReady(activeId)
       setRestoring(false)
       view.focus()
       // A rebuilt state has no blame, apply it again

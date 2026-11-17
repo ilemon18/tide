@@ -110,6 +110,8 @@ export type Settings = {
   insertFinalNewline: boolean
   /** Draw indent guides in the editor */
   indentGuides: boolean
+  /** Draw ligatures such as == and => as one glyph (off by default) */
+  ligatures: boolean
   /** When to format: off | manual | onSave */
   formatMode: 'off' | 'manual' | 'onSave'
   /** Formatter: auto (pick by extension) | prettier | rustfmt | gofmt | black */

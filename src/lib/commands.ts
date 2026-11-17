@@ -145,6 +145,8 @@ export function buildCommands(): Command[] {
     { id: 'view.explorer', groupKey: 'commands.group.view', titleKey: 'commands.view.explorer', shortcut: 'Mod ⇧ E', run: () => ui.setActivityView('explorer') },
     { id: 'view.search', groupKey: 'commands.group.view', titleKey: 'commands.view.search', shortcut: 'Mod ⇧ F', run: () => ui.setActivityView('search') },
     { id: 'view.git', groupKey: 'commands.group.view', titleKey: 'commands.view.git', shortcut: 'Mod ⇧ G', run: () => ui.setActivityView('git') },
+    { id: 'view.structure', groupKey: 'commands.group.view', titleKey: 'commands.view.structure', shortcut: 'Mod U', run: () => ui.setActivityView('structure') },
+    { id: 'view.goToSymbol', groupKey: 'commands.group.view', titleKey: 'commands.view.goToSymbol', run: () => ui.openQuickOpen('@') },
     { id: 'view.panel', groupKey: 'commands.group.view', titleKey: 'commands.view.panel', shortcut: 'Mod J', run: () => toggleTerminal() },
     { id: 'view.projects', groupKey: 'commands.group.view', titleKey: 'commands.view.projects', shortcut: 'Mod ⇧ O', run: () => ui.setOverlay('projects') },
 
@@ -191,7 +193,9 @@ export function buildCommands(): Command[] {
         c.id === 'prefs.open' ||
         // An untitled buffer / its word wrap need no project
         c.id === 'file.new' ||
-        c.id === 'view.wordWrap',
+        c.id === 'view.wordWrap' ||
+        c.id === 'view.structure' ||
+        c.id === 'view.goToSymbol',
     )
   }
 

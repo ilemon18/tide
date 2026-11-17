@@ -48,6 +48,8 @@ pub struct Settings {
     pub insert_final_newline: bool,
     /// Editor indent guides
     pub indent_guides: bool,
+    /// Draw == / => and similar pairs as one ligature glyph (off by default)
+    pub ligatures: bool,
     /// When to format: off | manual | onSave
     pub format_mode: String,
     /// Formatter: auto (picked by extension) | prettier | rustfmt | gofmt | black
@@ -90,6 +92,7 @@ impl Default for Settings {
             trim_trailing_whitespace: false,
             insert_final_newline: false,
             indent_guides: true,
+            ligatures: false,
             format_mode: "off".into(),
             format_tool: "auto".into(),
             show_hidden: true,

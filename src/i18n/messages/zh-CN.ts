@@ -78,6 +78,8 @@ export const zhCN: Messages = {
   'settings.appearance.codeFontHint': '编辑器与终端共用；中文仍走系统字体',
   'settings.appearance.uiFontSize': '界面字号',
   'settings.appearance.editorFontSize': '编辑器字号',
+  'settings.appearance.ligatures': '字体连字',
+  'settings.appearance.ligaturesHint': '把 ==、=> 等符号组合合并成一个字形（默认关闭）',
   'theme.group.light': '浅色',
   'theme.group.dark': '深色',
   'theme.group.eyecare': '护眼',
@@ -287,7 +289,7 @@ export const zhCN: Messages = {
   'tabs.stagedName': '{name} (已暂存)',
   'tabs.pinnedSuffix': ' · 已固定',
 
-  'quickopen.placeholder': '搜索文件，或输入 :行号 跳转',
+  'quickopen.placeholder': '搜索文件，输入 @ 查找符号，或 :行号 跳转',
   'quickopen.indexing': '索引中…',
   'quickopen.truncated': '项目文件过多，索引已截断，部分文件可能搜不到',
   'quickopen.building': '正在建立文件索引…',
@@ -629,6 +631,24 @@ export const zhCN: Messages = {
   'error.update.installFailed': '启动安装脚本失败：{error}',
   'error.update.noExe': '找不到当前运行的程序：{error}',
   'error.update.revealFailed': '打开文件位置失败：{error}',
+
+  // ---------------------------------------------------------------- 结构大纲
+  'activity.structureTip': '结构 ({keys})',
+  'sidebar.structure': '结构',
+  'structure.filterPlaceholder': '筛选符号',
+  'structure.empty': '文件中没有符号',
+  'structure.noFile': '打开一个文件查看结构',
+  'structure.unsupported': '当前文件类型暂不支持结构',
+  'structure.noMatches': '没有匹配的符号',
+  'structure.truncated': '符号过多，列表已截断',
+  'structure.expand': '展开',
+  'structure.collapse': '折叠',
+  'quickopen.symbolNoFile': '打开一个文件后可按符号跳转',
+  'quickopen.symbolUnsupported': '当前文件类型没有可用符号',
+  'quickopen.symbolNoResults': '没有匹配的符号',
+  'quickopen.symbolEmpty': '文件中没有符号',
+  'commands.view.structure': '显示结构',
+  'commands.view.goToSymbol': '跳转到文件中的符号…',
 
   // @i18n-anchor
 }

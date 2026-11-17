@@ -3,9 +3,10 @@ import { useGit } from '../store/git'
 import { useWorkspace } from '../store/workspace'
 import { useTerminal } from '../store/terminal'
 import { toggleTerminal } from '../lib/actions'
+import { isMac, modKey } from '../lib/paths'
 import { useT } from '../i18n'
 
-export type ActivityView = 'explorer' | 'search' | 'git'
+export type ActivityView = 'explorer' | 'search' | 'git' | 'structure'
 
 type Props = {
   view: ActivityView
@@ -88,6 +89,12 @@ export function ActivityBar({ view, onChange, onOpenSettings }: Props) {
           active={view === 'git'}
           badge={changeCount}
           onClick={() => onChange('git')}
+        />
+        <Item
+          icon="structure"
+          label={t('activity.structureTip', { keys: isMac() ? `${modKey()}U` : 'Ctrl+U' })}
+          active={view === 'structure'}
+          onClick={() => onChange('structure')}
         />
       </div>
       <div className="flex flex-col items-center gap-1.5 pb-1">

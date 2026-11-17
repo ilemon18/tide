@@ -296,6 +296,8 @@ export async function createFileState(opts: CreateFileOpts): Promise<EditorState
           else signals.onDirty(slot.id)
           // Split view: forward this edit to the other panel (handled by mirror.ts)
           signals.onDocChanged(slot.id, update)
+          // The structure panel only listens while visible; computing is debounced there
+          signals.onOutlineDirty(slot.id)
         }
         if (update.selectionSet || update.docChanged) {
           // Only the focused pane updates the status bar line/column, else the mirror pane would overwrite it

@@ -2,6 +2,7 @@ import type { ReactNode, SVGProps } from 'react'
 
 export type IconName =
   | 'files'
+  | 'structure'
   | 'git'
   | 'settings'
   | 'terminal'
@@ -68,6 +69,14 @@ const shapes: Record<IconName, ReactNode> = {
       <path d="M8.5 3.5h5L18 8v8.5a1.5 1.5 0 0 1-1.5 1.5H8.5A1.5 1.5 0 0 1 7 16.5v-11a1.5 1.5 0 0 1 1.5-2Z" />
       <path d="M13 3.5V8h4.5" />
       <path d="M4.5 7.5v11A2.5 2.5 0 0 0 7 21h7" />
+    </>
+  ),
+  // Outline / structure: one trunk with two branches
+  structure: (
+    <>
+      <path d="M5 4.5v15" />
+      <path d="M5 7.5h4M5 16.5h4" />
+      <path d="M9 7.5h10M9 16.5h10" />
     </>
   ),
   git: (

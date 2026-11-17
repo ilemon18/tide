@@ -93,6 +93,8 @@ export const en = {
   'settings.appearance.codeFontHint': 'Shared by editor and terminal; CJK text uses system fonts',
   'settings.appearance.uiFontSize': 'Interface size',
   'settings.appearance.editorFontSize': 'Editor size',
+  'settings.appearance.ligatures': 'Ligatures',
+  'settings.appearance.ligaturesHint': 'Draw ==, => and similar pairs as one glyph (off by default)',
   'theme.group.light': 'Light',
   'theme.group.dark': 'Dark',
   'theme.group.eyecare': 'Eye care',
@@ -327,7 +329,7 @@ export const en = {
   'tabs.pinnedSuffix': ' · pinned',
 
   // ---------------------------------------------------------------- Quick open
-  'quickopen.placeholder': 'Search files, or type :line to jump',
+  'quickopen.placeholder': 'Search files, type @ for symbols, or :line to jump',
   'quickopen.indexing': 'Indexing…',
   'quickopen.truncated': 'Too many project files; the index was truncated, some files may not appear',
   'quickopen.building': 'Building the file index…',
@@ -698,5 +700,23 @@ export const en = {
   'error.update.revealFailed': 'Cannot reveal the file: {error}',
 
   // ---------------------------------------------------------------- Catalog anchor (new keys go above this line)
+  // ---------------------------------------------------------------- Structure outline
+  'activity.structureTip': 'Structure ({keys})',
+  'sidebar.structure': 'Structure',
+  'structure.filterPlaceholder': 'Filter symbols',
+  'structure.empty': 'No symbols in this file',
+  'structure.noFile': 'Open a file to see its structure',
+  'structure.unsupported': 'No structure available for this file type',
+  'structure.noMatches': 'No matching symbols',
+  'structure.truncated': 'Too many symbols; the list is truncated',
+  'structure.expand': 'Expand',
+  'structure.collapse': 'Collapse',
+  'quickopen.symbolNoFile': 'Open a file to search its symbols',
+  'quickopen.symbolUnsupported': 'No symbols available for this file type',
+  'quickopen.symbolNoResults': 'No matching symbols',
+  'quickopen.symbolEmpty': 'No symbols in this file',
+  'commands.view.structure': 'Show structure',
+  'commands.view.goToSymbol': 'Go to symbol in file…',
+
   // @i18n-anchor
 } as const

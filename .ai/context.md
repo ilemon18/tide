@@ -17,9 +17,9 @@ is the source).
 | Changing | Where |
 |---|---|
 | Layout, shortcuts, session restore, drag & drop, startup | `src/App.tsx`, `src/main.tsx`, `src/lib/keys.ts` (IME-safe key normalisation), `fileDragState.ts` + `groupDrop.ts` |
-| UI components (no router), settings sections | `src/components/` (only `EditorView` is `EditorHost.tsx`), `lib/settingsSections.ts` |
+| UI components, settings sections | `src/components/` (only `EditorView` is `EditorHost.tsx`), `lib/settingsSections.ts` |
 | Diff view, conflicts, syntax colours | `src/components/DiffView.tsx`, `diffHighlight.ts`, `lib/conflictFiles.ts`, `src/theme/syntax.ts` |
-| CodeMirror | `src/editor/`: `setup` `stateCache` `stateKeys` `viewRef` `openState` `mirror` `folding` `languages` `largeFile` `indentGuides` `blame` `conflicts` `highlight` `importLinks` `scrollMemory` `signals` `locale` |
+| CodeMirror | `src/editor/`: `setup` `stateCache` `stateKeys` `viewRef` `openState` `mirror` `folding` `languages` `largeFile` `indentGuides` `blame` `conflicts` `highlight` `importLinks` `scrollMemory` `signals` `locale` `outline` |
 | State slices (13) | `src/store/`: `workspace` `tabs` `git` `search` `terminal` `settings` `ui` `blame` `watcher` `fileIndex` `commitHover` `folderChain` `update` |
 | Folder chain compaction | `src/store/folderChain.ts`, `resolve_dir_chain` in `src-tauri/src/commands/fs.rs`, `buildRows` in `FileTree.tsx` |
 | IPC + DTO types | `src/lib/ipc.ts` (**only** `invoke` wrapper) |
@@ -69,7 +69,7 @@ is the source).
 5. User-visible → add an entry in `src/lib/commands.ts`; user-facing error → add the code to the catalogs ([i18n.md](./i18n.md))
 
 ### Add a setting
-Four places, always together: `Settings` in `src/lib/ipc.ts` → `DEFAULT_SETTINGS` in `src/store/settings.ts` (plus `SHARED_KEYS` if it syncs across windows) → `Settings` + migration in `src-tauri/src/commands/theme.rs` → `SettingsView.tsx`. `schemaVersion` is 8.
+Four places, always together: `Settings` in `src/lib/ipc.ts` → `DEFAULT_SETTINGS` in `src/store/settings.ts` (plus `SHARED_KEYS` if it syncs across windows) → `Settings` + migration in `src-tauri/src/commands/theme.rs` → `SettingsView.tsx`. `schemaVersion` is 9.
 
 ### Add an editor extension
 Implement in `src/editor/`; always-on ones go into `setup.ts`, toggleable ones become a `Compartment` in `stateCache.ts` so switching only reconfigures.
