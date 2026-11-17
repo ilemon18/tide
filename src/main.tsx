@@ -6,6 +6,10 @@ import { monoFontOption } from './lib/fonts'
 import { awaitCatalog } from './i18n'
 import { setupPtyEvents } from './store/terminal'
 import { setupFsEvents } from './store/watcher'
+import { watchDisplayScale } from './lib/displayScale'
+
+// Before the first paint: the editor and terminal pick their glyph weight from the display
+watchDisplayScale()
 
 async function boot() {
   // Read the theme before rendering so the first paint does not flash the default palette

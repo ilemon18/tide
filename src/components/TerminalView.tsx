@@ -11,6 +11,7 @@ import { budget } from '../lib/memoryBudget'
 import { isLayoutDragging, onLayoutDragging } from '../lib/layoutBus'
 import { isMac } from '../lib/paths'
 import { shortcutKey } from '../lib/keys'
+import { isLowDpi, onLowDpiChange } from '../lib/displayScale'
 
 
 type Props = {
@@ -52,8 +53,9 @@ export function TerminalView({ tab, active }: Props) {
       cursorStyle: 'block',
       macOptionIsMeta: true,
       allowTransparency: false,
-      fontWeight: '400',
-      fontWeightBold: '600',
+      // 1x displays collapse a 12px 400-weight stem into one faint pixel; one step up keeps text legible
+      fontWeight: isLowDpi() ? 500 : 400,
+      fontWeightBold: isLowDpi() ? 650 : 600,
     })
     termRef.current = term
 
@@ -331,6 +333,31 @@ export function TerminalView({ tab, active }: Props) {
     if (!term) return
     term.options.theme = buildTerminalTheme(palette)
   }, [palette])
+
+  // The window can move between a Retina screen and a 1x monitor: reweight the glyphs and reflow
+  // the PTY, otherwise the terminal keeps whatever weight it was created with.
+  useEffect(() => {
+    return onLowDpiChange((low) => {
+      const term = termRef.current
+      const host = hostRef.current
+      if (!term) return
+      term.options.fontWeight = low ? 500 : 400
+      term.options.fontWeightBold = low ? 650 : 600
+      if (host && host.clientWidth > 0 && fitRef.current) {
+        try {
+          fitRef.current.fit()
+        } catch {
+          /* ignore */
+        }
+        if (ptyRef.current) void api.ptyResize(ptyRef.current, term.cols, term.rows)
+      }
+      try {
+        term.refresh(0, term.rows - 1)
+      } catch {
+        /* ignore */
+      }
+    })
+  }, [])
 
   useEffect(() => {
     const term = termRef.current

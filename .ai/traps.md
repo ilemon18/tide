@@ -71,6 +71,9 @@ git status change** — only a file that really vanished from disk gets closed.
 - An empty diff is not a new file: the "compare against /dev/null" fallback in `git_diff` /
   `git_diff_full` is only for **untracked** files (`is_tracked`). Otherwise an untouched file renders as
   a full-height green add bar.
+- An empty diff is not a dead tab: an unstaged tab (worktree == index) and a staged tab (index == HEAD
+  after a commit / `git add`) both show the whole file. Only a missing file falls back to
+  `diff.noIndexChanges`. The scroll ratio survives the diff ↔ file swap via `pendingScroll` in DiffView.
 - Conflict detection is two-stage (`lib/conflictFiles.ts`): no `<<<<<<<` in the content means no IPC at
   all; the git status cache is used when loaded, and only files that really contain markers ask the
   backend (`git ls-files -u`), because status can be stale right after a cherry-pick in the terminal.
@@ -86,6 +89,9 @@ git status change** — only a file that really vanished from disk gets closed.
 
 ## Window & memory
 
+- Fonts follow the display density: `lib/displayScale.ts` watches the window's scale factor, and the
+  stylesheet only applies `-webkit-font-smoothing: antialiased` at 1.5dppx and above. On a 1x screen the
+  terminal also uses a heavier weight. Put new density compensations there, not per component.
 - Closing the main window on macOS is a hide, not a quit: `prevent_close`, then destroy after ~180ms so
   the frontend can flush settings and session. The frontend must respond to `app:hidden` by releasing
   memory.

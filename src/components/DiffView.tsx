@@ -1,5 +1,7 @@
 import {
+  useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -57,6 +59,8 @@ const META =
 const PATCH_PATH = /^\+\+\+ b\/(.+)$/m
 /** Only runs of at least this many unchanged lines offer folding */
 const FOLD_MIN = 10
+/** Context rows kept above the first change when a diff opens; fixed so the terminal height cannot shift it */
+const FIRST_CHANGE_CONTEXT_ROWS = 3
 /** Lines longer than this skip inline diff highlighting: the char compare degrades to O(n) and looks meaningless */
 const MAX_INTRALINE = 2000
 
@@ -225,6 +229,7 @@ export function DiffView({ tab }: Props) {
   const [fileLines, setFileLines] = useState<string[] | null>(null)
   const [fileTokens, setFileTokens] = useState<LineTokens | null>(null)
   const [fileError, setFileError] = useState<string | null>(null)
+  const [fileBinary, setFileBinary] = useState(false)
   /** Start (row index) of each folded unchanged region */
   const [collapsed, setCollapsed] = useState<Set<number>>(new Set())
   /** Syntax segments for both sides: plain text first, colors after parsing */
@@ -242,8 +247,26 @@ export function DiffView({ tab }: Props) {
   const loadedFor = useRef<string | null>(null)
   /** Freshly loaded content still has to land on its first change; in-place refreshes keep the reader's position */
   const pendingLocate = useRef(true)
+  /** Scroll ratio captured before an in-place refresh, applied once the next view has laid out */
+  const pendingScroll = useRef<number | null>(null)
   /** Incremented on external edits / staging changes: keeps the tab open, just refetches and re-diffs */
   const epoch = useTabs((s) => s.diffEpoch[tab.root] ?? 0)
+
+  /** Apply the captured ratio to whichever pane is mounted now (diff rows or the whole-file fallback) */
+  const restorePendingScroll = useCallback(() => {
+    const ratio = pendingScroll.current
+    if (ratio === null) return
+    const el = leftRef.current
+    if (!el) return
+    if (el.scrollHeight <= el.clientHeight) {
+      pendingScroll.current = null
+      return
+    }
+    const top = Math.min(el.scrollHeight - el.clientHeight, ratio * el.scrollHeight)
+    el.scrollTop = top
+    if (rightRef.current) rightRef.current.scrollTop = top
+    pendingScroll.current = null
+  }, [])
 
   useEffect(() => {
     let alive = true
@@ -253,6 +276,7 @@ export function DiffView({ tab }: Props) {
     const sameTab = loadedFor.current === tab.id
     if (!sameTab) {
       pendingLocate.current = true
+      pendingScroll.current = null
       setLoading(true)
       setError(null)
       setPatch(null)
@@ -260,10 +284,12 @@ export function DiffView({ tab }: Props) {
       setTruncated(false)
       setCollapsed(new Set())
     }
-    // Remember the scroll ratio before refreshing and restore it once new content lands, so the reader
-    // is not thrown back to the top of the file
+    // Remember where the reader was before an in-place refresh. The restore has to wait until the new view
+    // has laid out (a diff can become the whole-file view, whose content arrives one render later).
     const ruler = leftRef.current
-    const scrollRatio = ruler && ruler.scrollHeight > 0 ? ruler.scrollTop / ruler.scrollHeight : null
+    if (sameTab && ruler && ruler.scrollHeight > 0) {
+      pendingScroll.current = ruler.scrollTop / ruler.scrollHeight
+    }
 
     void api
       .gitDiffFull(tab.root, tab.rel, Boolean(tab.staged))
@@ -274,13 +300,8 @@ export function DiffView({ tab }: Props) {
         setTruncated(res.truncated)
         setPatch(res.patch)
         setLoading(false)
-        if (scrollRatio !== null) {
-          requestAnimationFrame(() => {
-            for (const el of [leftRef.current, rightRef.current]) {
-              if (el) el.scrollTop = scrollRatio * el.scrollHeight
-            }
-          })
-        }
+        // Also covers a refresh whose patch did not change: no re-render, so the layout effect never runs
+        requestAnimationFrame(restorePendingScroll)
       })
       .catch((e) => {
         if (!alive) return
@@ -288,6 +309,7 @@ export function DiffView({ tab }: Props) {
           // In-place refresh failed (file just deleted / that diff is gone): keep the current content;
           // the tab is closed by git status, so do not toast an error here
           console.warn('[Tide] 刷新差异失败', errorText(e))
+          pendingScroll.current = null
           setLoading(false)
           return
         }
@@ -300,7 +322,11 @@ export function DiffView({ tab }: Props) {
     }
   }, [tab.id, tab.root, tab.rel, tab.staged, epoch])
 
-  const parsed = useMemo(() => (patch ? parsePatch(patch, maxRows) : null), [patch, maxRows])
+  // null = not fetched yet; an empty string is a fetched, unchanged file and must parse to zero rows
+  const parsed = useMemo(
+    () => (patch !== null ? parsePatch(patch, maxRows) : null),
+    [patch, maxRows],
+  )
   const runs = useMemo(() => (parsed ? foldRuns(parsed.rows) : new Map<number, number>()), [parsed])
   const langPath = useMemo(
     () => (patch ? (PATCH_PATH.exec(patch)?.[1] ?? tab.rel) : tab.rel),
@@ -349,21 +375,33 @@ export function DiffView({ tab }: Props) {
    * line 1, so the edit itself is on screen. Only for freshly loaded content: the refresh path above keeps
    * whatever position the reader had.
    */
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!pendingLocate.current) return
-    const container = leftRef.current
-    if (!container) return
-    const target = container.querySelector<HTMLElement>('[data-diff-change="1"]')
-    if (!target) return
-    pendingLocate.current = false
-    const top =
-      target.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop
-    // Put the change a third of the viewport down: some preceding context, the edit itself well inside
-    const max = Math.max(0, container.scrollHeight - container.clientHeight)
-    const scrollTop = Math.min(max, Math.max(0, top - container.clientHeight / 3))
-    for (const el of [leftRef.current, rightRef.current]) {
-      if (el) el.scrollTop = scrollTop
+    const locate = () => {
+      const container = leftRef.current
+      if (!container) return false
+      const target = container.querySelector<HTMLElement>('[data-diff-change="1"]')
+      if (!target) return false
+      const targetRect = target.getBoundingClientRect()
+      const top = targetRect.top - container.getBoundingClientRect().top + container.scrollTop
+      // Keep a fixed number of rows above the change instead of a fraction of the viewport: opening the
+      // terminal shrinks the pane, and a viewport-relative offset made the same diff land elsewhere.
+      const context = targetRect.height * FIRST_CHANGE_CONTEXT_ROWS
+      const max = Math.max(0, container.scrollHeight - container.clientHeight)
+      const scrollTop = Math.min(max, Math.max(0, top - context))
+      for (const el of [leftRef.current, rightRef.current]) {
+        if (el) el.scrollTop = scrollTop
+      }
+      return true
     }
+    if (!locate()) return
+    // A second pass after paint uses the final pane height (the terminal panel and the scrollbars may
+    // still settle in the first frame), then releases the one-shot jump.
+    const frame = requestAnimationFrame(() => {
+      locate()
+      pendingLocate.current = false
+    })
+    return () => cancelAnimationFrame(frame)
   }, [display])
 
   /** Marks for the right-hand ruler: add / delete / modify placed by rendered-row ratio (folds and skips included) */
@@ -436,14 +474,18 @@ export function DiffView({ tab }: Props) {
     }
   }, [parsed, langPath, truncated])
 
-  /** 差异为空 = 工作区和暂存区没有改动：这类标签页改为显示文件的最新内容，不再放一句提示 */
+  /**
+   * An empty diff means the file matches the index (unstaged tab) or the index matches HEAD (staged tab,
+   * typically right after a commit / `git add .`). Show the file itself instead of an empty notice.
+   */
   const emptyDiff = parsed !== null && parsed.rows.length === 0
-  const showFile = emptyDiff && !tab.staged && !binary && !error
+  const showFile = emptyDiff && !binary && !error
 
   useEffect(() => {
     setFileLines(null)
     setFileTokens(null)
     setFileError(null)
+    setFileBinary(false)
   }, [tab.id])
 
   useEffect(() => {
@@ -451,14 +493,17 @@ export function DiffView({ tab }: Props) {
       setFileLines(null)
       setFileTokens(null)
       setFileError(null)
+      setFileBinary(false)
       return
     }
     let alive = true
     setFileError(null)
+    setFileBinary(false)
     void api
       .readFile(tab.root, tab.rel)
       .then((res) => {
         if (!alive) return
+        setFileBinary(res.binary)
         if (res.binary) {
           setFileLines(null)
           return
@@ -470,12 +515,28 @@ export function DiffView({ tab }: Props) {
       })
       .catch((e) => {
         if (!alive) return
+        setFileBinary(false)
         setFileError(errorText(e))
       })
     return () => {
       alive = false
     }
-  }, [showFile, tab.root, tab.rel])
+  }, [showFile, tab.root, tab.rel, epoch])
+
+  // A tab switch must not replay the previous tab's position
+  useLayoutEffect(() => {
+    pendingScroll.current = null
+  }, [tab.id])
+
+  // Restore after a same-tab refresh, or after the diff swaps to the whole-file view and its lines arrive
+  useLayoutEffect(() => {
+    // No scrollable content (loading / binary / error): drop the saved ratio instead of replaying it later
+    if (error || binary || fileError || fileBinary) {
+      pendingScroll.current = null
+      return
+    }
+    restorePendingScroll()
+  }, [display, fileLines, showFile, error, binary, fileError, fileBinary, restorePendingScroll])
 
   // 全文高亮同样放到下一个宏任务，避免首帧卡在解析上
   useEffect(() => {
@@ -551,17 +612,18 @@ export function DiffView({ tab }: Props) {
     }
     if (error) return placeholder(<span className="text-danger">{error}</span>)
     if (binary) return placeholder(t('diff.binary'))
-    // 未暂存且没有差异：直接把文件最新内容铺开显示
-    if (showFile) return renderFile()
-    if (!parsed || parsed.rows.length === 0) {
-      // The staged diff becomes empty right after a commit while the tab stays: say which side is empty
-      return placeholder(t('diff.noIndexChanges'))
+    // 差异为空（已提交 / 已暂存）：直接把文件最新内容铺开显示；文件已不存在时退回原来的提示
+    if (showFile) {
+      if (fileError && tab.staged) return placeholder(t('diff.noIndexChanges'))
+      return renderFile()
     }
+    if (!parsed || parsed.rows.length === 0) return placeholder(t('diff.noIndexChanges'))
     return null
   }
 
   /** 全文视图：行号 + 语法高亮，和差异页共用同一套行样式 */
   const renderFile = () => {
+    if (fileBinary) return placeholder(t('diff.binary'))
     if (!fileLines) {
       if (fileError) return placeholder(<span className="text-danger">{fileError}</span>)
       return placeholder(
@@ -589,7 +651,7 @@ export function DiffView({ tab }: Props) {
         </div>
         <div
           ref={leftRef}
-          className="min-h-0 flex-1 overflow-auto font-mono"
+          className="diff-selectable min-h-0 flex-1 overflow-auto font-mono"
           style={{ fontSize: 'var(--text-xs)' }}
         >
           {lines.map((line, index) => (
@@ -683,7 +745,7 @@ export function DiffView({ tab }: Props) {
           <div
             ref={isLeft ? leftRef : rightRef}
             onScroll={syncScroll(side)}
-            className="min-h-0 min-w-0 flex-1 overflow-auto font-mono"
+            className="diff-selectable min-h-0 min-w-0 flex-1 overflow-auto font-mono"
             style={{ fontSize: 'var(--text-xs)' }}
           >
             {display.map((row) => renderRow(row, side))}
@@ -703,7 +765,7 @@ export function DiffView({ tab }: Props) {
       <div className="flex h-8 shrink-0 items-center gap-2 border-b border-line/60 px-3 text-2xs text-muted">
         <Icon name="git" size={12} className="shrink-0" />
         <span className="min-w-0 truncate text-fg/80">{tab.rel}</span>
-        {tab.staged ? (
+        {tab.staged && !showFile ? (
           <span className="shrink-0 rounded bg-panel-alt px-1 text-2xs text-muted">
             {t('git.section.staged')}
           </span>
@@ -853,7 +915,7 @@ function LineNo({ no, tone }: { no: number | null; tone: Tone }) {
   const bg = tone === 'del' ? 'bg-danger/10' : tone === 'add' ? 'bg-success/10' : ''
   return (
     <span
-      className={`w-11 shrink-0 select-none pr-2 text-right leading-[1.6] tabular-nums ${color} ${bg}`}
+      className={`diff-line-no w-11 shrink-0 pr-2 text-right leading-[1.6] tabular-nums ${color} ${bg}`}
     >
       {no ?? ''}
     </span>

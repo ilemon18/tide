@@ -201,10 +201,18 @@
     color: var(--c-fg);
     font-family: var(--font-sans);
     font-size: var(--ui-fs);
-    -webkit-font-smoothing: antialiased;
     user-select: none;
     -webkit-user-select: none;
     cursor: default;
+  }
+
+  /* Retina keeps the lighter grayscale smoothing it has always used. On a 1x display (an external
+     1080p monitor) the same setting strips too much weight from 12–13px text, so leave the platform
+     default there and let it render normally. */
+  @media (min-resolution: 1.5dppx) {
+    body {
+      -webkit-font-smoothing: antialiased;
+    }
   }
 
   /* Global scrollbar: follows the theme */
@@ -269,6 +277,19 @@
     flex-direction: column;
     user-select: text;
     -webkit-user-select: text;
+  }
+
+  /* Diff panes are read-only, but their text must stay selectable so it can be copied. Line numbers are
+     excluded so a copied range contains code only. */
+  .diff-selectable {
+    user-select: text;
+    -webkit-user-select: text;
+    cursor: text;
+  }
+
+  .diff-selectable .diff-line-no {
+    user-select: none;
+    -webkit-user-select: none;
   }
 
   /* CodeMirror base layout fallback: gutters and content side by side, scroller bounded by the container */
