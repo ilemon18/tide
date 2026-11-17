@@ -347,11 +347,19 @@ export const useGit = create<GitStore>((set, get) => ({
   },
 
   skipOperation: async (root) => {
+    const ok = await useUi.getState().confirm({
+      title: t('dialog.gitSkip.title'),
+      message: t('dialog.gitSkip.message'),
+      confirmText: t('dialog.gitSkip.confirm'),
+      danger: true,
+    })
+    if (!ok) return false
     set({ busy: 'skip' })
     try {
       await api.gitSkip(root)
       signatures.delete(root)
       await get().refresh(root, true)
+      useUi.getState().toast(t('toast.gitSkipped'), 'success')
       return true
     } catch (e) {
       useUi.getState().toast(errorText(e), 'error')

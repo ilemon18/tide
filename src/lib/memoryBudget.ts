@@ -57,6 +57,8 @@ export const budget = {
   largeFileBytes: () => (lightMemory() ? 512 * 1024 : 1024 * 1024),
   /** Above this size a file opens read-only in the plain preview */
   previewFileBytes: () => (lightMemory() ? 2 * 1024 * 1024 : 5 * 1024 * 1024),
+  /** Rows rendered by the side-by-side diff / full-file diff view; parsing stops at this cap too */
+  diffRows: () => (lightMemory() ? 1500 : 3000),
 }
 
 /** Feature switches: what lightweight mode turns off outright (surfaced in the settings hint) */

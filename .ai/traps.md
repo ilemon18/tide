@@ -76,6 +76,13 @@ git status change** — only a file that really vanished from disk gets closed.
   backend (`git ls-files -u`), because status can be stale right after a cherry-pick in the terminal.
 - Git runs as a subprocess: `git -C <root>` with `GIT_TERMINAL_PROMPT=0`, `GIT_OPTIONAL_LOCKS=0`,
   editors/pager disabled, `LC_ALL=C`, stdin closed; 180s timeout for network operations.
+- Large diffs are bounded twice: `memoryBudget.diffRows()` caps frontend rows/parsing (3k normal,
+  1.5k light), and `git_diff_full` switches files over 1MB to `-U3`, then cuts the patch at 512KB.
+  Do not raise these thresholds without profiling a generated-file diff.
+- Conflict accept actions must preserve the viewport: `editor/conflicts.ts` records
+  `scrollDOM.scrollTop/Left` and restores them with `view.requestMeasure`; never add
+  `scrollIntoView: true` to a resolve transaction. Per-line accepts move the line above the block in
+  click order and leave the remaining markers in place.
 
 ## Window & memory
 

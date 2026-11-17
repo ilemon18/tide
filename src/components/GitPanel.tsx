@@ -5,7 +5,7 @@ import { useTabs } from '../store/tabs'
 import { useBlame } from '../store/blame'
 import { Icon, type IconName } from './Icon'
 import { FileIcon } from './FileIcon'
-import { ContextMenu } from './ContextMenu'
+import { ContextMenu, type MenuItem } from './ContextMenu'
 import type { GitFile, GitStatus } from '../lib/ipc'
 import { basename, dirname } from '../lib/paths'
 import { beginFilePointerDrag, wasFileDragJustFinished } from '../lib/fileDragState'
@@ -111,6 +111,15 @@ function RepoSection({ root, status }: { root: { id: string; name: string }; sta
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  // The file open in the editor stays marked in the Git list too (VSCode does this in Source Control).
+  // A diff tab points at the same rel, so both file and diff tabs highlight the row.
+  const activeRel = useTabs((s) => {
+    const tab = s.tabs.find((t) => t.id === s.activeId)
+    return tab && tab.root === root.id && (tab.kind === 'file' || tab.kind === 'diff')
+      ? tab.rel
+      : null
+  })
 
   const operation = status?.operation ?? null
   const opKey = operation ? `${operation.kind}\u0000${status?.pendingMessage ?? ''}` : ''
@@ -264,7 +273,10 @@ function RepoSection({ root, status }: { root: { id: string; name: string }; sta
                   if (wasFileDragJustFinished()) return
                   onClickFile(file)
                 }}
-                className="group relative flex cursor-default items-center gap-1.5 py-[4px] pl-7 pr-2 text-sm text-fg/90 row-hover"
+                data-active={activeRel === file.path}
+                className={`group relative flex cursor-default items-center gap-1.5 py-[4px] pl-7 pr-2 text-sm text-fg/90 row-hover ${
+                  activeRel === file.path ? 'git-file-row-active' : ''
+                }`}
                 title={file.path}
               >
                 <FileIcon name={basename(file.path)} size={14} className="shrink-0" />
@@ -312,6 +324,51 @@ function RepoSection({ root, status }: { root: { id: string; name: string }; sta
     )
   }
 
+  const moreItems: MenuItem[] = [
+    {
+      label: t('git.undoLastCommit'),
+      disabled: !status.head || Boolean(operation) || busy !== null,
+      onClick: () => {
+        void undoLastCommit(root.id).then((message) => {
+          if (message === null) return
+          // Put the last commit message back into the box so it can be edited and recommitted
+          setMessage(message)
+          autoFilled.current = message
+          touched.current = false
+          refreshBlame()
+        })
+      },
+    },
+  ]
+  // Once every conflict is resolved the operation card disappears; keep skip / abort reachable here.
+  if (operation && status.conflicts.length === 0) {
+    moreItems.push(
+      { type: 'separator' },
+      {
+        label: t('common.skip'),
+        disabled: !operation.canSkip || busy !== null,
+        onClick: () => {
+          void skipOperation(root.id).then((ok) => {
+            if (ok) void refreshFromDisk(root.id, { force: true })
+          })
+        },
+      },
+      {
+        label: t('common.abort'),
+        danger: true,
+        disabled: busy !== null,
+        onClick: () => {
+          void abortOperation(root.id).then((ok) => {
+            if (ok) {
+              afterCommit()
+              void refreshFromDisk(root.id, { force: true })
+            }
+          })
+        },
+      },
+    )
+  }
+
   return (
     <div>
       <div className="flex items-center gap-1.5 px-2 py-1.5">
@@ -338,38 +395,19 @@ function RepoSection({ root, status }: { root: { id: string; name: string }; sta
         <ContextMenu
           x={menu.x}
           y={menu.y}
-          items={[
-            {
-              label: t('git.undoLastCommit'),
-              disabled: !status.head || Boolean(operation) || busy !== null,
-              onClick: () => {
-                void undoLastCommit(root.id).then((message) => {
-                  if (message === null) return
-                  // Put the last commit message back into the box so it can be edited and recommitted
-                  setMessage(message)
-                  autoFilled.current = message
-                  touched.current = false
-                  refreshBlame()
-                })
-              },
-            },
-          ]}
+          items={moreItems}
           onClose={() => setMenu(null)}
         />
       ) : null}
 
-      {operation ? (
+      {operation && status.conflicts.length > 0 ? (
         <div className="mx-2 mb-1.5 rounded-[5px] border border-warning/40 bg-warning/10 px-2 py-1.5">
           <div className="flex items-center gap-1.5 text-xs">
             <Icon name="git" size={12} className="shrink-0 text-warning" />
             <span className="truncate text-fg/90">{operation.label}</span>
-            {status.conflicts.length > 0 ? (
-              <span className="shrink-0 text-danger">
-                {t('git.conflictsCount', { count: status.conflicts.length })}
-              </span>
-            ) : (
-              <span className="shrink-0 text-success">{t('git.conflictsResolved')}</span>
-            )}
+            <span className="shrink-0 text-danger">
+              {t('git.conflictsCount', { count: status.conflicts.length })}
+            </span>
           </div>
           <div className="mt-1.5 flex items-center gap-1.5">
             <button

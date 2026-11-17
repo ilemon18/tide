@@ -19,6 +19,7 @@ import { Icon } from './Icon'
 import { useT } from '../i18n'
 import { FileIcon } from './FileIcon'
 import { HIGHLIGHT_MAX_LINES, highlightSide, type LineTokens, type Token } from './diffHighlight'
+import { budget } from '../lib/memoryBudget'
 
 /**
  * Side-by-side diff view (VSCode style). Data comes from git's full-context patch (-U100000): each
@@ -54,13 +55,12 @@ const META =
   /^(diff --git |index |--- |\+\+\+ |new file mode|deleted file mode|old mode |new mode |similarity index|dissimilarity index|rename from |rename to |copy from |copy to )/
 /** New file name from the patch header: more accurate than tab.rel for renames / untracked files, used to pick a language pack */
 const PATCH_PATH = /^\+\+\+ b\/(.+)$/m
-const MAX_ROWS = 20000
 /** Only runs of at least this many unchanged lines offer folding */
 const FOLD_MIN = 10
 /** Lines longer than this skip inline diff highlighting: the char compare degrades to O(n) and looks meaningless */
 const MAX_INTRALINE = 2000
 
-function parsePatch(patch: string): Parsed {
+function parsePatch(patch: string, maxRows: number): Parsed {
   const lines = patch.split('\n')
   const rows: Row[] = []
   let oldLine = 0
@@ -85,6 +85,10 @@ function parsePatch(patch: string): Parsed {
   }
 
   for (const raw of lines) {
+    // Large patches are common on generated files: stop before building tens of thousands of rows.
+    if (rows.length >= maxRows) {
+      return { rows, adds, dels, overLimit: true }
+    }
     if (HUNK.test(raw)) {
       flush()
       const match = HUNK.exec(raw)!
@@ -110,6 +114,10 @@ function parsePatch(patch: string): Parsed {
       pendingAdd.push({ no: newLine, text: raw.slice(1) })
       newLine += 1
       adds += 1
+      if (pendingAdd.length >= maxRows) {
+        flush()
+        return { rows: rows.slice(0, maxRows), adds, dels, overLimit: true }
+      }
       continue
     }
 
@@ -117,6 +125,10 @@ function parsePatch(patch: string): Parsed {
       pendingDel.push({ no: oldLine, text: raw.slice(1) })
       oldLine += 1
       dels += 1
+      if (pendingDel.length >= maxRows) {
+        flush()
+        return { rows: rows.slice(0, maxRows), adds, dels, overLimit: true }
+      }
       continue
     }
 
@@ -136,9 +148,11 @@ function parsePatch(patch: string): Parsed {
     if (raw === '') flush()
   }
   flush()
+  if (rows.length > maxRows) {
+    return { rows: rows.slice(0, maxRows), adds, dels, overLimit: true }
+  }
 
-  const overLimit = rows.length > MAX_ROWS
-  return { rows: overLimit ? rows.slice(0, MAX_ROWS) : rows, adds, dels, overLimit }
+  return { rows, adds, dels, overLimit: false }
 }
 
 /** Start -> end (inclusive) of each unchanged run; only long enough runs, so files do not grow a pile of fold bars */
@@ -201,6 +215,7 @@ type Props = { tab: Tab }
 
 export function DiffView({ tab }: Props) {
   const t = useT()
+  const maxRows = budget.diffRows()
   const [patch, setPatch] = useState<string | null>(null)
   const [binary, setBinary] = useState(false)
   const [truncated, setTruncated] = useState(false)
@@ -285,7 +300,7 @@ export function DiffView({ tab }: Props) {
     }
   }, [tab.id, tab.root, tab.rel, tab.staged, epoch])
 
-  const parsed = useMemo(() => (patch ? parsePatch(patch) : null), [patch])
+  const parsed = useMemo(() => (patch ? parsePatch(patch, maxRows) : null), [patch, maxRows])
   const runs = useMemo(() => (parsed ? foldRuns(parsed.rows) : new Map<number, number>()), [parsed])
   const langPath = useMemo(
     () => (patch ? (PATCH_PATH.exec(patch)?.[1] ?? tab.rel) : tab.rel),
@@ -399,6 +414,7 @@ export function DiffView({ tab }: Props) {
       current.left === null && current.right === null ? current : { left: null, right: null },
     )
     if (!parsed) return
+    if (parsed.overLimit || truncated) return
     const left = sideText(parsed.rows, 'left')
     const right = sideText(parsed.rows, 'right')
     if (!left && !right) return
@@ -418,7 +434,7 @@ export function DiffView({ tab }: Props) {
       alive = false
       clearTimeout(timer)
     }
-  }, [parsed, langPath])
+  }, [parsed, langPath, truncated])
 
   /** 差异为空 = 工作区和暂存区没有改动：这类标签页改为显示文件的最新内容，不再放一句提示 */
   const emptyDiff = parsed !== null && parsed.rows.length === 0
@@ -463,7 +479,7 @@ export function DiffView({ tab }: Props) {
 
   // 全文高亮同样放到下一个宏任务，避免首帧卡在解析上
   useEffect(() => {
-    if (!fileLines || fileLines.length === 0) return
+    if (!fileLines || fileLines.length === 0 || fileLines.length > maxRows || truncated) return
     let alive = true
     const timer = setTimeout(() => {
       void highlightSide(langPath, fileLines).then((result) => {
@@ -474,7 +490,7 @@ export function DiffView({ tab }: Props) {
       alive = false
       clearTimeout(timer)
     }
-  }, [fileLines, langPath])
+  }, [fileLines, langPath, maxRows, truncated])
 
   const toggleRun = (index: number) => {
     setCollapsed((current) => {
@@ -555,8 +571,8 @@ export function DiffView({ tab }: Props) {
         </span>,
       )
     }
-    const overLimit = fileLines.length > MAX_ROWS
-    const lines = overLimit ? fileLines.slice(0, MAX_ROWS) : fileLines
+    const overLimit = fileLines.length > maxRows
+    const lines = overLimit ? fileLines.slice(0, maxRows) : fileLines
     return (
       <div className="flex min-h-0 flex-1 flex-col">
         <div className="flex h-7 shrink-0 items-center gap-1.5 border-b border-line/60 bg-panel px-2 text-2xs">
@@ -567,7 +583,7 @@ export function DiffView({ tab }: Props) {
           <span className="min-w-0 truncate text-muted/80">{basename(tab.rel)}</span>
           {overLimit ? (
             <span className="ml-auto shrink-0 text-warning">
-              {t('diff.overLimit', { count: MAX_ROWS })}
+              {t('diff.overLimit', { count: maxRows })}
             </span>
           ) : null}
         </div>
@@ -692,14 +708,14 @@ export function DiffView({ tab }: Props) {
             {t('git.section.staged')}
           </span>
         ) : null}
-        {parsed && parsed.rows.length > 0 ? (
+        {parsed && parsed.rows.length > 0 && !parsed.overLimit && !truncated ? (
           <span className="shrink-0 tabular-nums">
             <span className="text-success">+{parsed.adds}</span>{' '}
             <span className="text-danger">−{parsed.dels}</span>
           </span>
         ) : null}
         {parsed?.overLimit ? (
-          <span className="shrink-0 text-warning">{t('diff.overLimit', { count: MAX_ROWS })}</span>
+          <span className="shrink-0 text-warning">{t('diff.overLimit', { count: maxRows })}</span>
         ) : truncated ? (
           <span className="shrink-0 text-warning">{t('diff.truncated')}</span>
         ) : null}

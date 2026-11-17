@@ -1,9 +1,15 @@
 # Checks & packaging
 
-**Policy: do not run the full check set while building a feature.** Write the feature, look at it with
-`pnpm app:dev`, and run the gate **once before packaging**. Every guard below is cheap on its own but
-together they turn a 10-minute "land the feature" into an hour of whack-a-mole if you run them after
-every edit — and a failing glossary entry is never what the feature is about.
+**Policy: do not run any check while coding.** Write code, docs and test code; do not run i18n,
+workflow, typecheck, Rust, doc or test guards after edits. Verification is a separate step that the user
+triggers:
+
+> User asks to verify / check / 校验 / 收尾 → load and follow
+> [`.ai/skills/verify/SKILL.md`](./skills/verify/SKILL.md).
+
+The skill runs the gate in order, fixes failures and reruns. Running the guards after every edit is
+slow and memory-heavy, and a failing glossary entry is never what the feature is about. CI runs the
+frontend and Rust guards; the skill adds `check:docs` and the full sequence.
 
 One command gates a release:
 
@@ -17,8 +23,8 @@ should not wait for a Rust type check, and CI already runs the same guards.
 
 **Never build on your own initiative.** Packaging is a user decision: do not run `pnpm app:build`,
 `pnpm app:build:win`, `pnpm app:release` or `pnpm tauri build` — **debug bundles included** — unless the
-user asked for a build in this conversation. `pnpm verify` is a check, not a build: it is fine to run,
-and it is the only one of these commands that never produces an artifact.
+user asked for a build in this conversation. `pnpm verify` is a check, not a build: the verification
+skill may run it, and it never produces an artifact.
 
 ## What `verify` runs
 
@@ -33,6 +39,9 @@ and it is the only one of these commands that never produces an artifact.
 
 `pnpm check` alone is steps 1–4: that is what CI runs on a PR (fast feedback), so it stays
 frontend-only. Steps 5–6 ride along only in `verify`.
+
+`pnpm verify` stops at the first failure. To collect several failures in one pass, run the six commands
+individually and continue after each; the skill describes the same flow.
 
 ## Typical failures
 
@@ -52,9 +61,11 @@ frontend-only. Steps 5–6 ride along only in `verify`.
 
 ## Tests
 
-`cargo test --manifest-path src-tauri/Cargo.toml` is run by CI, not by `verify`: unit tests live in
-`src-tauri/src/update.rs`, `paths.rs` and `commands/theme.rs`, and a test build compiles with the dev
-profile, which the release build does not reuse. Run it locally when you touch those three files.
+Write test code during implementation, but do not run it. The verification skill runs
+`cargo test --manifest-path src-tauri/Cargo.toml` when the user asked for tests, test code changed, or
+the change touches `src-tauri/src/update.rs`, `paths.rs` or `commands/theme.rs`. CI always runs it.
+Unit tests live in those three files; a test build uses the dev profile, which the release build does
+not reuse, which is why `verify` leaves it out.
 
 ## CI
 
@@ -65,7 +76,8 @@ profile, which the release build does not reuse. Run it locally when you touch t
   `scripts/set-version.mjs`, then `pnpm check`, then `tauri build` for the universal macOS dmg and the
   Windows NSIS exe, then `scripts/make-latest-json.mjs` writes the update manifest.
 
-Locally: `pnpm verify` before packaging, `pnpm app:dev` for everything else.
+Locally: run the verification skill when the user asks; it wraps `pnpm verify` (or the same steps) and
+adds tests when in scope. `pnpm app:dev` is only for a requested UI check.
 
 ---
-**Last updated**: 2026-11-16
+**Last updated**: 2026-11-17

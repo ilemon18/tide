@@ -341,6 +341,13 @@
     background-color: var(--c-hover-soft);
   }
 
+  /* Source control: keep the file open in the editor marked, matching the explorer's selected row */
+  .git-file-row-active,
+  .git-file-row-active.row-hover:hover {
+    background-color: var(--c-row-selected);
+    box-shadow: inset 2px 0 0 var(--c-accent);
+  }
+
   /* Git panel file rows: the trailing action buttons float absolutely over the name without taking row width,
      and the 16px gradient on the left fades the text out so long names can run to the row end */
   .row-actions-float {
@@ -644,12 +651,13 @@
   position: absolute;
   right: 1px;
   width: 6px;
-  height: 3px;
+  min-height: 3px;
   border-radius: 1px;
   background: var(--c-danger);
-  opacity: 0.7;
+  opacity: 0.78;
   pointer-events: auto;
   cursor: pointer;
+  transition: opacity var(--dur-fast) var(--ease-islands);
 }
 
 .cm-conflict-ruler-mark:hover {

@@ -527,12 +527,16 @@ pub fn git_diff(state: State<'_, AppState>, root: String, rel: String, staged: b
 pub struct GitDiffFull {
     pub patch: String,
     pub binary: bool,
-    /// Patch too large, fell back to -U3: the frontend can only show hunks, not the whole file
+    /// The patch was limited (large file / byte cap): the frontend only has part of the content
     pub truncated: bool,
 }
 
 /// Above this byte count, stop rendering the whole file and fall back to a 3-line-context patch
-const MAX_FULL_DIFF_BYTES: usize = 4 * 1024 * 1024;
+const MAX_FULL_DIFF_BYTES: usize = 1024 * 1024;
+/// Never ship a larger patch to the webview: a giant string crosses IPC and blocks the UI thread
+const MAX_PATCH_BYTES: usize = 512 * 1024;
+/// Probe both sides before asking git for a whole-file patch; a big file only needs nearby context
+const MAX_FULL_CONTEXT_FILE_BYTES: u64 = 1024 * 1024;
 
 /// Whether the file is already in the index (= tracked by git).
 ///
@@ -549,6 +553,51 @@ fn diff_args<'a>(context: &'a str, staged: bool) -> Vec<&'a str> {
         args.push("--cached");
     }
     args
+}
+
+/// Size of one blob in the index (`:path`) or a revision (`HEAD:path`). Missing / invalid specs are
+/// normal (new / deleted / untracked files) and only mean "unknown side".
+fn blob_size(root: &str, spec: &str) -> Option<u64> {
+    let (ok, stdout, _) = run_bytes(root, &["cat-file", "-s", spec]).ok()?;
+    if !ok {
+        return None;
+    }
+    String::from_utf8_lossy(&stdout).trim().parse().ok()
+}
+
+/// A whole-file patch is useful only while both sides are small. For a large file the 3-line-context
+/// patch keeps the subprocess output, IPC payload and side-by-side row count bounded.
+fn needs_context_fallback(root: &str, root_path: &Path, rel: &str, staged: bool) -> bool {
+    let worktree = std::fs::metadata(root_path.join(rel)).ok().map(|m| m.len());
+    // Unstaged diffs are by far the common path (the change-overview bar asks for one after every save):
+    // a stat is enough to catch a large worktree file without adding git subprocesses. A large file being
+    // deleted on the index side is rare and still caught by the patch-size check after collection.
+    if !staged {
+        return worktree.map_or(false, |size| size > MAX_FULL_CONTEXT_FILE_BYTES);
+    }
+    let largest = blob_size(root, &format!(":{rel}"))
+        .into_iter()
+        .chain(blob_size(root, &format!("HEAD:{rel}")))
+        .max();
+    largest.map_or(false, |size| size > MAX_FULL_CONTEXT_FILE_BYTES)
+}
+
+/// Cut a patch at the last complete line before `max_bytes`, never splitting a UTF-8 code point.
+/// A cut hunk is still readable by the frontend; the warning explains that content was omitted.
+fn truncate_patch(patch: &str, max_bytes: usize) -> String {
+    if patch.len() <= max_bytes {
+        return patch.to_string();
+    }
+    let mut end = 0;
+    for (index, _) in patch.char_indices() {
+        if index > max_bytes {
+            break;
+        }
+        end = index;
+    }
+    let prefix = &patch[..end];
+    let cut = prefix.rfind('\n').map_or(end, |line| line + 1);
+    patch[..cut].to_string()
 }
 
 #[tauri::command(async)]
@@ -595,10 +644,15 @@ pub fn git_diff_full(
         Ok(fallback)
     };
 
-    let mut patch = collect("-U100000")?;
-    let mut truncated = false;
-    if patch.len() > MAX_FULL_DIFF_BYTES {
+    let full_context = !needs_context_fallback(&root_str, &root_path, &rel_owned, staged);
+    let mut patch = collect(if full_context { "-U100000" } else { "-U3" })?;
+    let mut truncated = !full_context;
+    if full_context && patch.len() > MAX_FULL_DIFF_BYTES {
         patch = collect("-U3")?;
+        truncated = true;
+    }
+    if patch.len() > MAX_PATCH_BYTES {
+        patch = truncate_patch(&patch, MAX_PATCH_BYTES);
         truncated = true;
     }
     let binary = patch.as_bytes().iter().take(8192).any(|b| *b == 0)
@@ -1426,4 +1480,23 @@ pub fn git_conflict_reset(
         return Err(AppError::new(text.trim().to_string()));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::truncate_patch;
+
+    #[test]
+    fn truncate_patch_keeps_complete_lines_and_valid_utf8() {
+        let patch = "第一行\n第二行\n第三行\n";
+        let cut = truncate_patch(patch, 12);
+        assert_eq!(cut, "第一行\n");
+        assert!(cut.is_char_boundary(cut.len()));
+    }
+
+    #[test]
+    fn truncate_patch_leaves_short_input_untouched() {
+        let patch = "short\n";
+        assert_eq!(truncate_patch(patch, 100), patch);
+    }
 }

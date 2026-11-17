@@ -6,12 +6,11 @@
 
 ## Project
 
-Tide: lightweight macOS / Windows code editor, a lighter VS Code alternative. Tauri 2 + Rust; React 19 +
+Tide: lightweight macOS / Windows code editor. Tauri 2 + Rust; React 19 +
 TS + Vite 8 + Tailwind 4; CodeMirror 6; xterm.js + portable-pty; zustand 5; 21 themes + `system`; 6 locales (English
-is the source of truth).
+is the source).
 
-The trade-off throughout is **low memory and low startup cost**: the numbers under "Performance ceilings"
-are deliberate.
+**Low memory and low startup cost** are deliberate; see the ceilings below.
 
 ## File map
 
@@ -108,7 +107,7 @@ Five places: `palettes.ts` (`ui` / `syntax` / `terminal` + `CYCLE_ORDER`), `appl
 
 ## Commands
 
-`pnpm app:dev` is the everyday one (frontend only: `pnpm dev`); `pnpm icon` regenerates app icons + the file icon table. **Never package unless the user asked**: no `pnpm app:build`, `app:build:win`, `app:release` or `tauri build` (debug bundles included). Checks live in [checks.md](./checks.md).
+`pnpm app:dev` is only for a requested UI check; `pnpm icon` regenerates app icons + the file icon table. **Never package unless the user asked**: no `pnpm app:build`, `app:build:win`, `app:release` or `tauri build` (debug bundles included). **No checks, tests or builds while coding**; when the user asks to verify, follow [`.ai/skills/verify/SKILL.md`](./skills/verify/SKILL.md).
 
 ---
-**Last updated**: 2026-11-16
+**Last updated**: 2026-11-17

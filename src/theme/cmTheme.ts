@@ -126,32 +126,49 @@ export function buildEditorTheme(p: Palette, look: EditorAppearance): Extension 
 
       // Conflict resolution view: current (ours) greenish, incoming (theirs) bluish, base in gray
       '.cm-conflict-ours': {
-        backgroundColor: `${p.terminal.green}1c`,
-        borderLeft: `2px solid ${p.terminal.green}`,
+        backgroundColor: `${p.terminal.green}2b`,
+        borderLeft: `3px solid ${p.terminal.green}`,
       },
       '.cm-conflict-theirs': {
-        backgroundColor: `${p.terminal.blue}1c`,
-        borderLeft: `2px solid ${p.terminal.blue}`,
+        backgroundColor: `${p.terminal.blue}2b`,
+        borderLeft: `3px solid ${p.terminal.blue}`,
       },
       '.cm-conflict-base': {
-        backgroundColor: `${ui.muted}12`,
-        borderLeft: `2px solid ${ui.muted}55`,
+        backgroundColor: `${ui.muted}18`,
+        borderLeft: `3px solid ${ui.muted}66`,
         color: `${ui.fg}bb`,
       },
       '.cm-conflict-marker': {
-        backgroundColor: `${ui.warning}12`,
+        backgroundColor: `${ui.warning}20`,
         color: `${ui.muted}`,
         fontWeight: '600',
       },
-      '.cm-conflict-actions': {
-        display: 'inline-flex',
+      '.cm-conflict-start': {
+        borderTop: `1px solid ${ui.warning}66`,
+      },
+      '.cm-conflict-end': {
+        borderBottom: `1px solid ${ui.warning}66`,
+      },
+      '.cm-conflict-sep': {
+        color: `${ui.muted}`,
+      },
+      '.cm-conflict-lens': {
+        display: 'flex',
         alignItems: 'center',
-        gap: '4px',
-        marginLeft: '10px',
-        verticalAlign: 'middle',
+        gap: '6px',
+        minHeight: '20px',
+        padding: '1px 8px',
         userSelect: 'none',
         fontSize: '11px',
         lineHeight: '1.4',
+        whiteSpace: 'nowrap',
+        backgroundColor: `${ui.panelAlt}`,
+        borderBottom: `1px solid ${ui.border}`,
+      },
+      '.cm-conflict-lens-actions': {
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: '4px',
       },
       '.cm-conflict-btn': {
         border: `1px solid ${ui.border}`,
@@ -170,6 +187,31 @@ export function buildEditorTheme(p: Palette, look: EditorAppearance): Extension 
       '.cm-conflict-hint': {
         color: ui.muted,
         marginLeft: '2px',
+      },
+      '.cm-conflict-line-actions': {
+        display: 'none',
+        alignItems: 'center',
+        marginLeft: '8px',
+        verticalAlign: 'middle',
+        userSelect: 'none',
+      },
+      '.cm-line:hover .cm-conflict-line-actions': {
+        display: 'inline-flex',
+      },
+      '.cm-conflict-line-btn': {
+        border: `1px solid ${ui.border}`,
+        borderRadius: '3px',
+        backgroundColor: ui.panelAlt,
+        color: ui.fg,
+        padding: '0 5px',
+        cursor: 'pointer',
+        fontFamily: 'inherit',
+        fontSize: '10px',
+        lineHeight: '16px',
+      },
+      '.cm-conflict-line-btn:hover': {
+        backgroundColor: ui.hover,
+        borderColor: ui.accent,
       },
       '.cm-readonly .cm-cursor': { display: 'none' },
     },
