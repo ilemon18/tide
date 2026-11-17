@@ -26,6 +26,7 @@ export type IconName =
   | 'check-circle'
   | 'alert-circle'
   | 'info'
+  | 'clock'
   | 'undo'
   | 'trash'
   | 'pen'
@@ -47,8 +48,30 @@ export type IconName =
   | 'split-right'
   | 'pin'
   | 'replace'
+  | 'agent'
+  | 'send'
+  | 'stop'
 
 const shapes: Record<IconName, ReactNode> = {
+  // Sparkle: the agent entry (large four-point star with a small companion)
+  agent: (
+    <>
+      <path d="M11 3.5 12.7 9l5.5 1.7-5.5 1.7L11 18l-1.7-5.6L3.8 10.7 9.3 9 11 3.5Z" />
+      <path d="M18.2 15.2l.8 2.1 2.1.8-2.1.8-.8 2.1-.8-2.1-2.1-.8 2.1-.8.8-2.1Z" />
+    </>
+  ),
+  // Paper plane: send
+  send: (
+    <>
+      <path d="M4.5 11.5 20 4l-5 16-3.6-6.2L4.5 11.5Z" />
+      <path d="M11.4 13.8 20 4" />
+    </>
+  ),
+  stop: (
+    <>
+      <rect x="6.5" y="6.5" width="11" height="11" rx="2.2" />
+    </>
+  ),
   // Two arrows swapping places: replace / swap
   replace: (
     <>
@@ -183,6 +206,12 @@ const shapes: Record<IconName, ReactNode> = {
       <circle cx="12" cy="12" r="8.6" />
       <path d="M12 11.2v5.1" />
       <circle cx="12" cy="7.9" r="1.05" fill="currentColor" stroke="none" />
+    </>
+  ),
+  clock: (
+    <>
+      <circle cx="12" cy="12" r="8.6" />
+      <path d="M12 7.2v5.1l3.1 1.9" />
     </>
   ),
   undo: (

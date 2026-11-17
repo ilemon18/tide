@@ -83,8 +83,14 @@ async function buildFromDisk(tab: Tab): Promise<EditorState | null> {
  * state (disk may hold older content).
  */
 export async function ensureEditorState(tab: Tab, groupId: TabGroupId): Promise<EditorState | null> {
-  // Image preview / diff / welcome / settings pages mount no EditorState, each renders its own component
-  if (tab.kind === 'image' || tab.kind === 'diff' || tab.kind === 'settings' || tab.kind === 'welcome')
+  // Image preview / diff / welcome / settings / chat mount no EditorState, each renders its own component
+  if (
+    tab.kind === 'image' ||
+    tab.kind === 'diff' ||
+    tab.kind === 'settings' ||
+    tab.kind === 'welcome' ||
+    tab.kind === 'chat'
+  )
     return null
   const key = editorStateKey(tab.id, groupId, useTabs.getState().groups)
   const cached = getEditorState(key)

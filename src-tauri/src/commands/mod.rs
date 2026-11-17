@@ -1,3 +1,4 @@
+pub mod agent;
 pub mod blame;
 pub mod format;
 pub mod fs;

@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use parking_lot::Mutex;
 
+use crate::commands::agent::{kill_turns, AgentTurn};
 use crate::commands::terminal::PtySession;
 use crate::error::{AppError, AppResult};
 use crate::paths;
@@ -43,6 +44,8 @@ pub struct AppState {
     /// opens one — a project should occupy exactly one window.
     opens: Mutex<()>,
     pub ptys: Mutex<HashMap<String, Arc<PtySession>>>,
+    /// Running agent CLIs, keyed by chat id (one turn per chat)
+    pub agent_turns: Mutex<HashMap<String, Arc<AgentTurn>>>,
     /// One file watcher per workspace root (removed when its refcount hits zero).
     pub watchers: Mutex<HashMap<PathBuf, WatchHandle>>,
 }
@@ -241,6 +244,18 @@ impl AppState {
         for s in sessions {
             s.kill();
         }
+    }
+
+    /// Stop every agent CLI (app exit).
+    pub fn kill_all_agent_turns(&self) {
+        let mut turns = self.agent_turns.lock();
+        kill_turns(&mut turns, None);
+    }
+
+    /// Reap the agent turns a destroyed window started.
+    pub fn kill_window_agent_turns(&self, owner: &str) {
+        let mut turns = self.agent_turns.lock();
+        kill_turns(&mut turns, Some(owner));
     }
 
     /// Reap the terminals a destroyed window opened.

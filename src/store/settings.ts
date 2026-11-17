@@ -47,6 +47,10 @@ export const DEFAULT_SETTINGS: Settings = {
   inlineBlame: false,
   terminalWebgl: false,
   lightweightMode: false,
+  agentEnabled: true,
+  agentDefaultProvider: '',
+  agentDefaultModel: '',
+  agentDefaultEffort: '',
   sidebarWidth: 220,
   panelHeight: 240,
   sidebarVisible: true,
@@ -93,6 +97,10 @@ const SHARED_KEYS = [
   'inlineBlame',
   'terminalWebgl',
   'lightweightMode',
+  'agentEnabled',
+  'agentDefaultProvider',
+  'agentDefaultModel',
+  'agentDefaultEffort',
 ] as const satisfies readonly (keyof Settings)[]
 
 /** Compare field by field so JSON key order does not matter */
@@ -176,6 +184,10 @@ function snapshot(s: SettingsStore): Settings {
     inlineBlame: s.inlineBlame,
     terminalWebgl: s.terminalWebgl,
     lightweightMode: s.lightweightMode,
+    agentEnabled: s.agentEnabled,
+    agentDefaultProvider: s.agentDefaultProvider,
+    agentDefaultModel: s.agentDefaultModel,
+    agentDefaultEffort: s.agentDefaultEffort,
     sidebarWidth: s.sidebarWidth,
     panelHeight: s.panelHeight,
     sidebarVisible: s.sidebarVisible,
@@ -244,6 +256,13 @@ function migrate(raw: Settings): Settings {
   if (!['auto', 'prettier', 'rustfmt', 'gofmt', 'black'].includes(next.formatTool)) {
     next.formatTool = DEFAULT_SETTINGS.formatTool
   }
+
+  // Agent defaults: free-form ids stay as written (a provider may add models later); only
+  // the switch itself is normalized, so a corrupt value cannot hide the feature.
+  if (typeof next.agentEnabled !== 'boolean') next.agentEnabled = true
+  if (typeof next.agentDefaultProvider !== 'string') next.agentDefaultProvider = ''
+  if (typeof next.agentDefaultModel !== 'string') next.agentDefaultModel = ''
+  if (typeof next.agentDefaultEffort !== 'string') next.agentDefaultEffort = ''
   return next
 }
 

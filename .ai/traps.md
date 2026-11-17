@@ -33,13 +33,13 @@ git status change** — only a file that really vanished from disk gets closed.
 
 ## Editor & tabs
 
-- Tab kinds are `file | diff | image | welcome | settings | untitled`. `diff` and `image` have no
+- Tab kinds are `file | diff | image | welcome | settings | untitled | chat`. `diff` and `image` have no
   `EditorState`; `welcome` and `settings` are virtual tabs (`root` empty): they are not written to the
   layout session, do not enter `closedTabs`, and get no state. `untitled` does have a state but no file:
   its text is seeded through `takeUntitledSeed` on the first build, it is mirrored into localStorage for
   hot exit (`lib/untitledDrafts.ts`), and ⌘S goes through `saveAs` instead of writing. Adding a kind means
   touching `editor/openState.ts`, `tabs.activate`, the filter in `lib/editorSession.ts`, and TabBar's
-  icon/title.
+  icon/title, and (for chat) `lib/agentSession.ts` for restore plus `AgentChat` in `EditorHost`.
 - CodeMirror documents are always `\n` internally: **every write path must restore `tab.eol`**, or a CRLF
   file is rewritten whole and the diff becomes the entire file.
 - Indent/newline are per file (`tab.indentSize` / `tab.useTabs` / `tab.eol`); `settings.tabSize` is only
@@ -51,6 +51,29 @@ git status change** — only a file that really vanished from disk gets closed.
 - Editor DOM built by extensions (conflict buttons, inline blame, fold arrows) does not re-render with
   React: a locale switch must dispatch `localeEffect` from `src/editor/locale.ts`, and the unsubscribe
   function from `watchLocale` has to be wired into the plugin's `destroy()`.
+
+## Agent
+
+**Entry → tab**: title-bar button, explorer double-click / context menu
+(`e.detail > 1` suppresses the second row click) or the palette → `useAgent.newChat`,
+which creates `chats[chatId]`, opens a `kind: 'chat'` tab and seeds any
+`@file` / `@folder` mention into the composer draft. Sending runs `agent_send`
+(headless CLI in the workspace root). One turn per chat, four at once.
+
+**Interject**: sending during a turn appends to a per-chat FIFO (`queues` in the store),
+not the running stdin. `done` drains one message as the next turn; Stop also drains, so
+“send now” = queue + Stop. Auto-drained turns must not clear a draft typed meanwhile.
+
+**CLI config wins**: an empty model / effort sends no `--model` / `--effort` flag, so a
+custom Codex provider or model in the user config still applies. Never auto-select a catalog model,
+and a per-chat pick must not rewrite the global default (that would override their config forever).
+
+**Streaming**: Rust parses JSONL into `agent:event` (session / textDelta / tool* / done), coalesces
+text every 24ms, and the store reducer appends by item id. `done` writes the transcript; Stop,
+window close, app exit and disabling the setting kill the process group.
+
+**Persistence**: `agent/chats/<id>.json` (opaque frontend JSON) and `agent/tabs.json`; both flush
+on `app:hidden`. Closing a chat tab stops its turn and keeps the file.
 
 ## File tree
 

@@ -51,6 +51,9 @@ import { onUpdateFlush } from './lib/update'
 import { useT, onLocaleChange } from './i18n'
 import { refreshEditorDomLabels } from './editor/locale'
 import { ensureEditorState } from './editor/openState'
+import { useAgent } from './store/agent'
+import { installAgentEvents } from './lib/agentEvents'
+import { flushAgentTabs, installAgentBridge, restoreAgentChats } from './lib/agentSession'
 
 // The terminal is heavy (xterm + webgl): load on demand so the first screen does not carry it
 const TerminalPanel = lazy(() => import('./components/TerminalPanel'))
@@ -64,6 +67,7 @@ export function App() {
   const sidebarVisibleSetting = useSettings((s) => s.sidebarVisible)
   const panelVisibleSetting = useSettings((s) => s.panelVisible)
   const sidebarWidth = useSettings((s) => s.sidebarWidth)
+  const agentEnabled = useSettings((s) => s.agentEnabled)
   const patchSettings = useSettings((s) => s.patch)
   const activeTabId = useTabs((s) => s.activeId)
   const terminalVisible = useTerminal((s) => s.visible)
@@ -89,6 +93,8 @@ export function App() {
     // Release editor documents and caches on blur / hide
     installMemoryLifecycle()
     installEditorSession()
+    installAgentEvents()
+    installAgentBridge()
     let cancelled = false
     void (async () => {
       try {
@@ -121,6 +127,9 @@ export function App() {
         if (!cancelled) await restoreEditorSession()
         if (!cancelled) useTabs.getState().restoreUntitledDrafts()
       } finally {
+        // Chat tabs are restored on every startup path (launch args / saved project / blank):
+        // they are filtered by the roots that are actually open.
+        if (!cancelled) await restoreAgentChats()
         // Warm the active file's state before the first frame: the gate below opens on an editor that already
         // has its text (and its language pack), instead of an empty pane that fills in a frame later
         const snapshot = useTabs.getState()
@@ -236,6 +245,9 @@ export function App() {
       flushEditorSession()
       // Layout (roots + which folders are open): the next start paints the same tree
       useWorkspace.getState().flushSession()
+      // Agent transcripts and open chat tabs
+      useAgent.getState().flushChats()
+      flushAgentTabs()
     }
     let unlisten: (() => void) | null = null
     void listen('app:hidden', flush)
@@ -249,6 +261,23 @@ export function App() {
       window.removeEventListener('beforeunload', flush)
     }
   }, [])
+
+  // Turning the agent off must not leave a CLI writing into the project behind
+  useEffect(() => {
+    return useSettings.subscribe((state, previous) => {
+      if (!previous.agentEnabled || state.agentEnabled) return
+      const running = useAgent.getState().running
+      for (const chatId of Object.keys(running)) void useAgent.getState().stop(chatId)
+    })
+  }, [])
+
+  // Detect local agent CLIs after the first paint: a new chat then starts with a usable agent
+  // instead of showing an empty picker for a couple of seconds
+  useEffect(() => {
+    if (!hydrated || !agentEnabled) return
+    const timer = setTimeout(() => void useAgent.getState().loadProviders(), 1200)
+    return () => clearTimeout(timer)
+  }, [hydrated, agentEnabled])
 
   // Keep git caches in sync on project switch / close: the old project's state is dropped at once and the
   // new one probed immediately, so the Source Control badge does not keep the previous project's count.

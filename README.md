@@ -22,13 +22,27 @@
 
 ## Features
 
-- **Light on memory**: Tauri-based, no bundled Chromium, most rarely used VS Code features removed, and tabs and caches released on demand.
-- **Familiar editing**: VS Code shortcuts, command palette, tabs, split view, and find & replace.
-- **Structure outline**: a per-file symbol tree in the sidebar, plus `@` symbol jump in quick open.
-- **Built-in Git**: Stage, commit, push/pull, diffs, inline blame, and conflict resolution.
-- **Native terminal**: Multi-tab PTY starting in the current file's directory.
-- **Global search**: Respects .gitignore, with regex, path filters, and batch replace.
-- **Optional formatting**: Off by default; matches formatters to file types when enabled.
-- **Session restore**: Restores projects, files, and cursor positions, with multi-window support.
-- **21 themes**: Popular color schemes with system-theme support.
-- **Six languages**: Simplified/Traditional Chinese, English, Japanese, Korean, and Spanish; switch instantly.
+- **Built-in AI agent**:  
+  Chat with locally installed Claude Code or Codex in dedicated tabs, stream reasoning and tool activity, reference files or folders with `@`, choose the model and reasoning effort, and resume conversations across sessions.
+- **Light on memory**:  
+  Tauri-based, no bundled Chromium, most rarely used VS Code features removed, and tabs and caches released on demand.
+- **Familiar editing**:  
+  VS Code shortcuts, command palette, tabs, split view, and find & replace.
+- **Structure outline**:  
+  A per-file symbol tree in the sidebar, plus `@` symbol jump in quick open.
+- **Built-in Git**:  
+  Stage, commit, push/pull, diffs, inline blame, and conflict resolution.
+- **Native terminal**:  
+  Multi-tab PTY starting in the current file's directory.
+- **Global search**:  
+  Respects .gitignore, with regex, path filters, and batch replace.
+- **Optional formatting**:  
+  Off by default; matches formatters to file types when enabled.
+- **Session restore**:  
+  Restores projects, files, and cursor positions, with multi-window support.
+- **Editor customization**:  
+  Choose editor fonts and sizes, with optional programming ligatures.
+- **21 themes**:  
+  Popular color schemes with system-theme support.
+- **Six languages**:  
+  Simplified/Traditional Chinese, English, Japanese, Korean, and Spanish; switch instantly.

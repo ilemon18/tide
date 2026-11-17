@@ -123,6 +123,12 @@ export type Settings = {
   terminalWebgl: boolean
   /** Lightweight mode: smaller caches, fewer background jobs, off by default */
   lightweightMode: boolean
+  /** Built-in agent service: title-bar entry, explorer double-click, chat tabs */
+  agentEnabled: boolean
+  /** Provider / model / effort new chats start with; empty = auto or the CLI default */
+  agentDefaultProvider: string
+  agentDefaultModel: string
+  agentDefaultEffort: string
   sidebarWidth: number
   panelHeight: number
   sidebarVisible: boolean
@@ -289,6 +295,68 @@ export function errorText(e: unknown): string {
   return t('common.unknownError')
 }
 
+
+/** A local agent CLI found on this machine */
+export type AgentProviderInfo = {
+  id: string
+  name: string
+  /** Absolute binary path; null when not installed */
+  command: string | null
+  version: string | null
+  installed: boolean
+  /** False = detected, but this version of Tide cannot drive it yet */
+  supported: boolean
+}
+
+export type AgentModelInfo = {
+  id: string
+  label: string
+  /** Reasoning levels this model accepts; empty = use the catalog's list */
+  efforts: string[]
+  defaultEffort: string
+}
+
+export type AgentCatalog = {
+  provider: string
+  models: AgentModelInfo[]
+  /** Levels offered for the CLI default model and custom ids */
+  efforts: string[]
+  defaultModel: string
+}
+
+/** A file or folder mentioned in a prompt (workspace-relative) */
+export type AgentMention = { rel: string; isDir: boolean }
+
+export type AgentTurnRequest = {
+  chatId: string
+  root: string
+  provider: string
+  /** CLI session to resume; null on the first turn */
+  sessionId: string | null
+  model: string | null
+  effort: string | null
+  prompt: string
+  mentions: AgentMention[]
+}
+
+/** One provider-neutral stream event; text and tool items are keyed by id */
+export type AgentEvent =
+  | { kind: 'session'; sessionId: string }
+  | { kind: 'textDelta'; itemId: string; text: string }
+  | { kind: 'thinking'; itemId: string; text: string }
+  | { kind: 'toolStart'; itemId: string; title: string }
+  | { kind: 'toolDetail'; itemId: string; detail: string }
+  | { kind: 'toolEnd'; itemId: string; ok: boolean; output: string | null }
+  | { kind: 'notice'; text: string }
+  | { kind: 'stderr'; text: string }
+  | { kind: 'done'; ok: boolean; cancelled: boolean; code: number | null }
+
+export type AgentEventPayload = { chatId: string; event: AgentEvent }
+
+/** A chat tab restored through agent/tabs.json */
+export type AgentTabRef = { id: string; root: string }
+export type AgentTabs = { tabs: AgentTabRef[]; active: string | null }
+
 export const api = {
   // ---- File system ----
   openFolder: (path: string) => invoke<WorkspaceInfo>('open_folder', { path }),
@@ -433,4 +501,19 @@ export const api = {
   rememberRecent: (path: string, name: string) =>
     invoke<RecentWorkspace[]>('remember_recent', { path, name }),
   removeRecent: (path: string) => invoke<RecentWorkspace[]>('remove_recent', { path }),
+
+  // ---- Agent ----
+  agentProviders: (force = false) => invoke<AgentProviderInfo[]>('agent_providers', { force }),
+  agentModels: (provider: string, force = false) =>
+    invoke<AgentCatalog>('agent_models', { provider, force }),
+  agentSend: (request: AgentTurnRequest) => invoke<void>('agent_send', { request }),
+  agentCancel: (chatId: string) => invoke<void>('agent_cancel', { chatId }),
+  /** Transcripts are opaque frontend JSON; the backend only checks the id and the size */
+  agentChatSave: (id: string, body: string) =>
+    invoke<void>('agent_chat_save', { id, body }),
+  agentChatLoad: (id: string) => invoke<string | null>('agent_chat_load', { id }),
+  agentChatDelete: (id: string) => invoke<void>('agent_chat_delete', { id }),
+  agentTabsSave: (tabs: AgentTabRef[], active: string | null) =>
+    invoke<void>('agent_tabs_save', { tabs, active }),
+  agentTabsLoad: () => invoke<AgentTabs>('agent_tabs_load'),
 }

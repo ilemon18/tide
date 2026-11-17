@@ -20,8 +20,9 @@ is the source).
 | UI components, settings sections | `src/components/` (only `EditorView` is `EditorHost.tsx`), `lib/settingsSections.ts` |
 | Diff view, conflicts, syntax colours | `src/components/DiffView.tsx`, `diffHighlight.ts`, `lib/conflictFiles.ts`, `src/theme/syntax.ts` |
 | CodeMirror | `src/editor/`: `setup` `stateCache` `stateKeys` `viewRef` `openState` `mirror` `folding` `languages` `largeFile` `indentGuides` `blame` `conflicts` `highlight` `importLinks` `scrollMemory` `signals` `locale` `outline` |
-| State slices (13) | `src/store/`: `workspace` `tabs` `git` `search` `terminal` `settings` `ui` `blame` `watcher` `fileIndex` `commitHover` `folderChain` `update` |
+| State slices (14) | `src/store/`: `workspace` `tabs` `git` `search` `terminal` `settings` `ui` `blame` `watcher` `fileIndex` `commitHover` `folderChain` `update` `agent` |
 | Folder chain compaction | `src/store/folderChain.ts`, `resolve_dir_chain` in `src-tauri/src/commands/fs.rs`, `buildRows` in `FileTree.tsx` |
+| Built-in agent (chat tabs, local CLI turns) | `src/components/AgentChat.tsx`, `AgentComposer.tsx`, `AgentMessage.tsx`, `AgentMarkdown.tsx`, `AgentPickers.tsx`, `src/store/agent.ts`, `src/lib/agentSession.ts`, `src/lib/agentEvents.ts`, `src/lib/agentBridge.ts`, `src-tauri/src/commands/agent.rs`, `src-tauri/src/agent/{mod,providers,claude,codex,store}.rs` — [agent.md](./agent.md) |
 | IPC + DTO types | `src/lib/ipc.ts` (**only** `invoke` wrapper) |
 | Flows, palette entries, tab titles, untitled buffers, memory | `src/lib/actions.ts`, `commands.ts`, `tabTitle.ts`, `untitledDrafts.ts`, `memory.ts`, `memoryBudget.ts`, `layoutBus.ts` |
 | Text format, session restore | `src/lib/textMeta.ts`, `editorSession.ts`, backend `save_open_tabs` |
@@ -44,7 +45,7 @@ is the source).
 - **Theme, font size, blame, word wrap use `Compartment.reconfigure`** (a rebuilt state drops undo history).
 - **No hex colours**: use the `--c-*` tokens (`bg-bg`, `text-fg`, `border-line`, `bg-panel`).
 - **UI copy only through `t()` / `tp()`**, no literals (`pnpm i18n:scan` enforces it); Chinese comments are fine.
-- Fixed event names: `pty:data` `pty:exit` `fs:changed` `settings:changed` `session:recent-changed` `update:progress` `update:flush` `app:hidden` `app:shown` `app:open-file`.
+- Fixed event names: `pty:data` `pty:exit` `agent:event` `fs:changed` `settings:changed` `session:recent-changed` `update:progress` `update:flush` `app:hidden` `app:shown` `app:open-file`.
 
 ### Rust
 - **Paths travel as `(root, rel)`**, `rel` relative to the workspace root; the frontend never sends absolute paths.
@@ -53,7 +54,7 @@ is the source).
 - **All errors are `AppResult<T>`**: `AppError::c` / `AppError::p` for translatable copy, `AppError::new` only for external tool output. No `unwrap()` on user input.
 - **DTOs use `#[serde(rename_all = "camelCase")]`** and match `src/lib/ipc.ts` one to one.
 - **Git is a subprocess** (`git -C <root>`) with `GIT_TERMINAL_PROMPT=0`, `GIT_OPTIONAL_LOCKS=0`, editors and pager disabled, `LC_ALL=C`, stdin closed; 180s network timeout.
-- **PTY lifetime is entirely in Rust** (`state.ptys`); the frontend only sends input / resize / close.
+- **PTY lifetime is entirely in Rust** (`state.ptys`); the frontend only sends input / resize / close. Agent CLIs are owned the same way (`state.agent_turns`, one turn per chat), and their prompt travels over stdin.
 
 ### Updates & window scope
 - Check, download and install happen in Rust (`update.rs`); the webview never touches the network, it only drives the state machine.
@@ -97,10 +98,12 @@ Five places: `palettes.ts` (`ui` / `syntax` / `terminal` + `CYCLE_ORDER`), `appl
 | Blame / formatting | blame: current file only, 200ms debounce, 2MB / 5000 lines, 24-entry cache (off in light). Formatting: nothing above 500k chars, bundled Prettier on demand |
 | Text meta / restore | format probe ≤400 lines (first 200 chars each); restore ≤12 files (4 light), ≤2MB each, active file last so the LRU keeps it (session ≤20 tabs, 20 closed) |
 | Terminal | rAF-batched writes, 128KB backlog per frame; scrollback 2000 (1000 light); WebGL off by default; xterm instances stay alive (switching must keep the screen) |
+| Agent chats | one CLI per turn (max 4 running), transcript trimmed to 300 messages / 2MB before the atomic write, tool output 8KB, stderr 200 lines; only chats with an open tab stay in memory |
 | Git / memory | one `status --porcelain=v2 -z`, 350ms debounce, branch TTL 30s, no setState when the signature is unchanged; caches dropped after 30s unfocused (5s light); `app:hidden` also drops inactive EditorStates, search results, the ⌘P index |
 
 ## Data & config
 
+- Agent transcripts live in `<config>/agent/chats/<id>.json`, open chat tabs in `<config>/agent/tabs.json` (primary window only).
 - `settings.json` / `session.json` live in `app_config_dir()` (macOS `~/Library/Application Support/com.aitify.tide/`), read/written under a lock by `commands/theme.rs`.
 - Defaults exist twice and must match: `DEFAULT_SETTINGS` (`src/store/settings.ts`) and `Settings::default` (`theme.rs`). A fresh install reads the Rust side (`schemaVersion` 0 → frontend migrates → writes back); after that `settings.json` wins.
 - `SHARED_KEYS` decides what syncs across windows (`locale` does, layout fields do not). Workspace roots are refcounted in `state.rs`: at zero the PTYs and watcher are reaped. First paint theme comes from `public/theme-boot.js` (no inline scripts under CSP).

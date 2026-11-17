@@ -1,6 +1,8 @@
 import { useMemo } from 'react'
 import { activeRoot, IS_PRIMARY_WINDOW, useWorkspace } from '../store/workspace'
 import { useTabs } from '../store/tabs'
+import { useSettings } from '../store/settings'
+import { useAgent } from '../store/agent'
 import { Icon } from './Icon'
 import { UpdateBadge } from './UpdateBadge'
 import { newWindow, revealInExplorer } from '../lib/actions'
@@ -45,6 +47,8 @@ export function TitleBar() {
   const roots = useWorkspace((s) => s.roots)
   const activeId = useTabs((s) => s.activeId)
   const tabs = useTabs((s) => s.tabs)
+  const agentEnabled = useSettings((s) => s.agentEnabled)
+  const runningChats = useAgent((s) => Object.keys(s.running).length)
 
   const active = tabs.find((t) => t.id === activeId)
   // Breadcrumbs follow the active tab's project so they can't disagree with activeRoot
@@ -52,7 +56,14 @@ export function TitleBar() {
 
   const crumbs = useMemo(() => {
     // Welcome/settings tabs have no file path, so only the project badge is shown
-    if (!active || active.kind === 'welcome' || active.kind === 'settings' || !root) return []
+    if (
+      !active ||
+      active.kind === 'welcome' ||
+      active.kind === 'settings' ||
+      active.kind === 'chat' ||
+      !root
+    )
+      return []
     const parts = active.rel.split('/')
     return parts.map((part, index) => ({
       label: part,
@@ -97,6 +108,19 @@ export function TitleBar() {
 
       <div className="app-region-no-drag flex shrink-0 items-center gap-1">
         <UpdateBadge primary={IS_PRIMARY_WINDOW} />
+        {agentEnabled ? (
+          <button
+            data-tip={t('titlebar.agentTip')}
+            aria-label={t('titlebar.agentTip')}
+            onClick={() => useAgent.getState().newChat()}
+            className="relative flex h-6 w-6 items-center justify-center rounded-[var(--r-control)] text-muted transition-colors duration-fast hover:bg-hover hover:text-fg"
+          >
+            <Icon name="agent" size={15} />
+            {runningChats > 0 ? (
+              <span className="absolute right-[3px] top-[3px] h-1.5 w-1.5 rounded-full bg-accent" />
+            ) : null}
+          </button>
+        ) : null}
         <button
           data-tip={t('titlebar.welcomeTip')}
           onClick={() => useTabs.getState().openWelcome()}

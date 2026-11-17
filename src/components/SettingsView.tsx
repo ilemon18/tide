@@ -8,6 +8,8 @@ import { errorText, type Settings } from '../lib/ipc'
 import { THEME_GROUPS, palettes, themeLabel } from '../theme/palettes'
 import { FORMAT_MODES, FORMAT_TOOLS } from '../lib/formatters'
 import { ICON_THEME_OPTIONS } from '../lib/iconTheme'
+import { useAgent } from '../store/agent'
+import { Picker, effortLabel } from './AgentPickers'
 import { MONO_FONT_OPTIONS, monoStack } from '../lib/fonts'
 import { SETTINGS_SECTIONS, type SettingsSectionId } from '../lib/settingsSections'
 import { Icon } from './Icon'
@@ -146,6 +148,27 @@ export function SettingsView() {
 
   const set = <K extends keyof Settings>(key: K, value: Settings[K]) =>
     patch({ [key]: value } as Partial<Settings>)
+
+  // Agent page: the provider scan is lazy (first open of the page / new chat), never at startup
+  const agentProviders = useAgent((s) => s.providers)
+  const agentCatalog = useAgent((s) => s.catalogs[settings.agentDefaultProvider])
+  const agentModelInfo = agentCatalog?.models.find(
+    (item) => item.id === settings.agentDefaultModel,
+  )
+  const agentEfforts = agentModelInfo && agentModelInfo.efforts.length > 0
+    ? agentModelInfo.efforts
+    : (agentCatalog?.efforts ?? ['low', 'medium', 'high', 'xhigh', 'max'])
+  const usableAgents = (agentProviders ?? []).filter(
+    (provider) => provider.installed && provider.supported,
+  )
+  useEffect(() => {
+    if (section !== 'agent') return
+    void useAgent.getState().loadProviders()
+  }, [section])
+  useEffect(() => {
+    if (section !== 'agent' || !settings.agentDefaultProvider) return
+    void useAgent.getState().loadCatalog(settings.agentDefaultProvider)
+  }, [section, settings.agentDefaultProvider])
 
   // The version comes from the backend (`app_version` → Cargo version, set by the tag),
   // so the frontend no longer hardcodes one — the old hardcoded 0.2.0 drifted from the tag.
@@ -487,6 +510,149 @@ export function SettingsView() {
           <Toggle value={settings.terminalWebgl} onChange={(v) => set('terminalWebgl', v)} />
         </Row>
       </Card>
+    ),
+
+    agent: (
+      <>
+        <Card title={t('settings.agent.card')}>
+          <Row label={t('settings.agent.enable')} hint={t('settings.agent.enableHint')}>
+            <Toggle value={settings.agentEnabled} onChange={(v) => set('agentEnabled', v)} />
+          </Row>
+          <Row
+            label={t('settings.agent.defaultAgent')}
+            hint={t('settings.agent.defaultAgentHint')}
+          >
+            <Picker
+              label=""
+              value={settings.agentDefaultProvider}
+              options={[
+                { id: '', label: t('agent.picker.auto') },
+                ...usableAgents.map((provider) => ({ id: provider.id, label: provider.name })),
+              ]}
+              onPick={(id) => {
+                set('agentDefaultProvider', id)
+                set('agentDefaultModel', '')
+                set('agentDefaultEffort', '')
+              }}
+            />
+          </Row>
+          <Row
+            label={t('settings.agent.defaultModel')}
+            hint={t('settings.agent.defaultModelHint')}
+          >
+            <Picker
+              label=""
+              value={settings.agentDefaultModel}
+              options={[
+                { id: '', label: t('agent.picker.defaultModel') },
+                ...(agentCatalog?.models ?? []).map((model) => ({
+                  id: model.id,
+                  label: model.label,
+                })),
+              ]}
+              onPick={(id) => {
+                const model = agentCatalog?.models.find((item) => item.id === id)
+                const allowed =
+                  model && model.efforts.length > 0
+                    ? model.efforts
+                    : (agentCatalog?.efforts ?? [])
+                set('agentDefaultModel', id)
+                if (
+                  settings.agentDefaultEffort &&
+                  allowed.length > 0 &&
+                  !allowed.includes(settings.agentDefaultEffort)
+                ) {
+                  set('agentDefaultEffort', model?.defaultEffort ?? '')
+                }
+              }}
+              disabled={!settings.agentDefaultProvider}
+            />
+          </Row>
+          <Row label={t('settings.agent.defaultComplexity')}>
+            <Picker
+              label=""
+              value={settings.agentDefaultEffort}
+              options={[
+                { id: '', label: t('agent.picker.defaultEffort') },
+                ...agentEfforts.map((level) => ({ id: level, label: effortLabel(level, level) })),
+              ]}
+              onPick={(id) => set('agentDefaultEffort', id)}
+              disabled={!settings.agentDefaultProvider}
+            />
+          </Row>
+        </Card>
+
+        <Card title={t('settings.agent.detected')}>
+          <div className="flex items-center justify-between gap-3 border-b border-line/60 px-4 py-2 text-xs text-muted">
+            <span className="min-w-0">{t('settings.agent.detectedHint')}</span>
+            <button
+              type="button"
+              onClick={() => {
+                const agent = useAgent.getState()
+                void agent.loadProviders(true).then(() => {
+                  // A CLI installed after the first scan may still have an empty cached catalog
+                  const providers = useAgent.getState().providers ?? []
+                  for (const provider of providers) {
+                    if (provider.installed && provider.supported) {
+                      void useAgent.getState().loadCatalog(provider.id, true)
+                    }
+                  }
+                })
+              }}
+              className="shrink-0 rounded-[var(--r-control)] border border-line-soft px-2 py-0.5 text-2xs text-fg/80 transition-colors duration-fast hover:bg-hover"
+            >
+              {t('settings.agent.rescan')}
+            </button>
+          </div>
+          {agentProviders === null ? (
+            <div className="flex items-center gap-2 px-4 py-3 text-xs text-muted">
+              <Icon name="spinner" size={12} className="animate-spin" />
+              {t('settings.agent.scanning')}
+            </div>
+          ) : agentProviders.length === 0 ? (
+            <div className="px-4 py-3 text-xs text-muted">{t('settings.agent.none')}</div>
+          ) : (
+            agentProviders.map((provider) => (
+              <div
+                key={provider.id}
+                className="flex items-center justify-between gap-3 border-b border-line/60 px-4 py-2 last:border-b-0"
+              >
+                <div className="flex min-w-0 items-center gap-2">
+                  <Icon
+                    name={provider.installed ? 'check-circle' : 'dot'}
+                    size={12}
+                    className={provider.installed ? 'shrink-0 text-success' : 'shrink-0 text-muted/50'}
+                  />
+                  <span className="truncate text-sm text-fg/90">{provider.name}</span>
+                  <span className="min-w-0 truncate font-mono text-2xs text-muted">
+                    {provider.version ?? ''}
+                  </span>
+                </div>
+                <span
+                  className={'shrink-0 text-2xs ' +
+                    (!provider.installed
+                      ? 'text-muted'
+                      : provider.supported
+                        ? 'text-success'
+                        : 'text-warning')}
+                >
+                  {!provider.installed
+                    ? t('settings.agent.notInstalled')
+                    : provider.supported
+                      ? t('settings.agent.ready')
+                      : t('settings.agent.unsupported')}
+                </span>
+              </div>
+            ))
+          )}
+        </Card>
+
+        <Card title={t('settings.agent.permissions')}>
+          <div className="px-4 py-3 text-xs leading-relaxed text-muted">
+            {t('settings.agent.permissionsHint')}
+          </div>
+        </Card>
+      </>
     ),
 
     keys: (

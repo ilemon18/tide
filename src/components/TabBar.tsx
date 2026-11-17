@@ -329,7 +329,9 @@ export function TabBar({ groupId }: { groupId: TabGroupId }) {
                     transform: `translateX(${x}px)`,
                   }}
                 >
-                  {tab.kind === 'welcome' ? (
+                  {tab.kind === 'chat' ? (
+                    <Icon name="agent" size={14} className="shrink-0 text-accent" />
+                  ) : tab.kind === 'welcome' ? (
                     <Icon name="home" size={14} className="shrink-0 text-muted" />
                   ) : tab.kind === 'settings' ? (
                     <Icon name="settings" size={14} className="shrink-0 text-muted" />
@@ -426,7 +428,9 @@ export function TabBar({ groupId }: { groupId: TabGroupId }) {
                 if (!tab) return null
                 return (
                   <>
-                    {tab.kind === 'welcome' ? (
+                    {tab.kind === 'chat' ? (
+                      <Icon name="agent" size={14} className="shrink-0 text-accent" />
+                    ) : tab.kind === 'welcome' ? (
                       <Icon name="home" size={14} className="shrink-0 text-muted" />
                     ) : tab.kind === 'settings' ? (
                       <Icon name="settings" size={14} className="shrink-0 text-muted" />

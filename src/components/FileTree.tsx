@@ -9,6 +9,7 @@ import { Icon, type IconName } from './Icon'
 import { ContextMenu, type MenuItem } from './ContextMenu'
 import { deleteEntryFlow, newEntry, revealEntry } from '../lib/actions'
 import { useTabs } from '../store/tabs'
+import { useAgent } from '../store/agent'
 import { useSearch } from '../store/search'
 import { useTerminal } from '../store/terminal'
 import { useFolderChain } from '../store/folderChain'
@@ -233,6 +234,7 @@ export function FileTree() {
   const roots = useWorkspace((s) => s.roots)
   const showHidden = useSettings((s) => s.showHidden)
   const compactFolders = useSettings((s) => s.compactFolders)
+  const agentEnabled = useSettings((s) => s.agentEnabled)
   const chains = useFolderChain((s) => s.chains)
   const toggleDir = useWorkspace((s) => s.toggleDir)
   const loadMore = useWorkspace((s) => s.loadMore)
@@ -484,6 +486,18 @@ export function FileTree() {
     else void openFile(row.root, row.rel)
   }
 
+  /** Row icon and double-click share one entry; the timestamp also absorbs click + dblclick */
+  const lastAgentOpen = useRef<{ key: string; at: number } | null>(null)
+  const openAgentForRow = (row: Row) => {
+    if (row.kind !== 'node' || !agentEnabled) return
+    const now = Date.now()
+    const last = lastAgentOpen.current
+    if (last && last.key === row.key && now - last.at < 400) return
+    lastAgentOpen.current = { key: row.key, at: now }
+    setSelected(row.key)
+    useAgent.getState().newChat(row.root, [{ rel: row.rel || '.', isDir: row.isDir }])
+  }
+
   const searchInFolder = (root: string, rel: string) => {
     useSearch.getState().setScope({ root, rel })
     useUi.getState().setActivityView('search')
@@ -659,11 +673,28 @@ export function FileTree() {
                     },
                   )
                 }}
-                onClick={() => {
+                onClick={(e) => {
+                  // The first click of a double-click already opened / toggled the row. The second
+                  // one opens the agent chat tab; this also catches a double-click that drifts a pixel
+                  // and was therefore treated as a tiny drag.
+                  if (e.detail > 1) {
+                    if (
+                      e.detail === 2 &&
+                      !(e.target as HTMLElement).closest('button, input, [data-tree-chevron]')
+                    ) {
+                      openAgentForRow(row)
+                    }
+                    return
+                  }
                   // The last gesture was a drag: do not open the row again on release
                   if (wasFileDragJustFinished()) return
                   setSelected(row.key)
                   openRow(row)
+                }}
+                onDoubleClick={(e) => {
+                  if (row.kind !== 'node') return
+                  if ((e.target as HTMLElement).closest('button, input, [data-tree-chevron]')) return
+                  openAgentForRow(row)
                 }}
                 onContextMenu={(e) => {
                   e.preventDefault()
@@ -679,16 +710,18 @@ export function FileTree() {
               >
                 {row.kind === 'node' ? (
                   row.isDir ? (
-                    <Icon
-                      name={isOpen ? 'chevron-down' : 'chevron-right'}
-                      size={13}
-                      className="shrink-0 text-muted"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        setSelected(row.key)
-                        void toggleDir(row.root, row.rel)
-                      }}
-                    />
+                    <span data-tree-chevron="true" className="flex shrink-0 items-center">
+                      <Icon
+                        name={isOpen ? 'chevron-down' : 'chevron-right'}
+                        size={13}
+                        className="text-muted"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setSelected(row.key)
+                          void toggleDir(row.root, row.rel)
+                        }}
+                      />
+                    </span>
                   ) : (
                     <span className="w-[13px] shrink-0" />
                   )
@@ -726,12 +759,16 @@ export function FileTree() {
                   </span>
                 )}
 
-                {/* Small dot on the right when a directory has Git changes (VSCode habit) */}
-                {row.kind === 'node' && row.isDir && mark ? (
-                  <span
-                    className={`ml-auto mr-1 h-[6px] w-[6px] shrink-0 rounded-full ${DOT_CLASS[mark]}`}
-                    aria-hidden="true"
-                  />
+                {row.kind === 'node' ? (
+                  <span className="ml-auto flex shrink-0 items-center gap-1">
+                    {/* Small dot on the right when a directory has Git changes (VSCode habit) */}
+                    {row.isDir && mark ? (
+                      <span
+                        className={`h-[6px] w-[6px] shrink-0 rounded-full ${DOT_CLASS[mark]}`}
+                        aria-hidden="true"
+                      />
+                    ) : null}
+                  </span>
                 ) : null}
 
                 </div>
@@ -767,6 +804,18 @@ export function FileTree() {
           onClose={() => setMenu(null)}
           items={
             [
+                  ...(agentEnabled
+                    ? [
+                        {
+                          label: t('titlebar.agentTip'),
+                          onClick: () =>
+                            useAgent.getState().newChat(menu.root, [
+                              { rel: menu.rel || '.', isDir: menu.isDir },
+                            ]),
+                        },
+                        { type: 'separator' as const },
+                      ]
+                    : []),
                   ...(menu.isDir
                     ? ([
                         { label: t('explorer.newFile'), onClick: () => void newEntry(menu.root, menu.rel, 'file') },

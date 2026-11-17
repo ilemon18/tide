@@ -16,6 +16,7 @@ import { useGit } from '../store/git'
 import { activeRoot, useWorkspace } from '../store/workspace'
 import { useTerminal } from '../store/terminal'
 import { useSearch } from '../store/search'
+import { useAgent } from '../store/agent'
 import { foldAll, foldCode, unfoldAll, unfoldCode } from '@codemirror/language'
 import type { EditorView } from '@codemirror/view'
 import { getEditorView } from '../editor/viewRef'
@@ -58,6 +59,12 @@ export function buildCommands(): Command[] {
     { id: 'tab.next', groupKey: 'commands.group.file', titleKey: 'commands.tab.next', shortcut: 'Mod ⇧ ]', run: () => tabs.activateOffset(1) },
     { id: 'tab.prev', groupKey: 'commands.group.file', titleKey: 'commands.tab.prev', shortcut: 'Mod ⇧ [', run: () => tabs.activateOffset(-1) },
     { id: 'tab.welcome', groupKey: 'commands.group.file', titleKey: 'commands.tab.welcome', shortcut: 'Mod T', run: () => tabs.openWelcome() },
+    {
+      id: 'agent.ask',
+      groupKey: 'commands.group.agent',
+      titleKey: 'commands.agent.ask',
+      run: () => useAgent.getState().newChat(),
+    },
 
     {
       id: 'tab.closeOthers',

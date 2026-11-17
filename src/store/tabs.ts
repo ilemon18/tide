@@ -37,6 +37,7 @@ import { t, tp } from '../i18n'
 import { tabTitle } from '../lib/tabTitle'
 import { budget } from '../lib/memoryBudget'
 import { useFileIndex } from './fileIndex'
+import { agentBridge } from '../lib/agentBridge'
 import {
   flushUntitledDrafts,
   loadUntitledDrafts,
@@ -72,10 +73,11 @@ export type Tab = {
   id: string
   root: string
   /**
-   * image / welcome / settings are virtual tabs: no EditorState, empty root / rel, not persisted or restored.
+   * image / welcome / settings / chat are virtual tabs: no EditorState. Chat keeps a root, but no rel.
+   * Chat tabs are restored by lib/agentSession, not the file session.
    * untitled is a new buffer that has no file on disk yet (⌘N): it does get an EditorState, and ⌘S asks for a path.
    */
-  kind: 'file' | 'diff' | 'image' | 'welcome' | 'settings' | 'untitled'
+  kind: 'file' | 'diff' | 'image' | 'welcome' | 'settings' | 'untitled' | 'chat'
   rel: string
   name: string
   dirty: boolean
@@ -261,6 +263,10 @@ type TabsStore = {
   openWelcome: () => void
   /** Open (or switch to) the settings tab */
   openSettings: () => void
+  /** Agent chat tabs: one per conversation; an already open id is activated */
+  openChat: (chatId: string, root: string, title: string) => void
+  /** Rename a tab without touching its content (agent title follows the first prompt) */
+  setTabName: (id: string, name: string) => void
   /**
    * New unsaved buffer (⌘N). No file on disk: ⌘S opens a save dialog. Optional text restores a draft
    * left behind by a previous run (see lib/untitledDrafts).
@@ -770,6 +776,39 @@ export const useTabs = create<TabsStore>((set, get) => ({
     })
   },
 
+  openChat: (chatId, root, title) => {
+    const id = `chat:${chatId}`
+    const existing = get().tabs.find((t) => t.id === id)
+    if (existing) {
+      get().activate(id)
+      if (existing.name !== title) get().setTabName(id, title)
+      return
+    }
+    const groupId = get().activeGroupId
+    const tab: Tab = {
+      id,
+      root,
+      kind: 'chat',
+      rel: '',
+      name: title,
+      dirty: false,
+      readOnly: true,
+      tier: 'full',
+      pinned: false,
+      mtime: 0,
+    }
+    set({
+      tabs: [...get().tabs, tab],
+      activeId: id,
+      groups: openInGroup(get().groups, groupId, id),
+    })
+    if (root) useWorkspace.getState().setActiveRoot(root)
+  },
+
+  setTabName: (id, name) => {
+    set({ tabs: get().tabs.map((tab) => (tab.id === id ? { ...tab, name } : tab)) })
+  },
+
   openUntitled: (options) => {
     const groupId = get().activeGroupId
     untitledCounter += 1
@@ -1004,8 +1043,18 @@ export const useTabs = create<TabsStore>((set, get) => ({
           : groups.find((g) => g.order.includes(id))?.id
     if (!target) return
     set({ activeId: id, activeGroupId: target, groups: patchGroup(groups, target, id) })
-    // Welcome / settings / untitled have no project: do not touch the current project or file tree
-    if (tab.kind === 'welcome' || tab.kind === 'settings' || tab.kind === 'untitled') return
+    // A chat belongs to the project it was started in: follow its root, but never reveal a tree row
+    if (tab.kind === 'chat') {
+      if (tab.root) useWorkspace.getState().setActiveRoot(tab.root)
+      return
+    }
+    // Welcome / settings / untitled have no file to reveal: do not touch the project or tree
+    if (
+      tab.kind === 'welcome' ||
+      tab.kind === 'settings' ||
+      tab.kind === 'untitled'
+    )
+      return
     useWorkspace.getState().setActiveRoot(tab.root)
     revealInTree(tab)
     // A cache hit is a no-op; a tab whose blame was invalidated by a background reload refetches when activated
@@ -1150,6 +1199,7 @@ export const useTabs = create<TabsStore>((set, get) => ({
       })
       if (!ok) return
     }
+    if (tab.kind === 'chat') agentBridge.onTabClosed(tab.id.slice('chat:'.length))
     cancelAutoSave(id)
     dropEditorState(id)
     forgetScrollForTab(id)
@@ -1932,6 +1982,7 @@ async function closeMany(ids: string[], force?: boolean, groupId?: TabGroupId): 
   }
 
   for (const tab of fullyClosing) {
+    if (tab.kind === 'chat') agentBridge.onTabClosed(tab.id.slice('chat:'.length))
     cancelAutoSave(tab.id)
     dropEditorState(tab.id)
     forgetScrollForTab(tab.id)

@@ -9,6 +9,7 @@ import { t } from '../i18n'
 export function tabTitle(tab: Pick<Tab, 'kind' | 'name' | 'staged' | 'seq'>): string {
   if (tab.kind === 'welcome') return t('app.welcome')
   if (tab.kind === 'settings') return t('app.settings')
+  if (tab.kind === 'chat') return tab.name || t('agent.newChat')
   if (tab.kind === 'untitled') return t('tab.untitledName', { count: tab.seq ?? 1 })
   if (tab.kind === 'diff' && tab.staged) return t('tabs.stagedName', { name: tab.name })
   return tab.name

@@ -130,7 +130,10 @@ export function StatusBar() {
         <span>{t('status.cursor', { line: cursor.line, col: cursor.col })}</span>
       ) : null}
 
-      {active?.kind === 'image' || active?.kind === 'welcome' || active?.kind === 'settings' ? null : (
+      {active?.kind === 'image' ||
+      active?.kind === 'welcome' ||
+      active?.kind === 'settings' ||
+      active?.kind === 'chat' ? null : (
         <span>UTF-8</span>
       )}
       {textTab?.eol === 'crlf' ? (
@@ -188,11 +191,13 @@ export function StatusBar() {
             ? t('app.settings')
             : active?.kind === 'welcome'
               ? ''
-              : active?.preview
-                ? t('app.svgPreview')
-                : active?.kind === 'untitled'
-                  ? t('status.plainText')
-                  : languageLabel(active?.rel ?? '')}
+              : active?.kind === 'chat'
+                ? ''
+                : active?.preview
+                  ? t('app.svgPreview')
+                  : active?.kind === 'untitled'
+                    ? t('status.plainText')
+                    : languageLabel(active?.rel ?? '')}
       </span>
 
       <button

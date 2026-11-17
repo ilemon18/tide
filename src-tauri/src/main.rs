@@ -1,5 +1,6 @@
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
+mod agent;
 mod commands;
 mod error;
 mod i18n;
@@ -324,6 +325,16 @@ fn main() {
             commands::terminal::pty_write,
             commands::terminal::pty_resize,
             commands::terminal::pty_close,
+            // agent
+            commands::agent::agent_providers,
+            commands::agent::agent_models,
+            commands::agent::agent_send,
+            commands::agent::agent_cancel,
+            commands::agent::agent_chat_save,
+            commands::agent::agent_chat_load,
+            commands::agent::agent_chat_delete,
+            commands::agent::agent_tabs_save,
+            commands::agent::agent_tabs_load,
             // settings / theme persistence
             commands::theme::load_settings,
             commands::theme::save_settings,
@@ -369,6 +380,7 @@ fn main() {
             if matches!(event, tauri::WindowEvent::Destroyed) {
                 let state = window.state::<state::AppState>();
                 state.kill_window_ptys(label);
+                state.kill_window_agent_turns(label);
                 state.release_window(label);
             }
         })
@@ -398,6 +410,7 @@ fn main() {
                 let state = app.state::<state::AppState>();
                 state.kill_all_watchers();
                 state.kill_all_ptys();
+                state.kill_all_agent_turns();
             }
             // Dock icon clicked: only focus a window, no "switch project" prompt
             // (`Reopen` is macOS-only; writing it unconditionally would not compile on

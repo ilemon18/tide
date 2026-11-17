@@ -16,9 +16,11 @@ type Props = {
   y: number
   items: MenuItem[]
   onClose: () => void
+  /** Long lists (agent models) scroll instead of running off the screen */
+  maxHeight?: number
 }
 
-export function ContextMenu({ x, y, items, onClose }: Props) {
+export function ContextMenu({ x, y, items, onClose, maxHeight }: Props) {
   const ref = useRef<HTMLDivElement>(null)
   const [pos, setPos] = useState({ x, y })
 
@@ -51,7 +53,7 @@ export function ContextMenu({ x, y, items, onClose }: Props) {
     <div
       ref={ref}
       className="fixed z-50 min-w-[190px] rounded-popup border border-line-soft bg-panel py-1 shadow-popup"
-      style={{ left: pos.x, top: pos.y }}
+      style={{ left: pos.x, top: pos.y, maxHeight, overflowY: maxHeight ? 'auto' : undefined }}
       onContextMenu={(e) => e.preventDefault()}
     >
       {items.map((item, i) => {

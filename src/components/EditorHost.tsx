@@ -32,6 +32,7 @@ import { ImageView } from './ImageView'
 import { DiffView } from './DiffView'
 import { Welcome } from './Welcome'
 import { SettingsView } from './SettingsView'
+import { AgentChat } from './AgentChat'
 import { DiffRuler } from './DiffRuler'
 import { useT } from '../i18n'
 import { tabTitle } from '../lib/tabTitle'
@@ -423,6 +424,9 @@ export function EditorHost({ groupId }: { groupId: TabGroupId }) {
       ) : null}
       {activeTab?.kind === 'welcome' ? <Welcome /> : null}
       {activeTab?.kind === 'settings' ? <SettingsView /> : null}
+      {activeTab?.kind === 'chat' ? (
+        <AgentChat key={activeTab.id} chatId={activeTab.id.slice('chat:'.length)} />
+      ) : null}
       {activeTab?.kind === 'image' ? <ImageView tab={activeTab} /> : null}
       {activeTab?.kind === 'file' && activeTab.preview ? (
         <ImageView tab={activeTab} svgText={svgText} />

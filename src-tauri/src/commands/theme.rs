@@ -63,6 +63,12 @@ pub struct Settings {
     pub terminal_webgl: bool,
     /// Lightweight mode: smaller caches, fewer background jobs (off by default)
     pub lightweight_mode: bool,
+    /// Built-in agent service: title-bar entry, explorer double-click entry, chat tabs
+    pub agent_enabled: bool,
+    /// Last chosen provider / model / effort: new chats start here (empty = auto / CLI default)
+    pub agent_default_provider: String,
+    pub agent_default_model: String,
+    pub agent_default_effort: String,
     pub sidebar_width: u32,
     pub panel_height: u32,
     pub sidebar_visible: bool,
@@ -100,6 +106,10 @@ impl Default for Settings {
             inline_blame: false,
             terminal_webgl: false,
             lightweight_mode: false,
+            agent_enabled: true,
+            agent_default_provider: String::new(),
+            agent_default_model: String::new(),
+            agent_default_effort: String::new(),
             sidebar_width: 220,
             panel_height: 240,
             sidebar_visible: true,
