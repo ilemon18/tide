@@ -403,6 +403,9 @@
 
   /* ---- Tab pills (Islands): the selected state is a rounded pill + 1px border, no underline ---- */
   .tab-pill {
+    width: max-content;
+    max-width: 220px;
+    z-index: 0;
     border-radius: var(--r-tab);
     transition:
       background-color var(--dur-fast) var(--ease-islands),
@@ -412,6 +415,7 @@
   /* The selected background can only be set here: @layer components is below utilities,
      so a bg-* utility on the card would override it */
   .tab-pill[data-active='true'] {
+    z-index: 1;
     background-color: var(--c-bg);
     box-shadow:
       inset 0 0 0 1px var(--c-tab-active-border),
@@ -421,6 +425,7 @@
   /* Lift while dragging: keep the border, only raise the shadow a level (a shadow-* utility can't take over,
      it would wipe out the inset border above) */
   .tab-pill[data-dragging='true'] {
+    z-index: 2;
     box-shadow: var(--elev-popup);
   }
 
@@ -694,6 +699,149 @@
 
 .cm-conflict-ruler-mark:hover {
   opacity: 1;
+}
+
+/* ---- Token budget display ---- */
+.token-budget {
+  position: relative;
+  display: flex;
+  flex-shrink: 0;
+}
+
+.token-summary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: var(--r-control);
+  background: transparent;
+  cursor: pointer;
+  transition: color 100ms ease, background-color 100ms ease;
+}
+
+.token-summary:hover {
+  background: var(--c-hover);
+}
+
+.token-summary.ok {
+  color: var(--c-accent);
+}
+
+.token-summary.empty {
+  color: var(--c-muted);
+}
+
+.token-summary.warning {
+  color: var(--c-warning);
+}
+
+.token-summary.danger {
+  color: var(--c-danger);
+}
+
+.token-summary:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 2px;
+}
+
+.token-details {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  right: -32px;
+  width: min(320px, 80vw);
+  background: var(--c-panel);
+  border: 1px solid var(--c-border);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px var(--c-shadow);
+  z-index: 1000;
+  overflow: hidden;
+}
+
+.token-details .details-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--c-fg);
+  border-bottom: 1px solid var(--c-border);
+}
+
+.token-details .close-btn {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  color: var(--c-muted);
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 100ms ease;
+}
+
+.token-details .close-btn:hover {
+  background: var(--c-hover);
+  color: var(--c-fg);
+}
+
+.token-details .breakdown-list {
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.token-details .token-total {
+  padding: 8px 12px;
+  color: var(--c-fg);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.breakdown-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  font-size: 12px;
+}
+
+.breakdown-item:nth-child(even) {
+  background: var(--c-bg);
+}
+
+.breakdown-item .label {
+  color: var(--c-fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.breakdown-item .tokens {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: var(--c-muted);
+  margin-left: 12px;
+  flex-shrink: 0;
+}
+
+.token-details .details-footer {
+  padding: 10px 12px;
+  border-top: 1px solid var(--c-border);
+  font-size: 12px;
+}
+
+.token-details .warning-message {
+  color: var(--c-warning);
+}
+
+.token-details .ok-message {
+  color: var(--c-success);
 }
 
 /* ---- Tide: plain light island ---------------------------------------------

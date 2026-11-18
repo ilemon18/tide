@@ -19,7 +19,7 @@ const STATUS_COLOR: Record<string, string> = {
   R: 'text-accent',
   C: 'text-accent',
   U: 'text-danger',
-  '?': 'text-muted',
+  '?': 'text-success',
   T: 'text-warning',
 }
 
@@ -56,7 +56,7 @@ function StatusBadge({ status, conflict }: { status: string; conflict?: boolean 
       } text-xs ${conflict ? '' : (STATUS_COLOR[status] ?? 'text-muted')}`}
       title={conflict ? t('git.conflictStatus', { status }) : undefined}
     >
-      {conflict ? status : status === '?' ? 'U' : status}
+      {conflict ? status : status === '?' ? 'A' : status}
     </span>
   )
 }
@@ -252,7 +252,7 @@ function RepoSection({ root, status }: { root: { id: string; name: string }; sta
                 key={action.label}
                 data-tip={action.label}
                 aria-label={action.label}
-                disabled={action.disabled}
+                disabled={busy !== null || action.disabled}
                 onClick={action.run}
                 className="flex h-[18px] w-[18px] items-center justify-center rounded-[4px] text-muted hover:bg-hover hover:text-fg disabled:pointer-events-none disabled:opacity-40"
               >
@@ -298,6 +298,7 @@ function RepoSection({ root, status }: { root: { id: string; name: string }; sta
                   {rowActions(file).map((action) => (
                     <button
                       key={action.title}
+                      disabled={busy !== null}
                       data-tip={action.title}
                       onClick={(e) => {
                         e.stopPropagation()
@@ -324,6 +325,8 @@ function RepoSection({ root, status }: { root: { id: string; name: string }; sta
       </div>
     )
   }
+
+  const changes = [...status.changes, ...status.untracked]
 
   const moreItems: MenuItem[] = [
     {
@@ -520,9 +523,9 @@ function RepoSection({ root, status }: { root: { id: string; name: string }; sta
       {renderGroup(
         'changes',
         t('git.section.changes'),
-        status.changes,
+        changes,
         [
-          { label: t('git.stageAll'), icon: 'plus', run: () => void stage(root.id, status.changes.map((f) => f.path)) },
+          { label: t('git.stageAll'), icon: 'plus', run: () => void stage(root.id, changes.map((f) => f.path)) },
           {
             label: t('git.discardAllChanges'),
             icon: 'undo',
@@ -534,20 +537,7 @@ function RepoSection({ root, status }: { root: { id: string; name: string }; sta
         (file) => [
           ...openFileAction(file),
           { title: t('git.stage'), icon: 'plus', run: () => void stage(root.id, [file.path]) },
-          { title: t('git.discardChanges'), icon: 'undo', run: () => void discard(root.id, [file.path]) },
-        ],
-      )}
-
-      {renderGroup(
-        'untracked',
-        t('git.section.untracked'),
-        status.untracked,
-        [{ label: t('git.stageAll'), icon: 'plus', run: () => void stage(root.id, status.untracked.map((f) => f.path)) }],
-        (file) => void openDiff(root.id, file.path, false),
-        (file) => [
-          ...openFileAction(file),
-          { title: t('git.stage'), icon: 'plus', run: () => void stage(root.id, [file.path]) },
-          { title: t('git.deleteFile'), icon: 'trash', run: () => void discard(root.id, [file.path]) },
+          { title: file.status === '?' ? t('git.deleteFile') : t('git.discardChanges'), icon: file.status === '?' ? 'trash' : 'undo', run: () => void discard(root.id, [file.path]) },
         ],
       )}
     </div>

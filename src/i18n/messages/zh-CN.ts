@@ -221,7 +221,8 @@ export const zhCN: Messages = {
   'dialog.gitDiscard.message': '将丢弃 {count} 个文件的修改，这个操作无法撤销。',
   'dialog.gitDiscard.confirm': '丢弃',
   'dialog.gitDiscardAll.message':
-    '将丢弃“更改”分组中 {count} 个文件的未暂存修改。已暂存内容、未跟踪文件和冲突文件将保留。此操作无法撤销。',
+    '将已跟踪文件还原到暂存区版本：{restoreCount} 个。删除未跟踪文件：{deleteCount} 个。暂存的更改和冲突文件将保留。此操作无法撤销。',
+  'error.git.discardStatusChanged': '“{path}”的 Git 分类已改变，请刷新后重试。',
   'dialog.gitUndoCommit.title': '撤销上一次提交',
   'dialog.gitUndoCommit.message':
     '上一次提交会被撤回，改动原样留在暂存区，提交信息也会填回提交框。已经推送过的提交会影响远端历史。',
@@ -690,6 +691,11 @@ export const zhCN: Messages = {
   'agent.jumpToLatest': '跳到最新',
   'agent.mentionRemove': '移除引用',
   'agent.mentionPick': '引用文件',
+  'agent.context.tokenDetails': '点击查看 token 明细',
+  'agent.context.tokenBreakdown': 'Token 明细',
+  'agent.context.budgetHealthy': '预算健康',
+  'agent.context.largeContext': '较大的上下文可能会降低响应速度',
+  'agent.context.hugeContext': '非常大的上下文可能导致响应缓慢和更高的成本',
   'agent.command.pick': '运行指令',
   'agent.command.remove': '移除指令',
   'agent.command.plan.label': '计划',
@@ -763,4 +769,11 @@ export const zhCN: Messages = {
   'error.agent.chatTooLarge': '此对话过大，无法保存',
 
   // @i18n-anchor
+  'agent.context.attached': '引用路径：{count}',
+  'agent.context.estimate': '约 {count} tokens',
+  'agent.context.prompt': '提示词',
+  'agent.context.estimateHint': '根据草稿及磁盘上引用文件的大小粗略估算，不含会话历史、目录内容和 CLI 开销；这不是模型的上下文上限。',
+
+  'error.git.discardDirectory': '无法丢弃 {path} 的改动：此已跟踪文件路径已被目录占用。',
+
 }

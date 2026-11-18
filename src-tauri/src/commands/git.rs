@@ -311,6 +311,10 @@ fn push_pair(
 #[tauri::command(async)]
 pub fn git_status(state: State<'_, AppState>, root: String) -> AppResult<GitStatus> {
     let root_path = state.authorize(&root)?;
+    read_status(&root_path)
+}
+
+fn read_status(root_path: &Path) -> AppResult<GitStatus> {
     let root_str = root_path.to_string_lossy().to_string();
 
     let Some(paths) = repo_paths(&root_str) else {
@@ -319,7 +323,7 @@ pub fn git_status(state: State<'_, AppState>, root: String) -> AppResult<GitStat
     let toplevel = paths.toplevel.clone();
 
     let prefix = match paths::canon(Path::new(&toplevel)) {
-        Ok(repo_canon) if repo_canon != root_path => paths::rel_in(&repo_canon, &root_path)
+        Ok(repo_canon) if repo_canon != root_path => paths::rel_in(&repo_canon, root_path)
             .map(|s| {
                 if s.is_empty() {
                     String::new()
@@ -748,6 +752,18 @@ fn discard_paths(root_path: &Path, paths: &[String], from_index: bool) -> AppRes
         .collect();
     for rel in paths {
         if indexed.contains(rel.as_bytes()) {
+            // Some Git versions report success while skipping a nonempty directory at a
+            // tracked file path. Reject before restoring anything, preserving local contents.
+            let abs = crate::state::resolve_in_root(root_path, rel)?;
+            match std::fs::symlink_metadata(&abs) {
+                Ok(meta) if meta.is_dir() => {
+                    return Err(AppError::p("git.discardDirectory", [("path", rel.clone())]));
+                }
+                Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+                    return Err(error.into());
+                }
+                _ => {}
+            }
             tracked.push(rel.as_str());
         } else if from_index {
             return Err(AppError::p("git.notTracked", [("path", rel.clone())]));
@@ -777,6 +793,114 @@ fn discard_paths(root_path: &Path, paths: &[String], from_index: bool) -> AppRes
         }
     }
     Ok(())
+}
+
+/// Successful paths are reported even when a later operation fails.
+#[derive(Serialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct GitDiscardResult {
+    pub restored: Vec<String>,
+    pub deleted: Vec<String>,
+    pub error: Option<AppError>,
+}
+
+#[tauri::command(async)]
+pub fn git_discard_changes(
+    state: State<'_, AppState>,
+    root: String,
+    tracked_paths: Vec<String>,
+    untracked_paths: Vec<String>,
+) -> AppResult<GitDiscardResult> {
+    let root_path = state.authorize(&root)?;
+    discard_changes(&root_path, &tracked_paths, &untracked_paths)
+}
+
+fn validate_discard_file(root: &Path, rel: &str) -> AppResult<std::path::PathBuf> {
+    let abs = crate::state::resolve_in_root(root, rel)?;
+    crate::state::assert_inside(root, &abs)?;
+    match std::fs::symlink_metadata(&abs) {
+        Ok(meta) if meta.is_dir() => {
+            return Err(AppError::p("git.discardDirectory", [("path", rel.to_string())]));
+        }
+        Ok(meta) if !meta.is_file() && !meta.file_type().is_symlink() => {
+            return Err(AppError::p("git.discardStatusChanged", [("path", rel.to_string())]));
+        }
+        Err(error) if error.kind() != std::io::ErrorKind::NotFound => return Err(error.into()),
+        _ => {}
+    }
+    Ok(abs)
+}
+
+fn discard_changes(
+    root: &Path,
+    tracked: &[String],
+    untracked: &[String],
+) -> AppResult<GitDiscardResult> {
+    discard_changes_with(root, tracked, untracked, |rel, tracked| {
+        apply_discard_change(root, rel, tracked)
+    })
+}
+
+fn apply_discard_change(root: &Path, rel: &str, tracked: bool) -> AppResult<()> {
+    // Repeat the boundary/type check just before touching each path.
+    let abs = validate_discard_file(root, rel)?;
+    if tracked {
+        discard_paths(root, &[rel.to_string()], true)
+    } else {
+        // A concurrent git add must never turn an untracked deletion into a tracked deletion.
+        let (ok, indexed, error) = run_bytes(
+            &root.to_string_lossy(), &["--literal-pathspecs", "ls-files", "-z", "--", rel],
+        )?;
+        if !ok { return Err(AppError::new(error)); }
+        if !indexed.is_empty() {
+            return Err(AppError::p("git.discardStatusChanged", [("path", rel.to_string())]));
+        }
+        std::fs::remove_file(abs)?;
+        Ok(())
+    }
+}
+
+fn discard_changes_with(
+    root: &Path,
+    tracked: &[String],
+    untracked: &[String],
+    mut apply: impl FnMut(&str, bool) -> AppResult<()>,
+) -> AppResult<GitDiscardResult> {
+    // Preflight the entire confirmation snapshot before any mutations. In particular, never
+    // silently filter paths that were staged, ignored, conflicted or otherwise reclassified.
+    for rel in tracked.iter().chain(untracked) {
+        validate_discard_file(root, rel)?;
+    }
+    let status = read_status(root)?;
+    if let Some(error) = status.error {
+        return Err(AppError::new(error));
+    }
+    let mut seen = std::collections::HashSet::new();
+    for (paths, expected) in [(tracked, &status.changes), (untracked, &status.untracked)] {
+        for rel in paths {
+            if status.conflicts.iter().any(|file| &file.path == rel) {
+                return Err(AppError::c("git.conflictCannotDiscard"));
+            }
+            if !seen.insert(rel) || !expected.iter().any(|file| &file.path == rel) {
+                return Err(AppError::p("git.discardStatusChanged", [("path", rel.clone())]));
+            }
+        }
+    }
+    let mut result = GitDiscardResult { restored: Vec::new(), deleted: Vec::new(), error: None };
+    for (paths, is_tracked) in [(tracked, true), (untracked, false)] {
+        for rel in paths {
+            if let Err(error) = apply(rel, is_tracked) {
+                result.error = Some(error);
+                return Ok(result);
+            }
+            if is_tracked {
+                result.restored.push(rel.clone());
+            } else {
+                result.deleted.push(rel.clone());
+            }
+        }
+    }
+    Ok(result)
 }
 
 #[tauri::command(async)]
@@ -1519,7 +1643,7 @@ pub fn git_conflict_reset(
 
 #[cfg(test)]
 mod tests {
-    use super::{discard_paths, git_cmd, run_text, truncate_patch};
+    use super::{apply_discard_change, discard_changes, discard_changes_with, discard_paths, git_cmd, run_text, truncate_patch};
     use std::io::Write;
     use std::path::PathBuf;
     use std::process::Stdio;
@@ -1744,16 +1868,179 @@ mod tests {
     fn discard_from_index_reports_restore_failure_without_removing_untracked_contents() {
         let repo = TestRepo::new();
         repo.write("tracked.txt", "head\n");
+        repo.write("other.txt", "head\n");
         repo.commit();
+        repo.write("other.txt", "modified\n");
         std::fs::remove_file(repo.root.join("tracked.txt")).unwrap();
         std::fs::create_dir(repo.root.join("tracked.txt")).unwrap();
         repo.write("tracked.txt/untracked.txt", "keep\n");
         let index = repo.git(&["ls-files", "--stage", "-z"]);
-        let error = repo.discard(&["tracked.txt"], true).unwrap_err();
-        assert_eq!(error.code, "message");
-        assert!(!error.params["message"].is_empty());
-        assert_eq!(repo.read("tracked.txt/untracked.txt"), "keep\n");
+        for from_index in [true, false] {
+            let error = repo.discard(&["other.txt", "tracked.txt"], from_index).unwrap_err();
+            assert_eq!(error.code, "git.discardDirectory");
+            assert_eq!(error.params["path"], "tracked.txt");
+            assert_eq!(repo.read("other.txt"), "modified\n");
+            assert_eq!(repo.read("tracked.txt/untracked.txt"), "keep\n");
+            assert_eq!(repo.git(&["ls-files", "--stage", "-z"]), index);
+        }
+    }
+
+    fn names(paths: &[&str]) -> Vec<String> {
+        paths.iter().map(|path| (*path).to_string()).collect()
+    }
+
+    #[test]
+    fn bulk_discard_restores_index_and_deletes_only_listed_untracked_files() {
+        let repo = TestRepo::new();
+        repo.write("tracked", "head");
+        repo.commit();
+        repo.write("tracked", "staged");
+        repo.git(&["add", "tracked"]);
+        repo.write("tracked", "worktree");
+        repo.write("new", "delete");
+        repo.write("other", "keep");
+        let index = repo.git(&["ls-files", "--stage", "-z"]);
+        let result = discard_changes(&repo.root, &names(&["tracked"]), &names(&["new"])).unwrap();
+        assert!(result.error.is_none());
+        assert_eq!(result.restored, names(&["tracked"]));
+        assert_eq!(result.deleted, names(&["new"]));
+        assert_eq!(repo.read("tracked"), "staged");
+        assert!(!repo.root.join("new").exists());
+        assert_eq!(repo.read("other"), "keep");
         assert_eq!(repo.git(&["ls-files", "--stage", "-z"]), index);
+    }
+
+    #[test]
+    fn bulk_discard_untracked_only_and_literal_filenames() {
+        let repo = TestRepo::new();
+        let files = if cfg!(windows) {
+            names(&["space name", "-dash", "[literal]"])
+        } else {
+            names(&["space name", "-dash", ":[literal]", "line\nbreak"])
+        };
+        for path in &files { repo.write(path, "delete"); }
+        let result = discard_changes(&repo.root, &[], &files).unwrap();
+        assert!(result.error.is_none());
+        assert!(result.restored.is_empty());
+        assert_eq!(result.deleted, files);
+        for path in &files { assert!(!repo.root.join(path).exists()); }
+    }
+
+    #[test]
+    fn bulk_discard_rejects_reclassified_snapshot_before_any_changes() {
+        let repo = TestRepo::new();
+        repo.write("tracked", "base");
+        repo.commit();
+        repo.write("tracked", "keep");
+        repo.write("new", "now staged");
+        repo.git(&["add", "new"]);
+        let error = discard_changes(&repo.root, &names(&["tracked"]), &names(&["new"])).unwrap_err();
+        assert_eq!(error.code, "git.discardStatusChanged");
+        assert_eq!(repo.read("tracked"), "keep");
+        assert_eq!(repo.read("new"), "now staged");
+        repo.git(&["rm", "--cached", "tracked"]);
+        let error = discard_changes(&repo.root, &names(&["tracked"]), &[]).unwrap_err();
+        assert_eq!(error.code, "git.discardStatusChanged");
+        assert_eq!(repo.read("tracked"), "keep");
+    }
+
+    #[test]
+    fn bulk_discard_rejects_directories_and_unsafe_paths_before_mutation() {
+        let repo = TestRepo::new();
+        repo.write("tracked", "base");
+        repo.write("placeholder", "base");
+        repo.commit();
+        repo.write("tracked", "keep");
+        std::fs::remove_file(repo.root.join("placeholder")).unwrap();
+        std::fs::create_dir(repo.root.join("placeholder")).unwrap();
+        repo.write("placeholder/child", "keep");
+        let error = discard_changes(&repo.root, &names(&["tracked", "placeholder"]), &[]).unwrap_err();
+        assert_eq!(error.code, "git.discardDirectory");
+        for path in ["placeholder", "../outside", repo.root.to_str().unwrap()] {
+            assert!(discard_changes(&repo.root, &names(&["tracked"]), &names(&[path])).is_err());
+            assert_eq!(repo.read("tracked"), "keep");
+            assert_eq!(repo.read("placeholder/child"), "keep");
+        }
+    }
+
+    #[test]
+    fn bulk_discard_stops_at_first_failure_and_reports_successful_prefix() {
+        let repo = TestRepo::new();
+        repo.write("tracked", "base");
+        repo.commit();
+        repo.write("tracked", "restore");
+        for path in ["first", "fails", "last"] { repo.write(path, "keep"); }
+        let result = discard_changes_with(
+            &repo.root, &names(&["tracked"]), &names(&["first", "fails", "last"]),
+            |rel, tracked| {
+                // Deterministic external change after preflight: never delete a directory recursively.
+                if rel == "fails" {
+                    std::fs::remove_file(repo.root.join(rel)).unwrap();
+                    std::fs::create_dir(repo.root.join(rel)).unwrap();
+                    repo.write("fails/child", "keep");
+                }
+                apply_discard_change(&repo.root, rel, tracked)
+            },
+        ).unwrap();
+        assert_eq!(result.restored, names(&["tracked"]));
+        assert_eq!(result.deleted, names(&["first"]));
+        assert_eq!(result.error.unwrap().code, "git.discardDirectory");
+        assert_eq!(repo.read("tracked"), "base");
+        assert!(!repo.root.join("first").exists());
+        assert_eq!(repo.read("fails/child"), "keep");
+        assert_eq!(repo.read("last"), "keep");
+    }
+
+    #[test]
+    fn bulk_discard_rejects_conflicts_before_deleting_untracked_files() {
+        let repo = TestRepo::new();
+        repo.write("conflict", "base");
+        repo.commit();
+        let base = repo.git(&["rev-parse", "HEAD"]).trim().to_string();
+        repo.git(&["checkout", "-qb", "side"]);
+        repo.write("conflict", "side");
+        repo.commit();
+        repo.git(&["checkout", "-qb", "other", &base]);
+        repo.write("conflict", "other");
+        repo.commit();
+        let (ok, _) = run_text(repo.root.to_str().unwrap(), &["merge", "side"]).unwrap();
+        assert!(!ok);
+        repo.write("new", "keep");
+        let error = discard_changes(&repo.root, &names(&["conflict"]), &names(&["new"])).unwrap_err();
+        assert_eq!(error.code, "git.conflictCannotDiscard");
+        assert_eq!(repo.read("new"), "keep");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn bulk_discard_unlinks_symlinks_without_deleting_targets() {
+        use std::os::unix::fs::symlink;
+        let repo = TestRepo::new();
+        repo.write("target", "keep");
+        symlink("target", repo.root.join("link")).unwrap();
+        symlink("missing", repo.root.join("dangling")).unwrap();
+        let result = discard_changes(&repo.root, &[], &names(&["link", "dangling"])).unwrap();
+        assert!(result.error.is_none());
+        assert_eq!(repo.read("target"), "keep");
+        assert!(std::fs::symlink_metadata(repo.root.join("link")).is_err());
+        assert!(std::fs::symlink_metadata(repo.root.join("dangling")).is_err());
+        symlink(std::env::temp_dir(), repo.root.join("escape")).unwrap();
+        assert!(discard_changes(&repo.root, &[], &names(&["escape"])).is_err());
+        assert!(std::fs::symlink_metadata(repo.root.join("escape")).is_ok());
+    }
+
+    #[test]
+    fn bulk_discard_supports_workspace_subdirectories() {
+        let repo = TestRepo::new();
+        std::fs::create_dir(repo.root.join("sub")).unwrap();
+        repo.write("sub/tracked", "base");
+        repo.commit();
+        repo.write("sub/tracked", "changed");
+        repo.write("sub/new", "delete");
+        let result = discard_changes(&repo.root.join("sub"), &names(&["tracked"]), &names(&["new"])).unwrap();
+        assert!(result.error.is_none());
+        assert_eq!(repo.read("sub/tracked"), "base");
+        assert!(!repo.root.join("sub/new").exists());
     }
 
     #[test]

@@ -42,7 +42,8 @@ After the six static checks pass, run the tests that are in scope:
 - If the user asks for the full gate, run it even when the change is frontend-only.
 - For a frontend-only change with no test edits, leave tests to CI and say so in the final report.
 
-Unit tests live in those three Rust files. `pnpm verify` deliberately does not build the test profile.
+Test locations are documented in [checks.md](../../checks.md). `pnpm verify` deliberately does not
+build the test profile.
 
 Do not run GUI tests, Playwright, or an app smoke test as part of this skill. They are a separate,
 explicitly requested step.
@@ -64,4 +65,4 @@ Builds, installers, version bumps, release manifests, signing and GUI verificati
 packaging or publishing checks, use [the release-check skill](../release-check/SKILL.md).
 
 ---
-**Last updated**: 2026-11-17
+**Last updated**: 2026-11-18

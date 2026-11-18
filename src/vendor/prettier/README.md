@@ -7,7 +7,7 @@
 WebView 里跑 —— 这样「保存时格式化」就不用要求用户本机装 Node / prettier，
 也不会因为项目里没装而失效。
 
-- 只按需加载：`src/lib/format.ts` 里用 `import()` 动态引入，Vite 会切成独立 chunk，
+- 只按需加载：`src/lib/prettier.ts` 里用 `import()` 动态引入，Vite 会切成独立 chunk，
   没开格式化的用户不会付这份体积。
 - 只带常用 parser：babel（js/jsx/json）、typescript（ts/tsx）、postcss（css/scss/less）、
   html（html/vue）、markdown（md/mdx）、yaml（yaml/yml）、estree（AST 打印）。

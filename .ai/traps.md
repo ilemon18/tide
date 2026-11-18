@@ -34,6 +34,10 @@ diff tab whose diff turned empty: it has nothing left to show and becomes the fi
 
 ## Editor & tabs
 
+- TabBar uses intrinsic tab widths capped at 220px (including icon and action slots). A ResizeObserver
+  measures tabs and the viewport for absolute positioning, drag centers and active-tab visibility;
+  140px is only an initial position estimate. Never write measured widths back to the tabs. The 36px
+  bar gives 28px pills vertical shadow space; active tabs stack above normal tabs, dragged tabs above both.
 - Tab kinds are `file | diff | image | welcome | settings | untitled | chat`. `diff` and `image` have no
   `EditorState`; `welcome` and `settings` are virtual tabs (`root` empty): they are not written to the
   layout session, do not enter `closedTabs`, and get no state. `untitled` does have a state but no file:
@@ -96,21 +100,21 @@ on `app:hidden`. Closing a chat tab stops its turn and keeps the file.
 
 ## Git & diff
 
-- The Changes group's bulk discard is `useGit.discardAllChanges(root)`: one dangerous confirmation
-  with the file count, guarded before and after the dialog against concurrent Git operations. Its
-  snapshot is restricted to tracked, non-conflicted Changes entries in that root; staged contents,
-  untracked files and other groups stay intact. `api.gitDiscard(root, paths, true)` / `git_discard`
-  with `fromIndex: true` restores only the worktree from the index. Omitting the option keeps the
-  legacy HEAD restore / untracked deletion behavior; all Git failures are surfaced. Paths are literal
-  pathspecs, conflicts and index membership are checked before any restore.
-- Bulk discard suspends saves only for its target files (`suspendFileSaves` in `store/tabs.ts`),
-  cancels queued autosaves, invalidates pending on-save formatting and waits for in-flight writes.
-  A forced Git refresh waits for any older status request, then re-reads instead of being dropped.
-  Then it calls `refreshFromDisk(root, { force: true, paths })`: forced path matching
-  is exact across text, image and diff tabs, so unrelated dirty editors are never overwritten. On Git
-  failure refresh is non-forced, preserving unsaved buffers and rescheduling their autosaves. A successful
-  discard never requeues the old buffer's autosave, even if its disk reload fails. Rust regression tests live in
-  `commands/git.rs`; execute them only through the user-triggered verification / release gate.
+- The Changes group displays `changes` followed by `untracked`; only the UI maps `?` to a green `A`.
+  Stage all includes both lists. `useGit.discardAllChanges(root)` snapshots both categories before one
+  dangerous confirmation with separate restore/delete counts. `api.gitDiscardChanges` /
+  `git_discard_changes` validates all paths, conflicts, directory placeholders and current Git categories
+  before mutation; changed categories reject the whole snapshot. Tracked files restore from the index
+  (staged content survives); only explicitly listed untracked files/symlinks are deleted, never directories.
+  Processing stops at the first failure and returns restored/deleted paths plus an optional coded error.
+  Legacy `api.gitDiscard` / `git_discard` retains its single-file behavior.
+- Bulk discard suspends target saves (`suspendFileSaves` in `store/tabs.ts`), cancels queued autosaves,
+  invalidates pending on-save formatting and waits for in-flight writes. Watcher reloads skip suspended
+  files. Successful deletions close matching tabs; successful restores force-reload exact paths across
+  panes. If a forced reload fails, the obsolete text tab is closed so it cannot write discarded content
+  back later. Only failed/unprocessed paths resume autosave, retaining their editor contents. Git status
+  refresh waits for older requests before rereading. Regression tests live in `commands/git.rs` and run
+  only through the user-triggered verification / release gate.
 - An empty diff is not a new file: the "compare against /dev/null" fallback in `git_diff` /
   `git_diff_full` is only for **untracked** files (`is_tracked`). Otherwise an untouched file renders as
   a full-height green add bar.
@@ -133,6 +137,9 @@ on `app:hidden`. Closing a chat tab stops its turn and keeps the file.
   click order and leave the remaining markers in place.
 
 ## Window & memory
+
+- Terminal `Cmd/Ctrl +/-` character input must pass through App's capture-phase handler before
+  TerminalView can send it to the PTY. Outside the terminal those keys still adjust editor font size.
 
 - Fonts follow the display density: `lib/displayScale.ts` watches the window's scale factor, and the
   stylesheet only applies `-webkit-font-smoothing: antialiased` at 1.5dppx and above. On a 1x screen the

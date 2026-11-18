@@ -170,8 +170,22 @@ export function TerminalView({ tab, active }: Props) {
     term.attachCustomKeyEventHandler((event) => {
       if (event.type !== 'keydown') return true
       const primary = mac ? event.metaKey : event.ctrlKey
-      if (!primary || event.shiftKey || event.altKey) return true
       const key = shortcutKey(event)
+
+      // Command/Ctrl + = or Command/Ctrl + - (with or without Shift): send the visible character
+      // instead of letting xterm intercept for zoom. This allows typing + and - with Command held.
+      if (primary && !event.altKey && (key === '=' || key === '-')) {
+        event.preventDefault()
+        event.stopPropagation()
+        if (event.isComposing || event.keyCode === 229) return false
+        if (!ptyRef.current) return false
+        // Send the actual character the user sees (= or + for equals key, - or _ for minus key)
+        const char = event.key.length === 1 ? event.key : key
+        void api.ptyWrite(ptyRef.current, char)
+        return false
+      }
+
+      if (!primary || event.shiftKey || event.altKey) return true
 
       // ⌘K clears the screen
       if (key === 'k') {

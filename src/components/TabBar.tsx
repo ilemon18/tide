@@ -12,7 +12,7 @@ import { useT } from '../i18n'
 import { tabTitle, tabTooltip } from '../lib/tabTitle'
 
 const GAP = 2
-/** Default tab width, used as a placeholder before measuring (pinned and normal tabs are equal width, as in VSCode) */
+/** Position estimate only, until the intrinsic tab width has been measured. */
 const TAB_W = 140
 
 type DragState = {
@@ -57,28 +57,44 @@ export function TabBar({ groupId }: { groupId: TabGroupId }) {
   /** Tab ghost that follows the pointer when dragging across panes (null = dragging inside its own strip) */
   const [ghost, setGhost] = useState<{ x: number; y: number } | null>(null)
 
-  // Intrinsic width of each tab (content-driven, max 220); drag reordering needs them to compute positions
+  const tabOrder = JSON.stringify(tabs.map((tab) => tab.id))
+  const [viewportWidth, setViewportWidth] = useState(0)
+  const widthsRef = useRef(widths)
+  widthsRef.current = widths
+
+  // Observe intrinsic sizes, including font/locale/title changes and pane/sidebar resizing.
+  // Never feed these measurements back into the tab's own width.
   useLayoutEffect(() => {
     const track = trackRef.current
-    if (!track) return
-    const next: Record<string, number> = {}
-    let changed = false
-    track.querySelectorAll<HTMLElement>('[data-tab-id]').forEach((el) => {
-      const id = el.dataset.tabId
-      if (!id) return
-      const width = el.offsetWidth
-      next[id] = width
-      if (widths[id] !== width) changed = true
-    })
-    if (changed) setWidths(next)
-  })
+    const strip = stripRef.current
+    if (!track || !strip) {
+      setWidths((previous) => Object.keys(previous).length === 0 ? previous : {})
+      return
+    }
+    const measure = () => {
+      const next: Record<string, number> = {}
+      track.querySelectorAll<HTMLElement>('[data-tab-id]').forEach((el) => {
+        if (el.dataset.tabId) next[el.dataset.tabId] = el.getBoundingClientRect().width
+      })
+      setWidths((previous) =>
+        Object.keys(previous).length === Object.keys(next).length &&
+        Object.keys(next).every((id) => previous[id] === next[id]) ? previous : next,
+      )
+      setViewportWidth(strip.clientWidth)
+    }
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(strip)
+    track.querySelectorAll<HTMLElement>('[data-tab-id]').forEach((el) => observer.observe(el))
+    return () => observer.disconnect()
+  }, [tabOrder])
 
   // Scroll the active tab into view (the scrollbar is hidden once tabs overflow, so this is the only way).
   // Do it in the layout phase: a newly opened tab is already inside the viewport on the current frame,
   // instead of painting in place and then jumping.
   useLayoutEffect(() => {
     const strip = stripRef.current
-    if (!strip || !groupActiveId) return
+    if (!strip || !groupActiveId || drag?.active) return
     // Tabs are absolutely positioned at left:0 and moved with translateX, so `offsetLeft` is 0 for every one
     // of them. Reading it made the strip scroll back to the first tab instead of revealing the active one;
     // the position has to come from the measured widths, the same geometry the drag code uses.
@@ -102,7 +118,7 @@ export function TabBar({ groupId }: { groupId: TabGroupId }) {
     else strip.scrollLeft = right - strip.clientWidth
     // `tabs` is rebuilt every render; the dependencies below are the ones that actually change the geometry
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [groupActiveId, tabs.length, widths])
+  }, [groupActiveId, tabOrder, widths, viewportWidth, drag?.active])
 
   if (tabs.length === 0) return null
 
@@ -226,13 +242,13 @@ export function TabBar({ groupId }: { groupId: TabGroupId }) {
       )
       const self = order.findIndex((t) => t.id === current.id)
       if (self < 0) return
-      const draggedWidth = widths[current.id] ?? 140
+      const draggedWidth = widthsRef.current[current.id] ?? TAB_W
       const center = current.pointerX - current.grabX + draggedWidth / 2
 
       let target = self
       let offset = 0
       for (let i = 0; i < order.length; i += 1) {
-        const width = widths[order[i].id] ?? TAB_W
+        const width = widthsRef.current[order[i].id] ?? TAB_W
         if (i !== self) {
           const mid = offset + width / 2
           if (i < self && center < mid) {
@@ -285,7 +301,7 @@ export function TabBar({ groupId }: { groupId: TabGroupId }) {
         <div
           ref={stripRef}
           data-tab-strip="true"
-          className="tab-strip min-w-0 flex-1 overflow-x-auto overflow-y-hidden"
+          className="tab-strip h-full min-w-0 flex-1 overflow-x-auto overflow-y-hidden"
           onWheel={(e) => {
             // The scrollbar is hidden: use the wheel / horizontal trackpad swipe to reach pushed-out tabs
             const strip = e.currentTarget
@@ -293,7 +309,7 @@ export function TabBar({ groupId }: { groupId: TabGroupId }) {
             strip.scrollLeft += Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY
           }}
         >
-          <div ref={trackRef} className="relative h-[28px]" style={{ width: Math.max(cursor, 1) }}>
+          <div ref={trackRef} className="relative h-full" style={{ width: Math.max(cursor, 1) }}>
             {tabs.map((tab) => {
               const active = tab.id === groupActiveId
               const box = layout.get(tab.id)!
@@ -321,11 +337,10 @@ export function TabBar({ groupId }: { groupId: TabGroupId }) {
                   data-dragging={dragging}
                   data-away={away}
                   data-pinned={tab.pinned}
-                  className={`tab-pill group absolute left-0 top-0 flex h-[28px] cursor-default items-center gap-1.5 overflow-hidden pl-2.5 pr-1.5 text-sm ${
+                  className={`tab-pill group absolute left-0 top-[3px] flex h-[28px] cursor-default items-center gap-1.5 overflow-hidden pl-2.5 pr-1.5 text-sm ${
                     active ? 'text-fg' : 'text-muted hover:bg-hover hover:text-fg/90'
-                  } ${dragging ? 'z-10 cursor-grabbing' : ''}`}
+                  } ${dragging ? 'cursor-grabbing' : ''}`}
                   style={{
-                    width: box.w,
                     transform: `translateX(${x}px)`,
                   }}
                 >
@@ -343,12 +358,12 @@ export function TabBar({ groupId }: { groupId: TabGroupId }) {
                     <FileIcon
                       name={basename(tab.rel)}
                       size={14}
-                      className={tab.kind === 'diff' ? 'opacity-70' : 'shrink-0'}
+                      className={`shrink-0 ${tab.kind === 'diff' ? 'opacity-70' : ''}`}
                     />
                   )}
                   {/* Pinned tabs show the file name like normal ones; only the right slot becomes a pin
                      (no close button to avoid accidental closes; unpin via the context menu). Same look as VSCode. */}
-                  <span className={`truncate ${tab.pinned ? 'min-w-0 flex-1' : 'min-w-0'}`}>
+                  <span className="min-w-0 truncate">
                     {tabTitle(tab)}
                   </span>
                   {tab.dirty ? (

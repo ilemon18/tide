@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { AgentMention } from '../lib/ipc'
 import type { AgentCommandId, AgentSkillRef, ComposerTrigger } from '../lib/agentCommand'
 import {
@@ -20,6 +20,7 @@ import { COMMAND_DESCRIPTIONS, CommandChip, SkillChip, commandLabel } from './Ag
 
 type Props = {
   root: string
+  tokenBudget?: ReactNode
   draft: string
   mentions: AgentMention[]
   command?: AgentCommandId
@@ -81,6 +82,7 @@ function MentionChip({
  */
 export function AgentComposer({
   root,
+  tokenBudget,
   draft,
   mentions,
   command,
@@ -470,6 +472,7 @@ export function AgentComposer({
               <Icon name="stop" size={14} />
             </button>
           ) : null}
+          {tokenBudget}
           <button
             type="button"
             onClick={onSend}

@@ -228,7 +228,8 @@ export const ko: Messages = {
   'dialog.gitDiscard.message': '{count}개 파일의 변경 사항을 버립니다. 되돌릴 수 없습니다.',
   'dialog.gitDiscard.confirm': '버리기',
   'dialog.gitDiscardAll.message':
-    '「변경」 그룹에 있는 파일 {count}개의 스테이지하지 않은 변경을 버립니다. 스테이지한 내용, 추적하지 않는 파일 및 충돌 파일은 유지됩니다. 이 작업은 되돌릴 수 없습니다.',
+    '추적 중인 파일을 스테이징된 내용으로 복원: {restoreCount}개. 추적되지 않은 파일 삭제: {deleteCount}개. 스테이징된 변경 사항과 충돌 파일은 유지됩니다. 이 작업은 취소할 수 없습니다.',
+  'error.git.discardStatusChanged': '“{path}”의 Git 상태가 변경되었습니다. 새로 고친 후 다시 시도하세요.',
   'dialog.gitUndoCommit.title': '마지막 커밋 되돌리기',
   'dialog.gitUndoCommit.message':
     '마지막 커밋을 취소하고, 변경 사항은 스테이지에 그대로 두며, 커밋 메시지는 입력란으로 돌려놓습니다. 이미 푸시한 커밋은 원격 기록을 다시 씁니다.',
@@ -780,4 +781,16 @@ export const ko: Messages = {
   'error.agent.spawnFailed': '에이전트를 시작할 수 없습니다: {error}',
   'error.agent.invalidId': '채팅 id가 올바르지 않습니다',
   'error.agent.chatTooLarge': '이 채팅은 너무 커서 저장할 수 없습니다',
+  'agent.context.tokenDetails': '토큰 추정 내역 보기',
+  'agent.context.tokenBreakdown': '토큰 추정 내역',
+  'agent.context.budgetHealthy': '컨텍스트 크기가 작습니다',
+  'agent.context.largeContext': '컨텍스트가 크면 응답이 느려질 수 있습니다',
+  'agent.context.hugeContext': '컨텍스트가 매우 크면 응답이 느려지고 비용이 증가할 수 있습니다',
+  'agent.context.attached': '참조 경로 수: {count}',
+  'agent.context.estimate': '약 {count} 토큰',
+  'agent.context.prompt': '프롬프트',
+  'agent.context.estimateHint': '초안과 디스크에 있는 참조 파일 크기를 기준으로 한 대략적인 추정입니다. 대화 기록, 디렉터리 내용 및 CLI 추가 사용량은 제외되며 모델의 컨텍스트 한도가 아닙니다.',
+
+  'error.git.discardDirectory': '{path} 변경 사항을 버릴 수 없습니다. 추적 중인 파일 경로에 디렉터리가 있습니다.',
+
 }

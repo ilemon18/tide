@@ -221,7 +221,8 @@ export const zhTW: Messages = {
   'dialog.gitDiscard.message': '將捨棄 {count} 個檔案的變更，此操作無法復原。',
   'dialog.gitDiscard.confirm': '捨棄',
   'dialog.gitDiscardAll.message':
-    '將捨棄「更改」分組中 {count} 個檔案的未暫存修改。已暫存內容、未追蹤檔案和衝突檔案將保留。此操作無法復原。',
+    '將已追蹤檔案還原到暫存區版本：{restoreCount} 個。刪除未追蹤檔案：{deleteCount} 個。已暫存的變更和衝突檔案將保留。此操作無法復原。',
+  'error.git.discardStatusChanged': '「{path}」的 Git 分類已變更，請重新整理後再試。',
   'dialog.gitUndoCommit.title': '復原上一次提交',
   'dialog.gitUndoCommit.message':
     '上一次提交會被撤回，變更原樣留在暫存區，提交訊息也會填回輸入框。已推送的提交會影響遠端歷史。',
@@ -758,4 +759,16 @@ export const zhTW: Messages = {
   'error.agent.spawnFailed': '無法啟動智慧代理：{error}',
   'error.agent.invalidId': '對話 id 無效',
   'error.agent.chatTooLarge': '此對話過大，無法儲存',
+  'agent.context.tokenDetails': '查看 token 估算明細',
+  'agent.context.tokenBreakdown': 'Token 估算明細',
+  'agent.context.budgetHealthy': '上下文較小',
+  'agent.context.largeContext': '較大的上下文可能使回應變慢',
+  'agent.context.hugeContext': '非常大的上下文可能使回應變慢並增加費用',
+  'agent.context.attached': '引用路徑：{count}',
+  'agent.context.estimate': '約 {count} tokens',
+  'agent.context.prompt': '提示詞',
+  'agent.context.estimateHint': '依據草稿及磁碟上引用檔案的大小粗略估算，不含對話歷史、目錄內容和 CLI 額外用量；這不是模型的上下文上限。',
+
+  'error.git.discardDirectory': '無法捨棄 {path} 的變更：此已追蹤檔案路徑已被目錄佔用。',
+
 }

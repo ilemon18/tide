@@ -6,6 +6,7 @@ import {
   type AgentEventPayload,
   type AgentMention,
   type AgentProviderInfo,
+  type TokenEstimate,
 } from '../lib/ipc'
 import {
   buildAgentPrompt,
@@ -156,6 +157,9 @@ type AgentStore = {
 
   chatDefaults: ChatDefaults
 
+  /** Token estimates per chat */
+  tokenEstimates: Record<string, TokenEstimate>
+
   loadProviders: (force?: boolean) => Promise<void>
   loadCatalog: (provider: string, force?: boolean) => Promise<void>
   resolveDefaults: () => void
@@ -175,6 +179,8 @@ type AgentStore = {
   setChatDraft: (chatId: string, patch: Partial<AgentDraft>) => void
   newChatFrom: (chatId: string) => void
   flushChats: () => void
+
+  updateTokenEstimate: (chatId: string) => Promise<void>
 }
 
 /** Chat records waiting for the debounced write */
@@ -445,6 +451,8 @@ export const useAgent = create<AgentStore>((set, get) => {
 
     chatDefaults: emptyDefaults,
 
+    tokenEstimates: {},
+
     loadProviders: async (force = false) => {
       if (get().providersLoading && !force) return
       providerTicket += 1
@@ -553,7 +561,9 @@ export const useAgent = create<AgentStore>((set, get) => {
       // Capture the last transcript before the record leaves memory
       if (leaving) persistLeavingChat(id, leaving)
       retried.delete(id)
-      set({ chats, running, chatDrafts, queues })
+      const tokenEstimates = { ...get().tokenEstimates }
+      delete tokenEstimates[id]
+      set({ chats, running, chatDrafts, queues, tokenEstimates })
     },
 
     openChatTab: (id) => {
@@ -944,6 +954,28 @@ export const useAgent = create<AgentStore>((set, get) => {
       for (const timer of timers.values()) clearTimeout(timer)
       timers.clear()
       for (const chatId of [...dirty]) void persistChat(chatId)
+    },
+
+    updateTokenEstimate: async (chatId) => {
+      const chat = get().chats[chatId]
+      const draft = get().chatDrafts[chatId]
+      if (!chat) return
+
+      const mentions = draft?.mentions || []
+      const text = buildAgentPrompt(normalizeAgentDraft(draft ?? { text: '', mentions: [] }))
+
+      try {
+        const estimate = await api.agentEstimateTokens(chat.root, mentions, text)
+        if (!get().chats[chatId] || get().chatDrafts[chatId] !== draft) return
+        set({
+          tokenEstimates: { ...get().tokenEstimates, [chatId]: estimate }
+        })
+      } catch {
+        if (!get().chats[chatId] || get().chatDrafts[chatId] !== draft) return
+        const tokenEstimates = { ...get().tokenEstimates }
+        delete tokenEstimates[chatId]
+        set({ tokenEstimates })
+      }
     },
   }
 })

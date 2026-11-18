@@ -67,6 +67,12 @@ export type GitOperation = {
   canSkip: boolean
 }
 
+export type GitDiscardResult = {
+  restored: string[]
+  deleted: string[]
+  error: CodedError | null
+}
+
 export type GitStatus = {
   isRepo: boolean
   branch: string
@@ -368,6 +374,12 @@ export type AgentEventPayload = { chatId: string; event: AgentEvent }
 export type AgentTabRef = { id: string; root: string }
 export type AgentTabs = { tabs: AgentTabRef[]; active: string | null }
 
+/** Token estimate breakdown */
+export type TokenEstimate = {
+  total: number
+  breakdown: Array<{ kind: 'prompt' | 'file'; label: string; tokens: number }>
+}
+
 export const api = {
   // ---- File system ----
   openFolder: (path: string) => invoke<WorkspaceInfo>('open_folder', { path }),
@@ -407,6 +419,8 @@ export const api = {
     }),
   gitStage: (root: string, paths: string[]) => invoke<void>('git_stage', { root, paths }),
   gitUnstage: (root: string, paths: string[]) => invoke<void>('git_unstage', { root, paths }),
+  gitDiscardChanges: (root: string, trackedPaths: string[], untrackedPaths: string[]) =>
+    invoke<GitDiscardResult>('git_discard_changes', { root, trackedPaths, untrackedPaths }),
   gitDiscard: (root: string, paths: string[], fromIndex = false) =>
     invoke<void>('git_discard', { root, paths, fromIndex }),
   gitCommit: (root: string, message: string) => invoke<string>('git_commit', { root, message }),
@@ -529,4 +543,7 @@ export const api = {
   agentTabsSave: (tabs: AgentTabRef[], active: string | null) =>
     invoke<void>('agent_tabs_save', { tabs, active }),
   agentTabsLoad: () => invoke<AgentTabs>('agent_tabs_load'),
+  /** Estimate token count for mentions + prompt */
+  agentEstimateTokens: (root: string, mentions: AgentMention[], prompt: string) =>
+    invoke<TokenEstimate>('agent_estimate_tokens', { root, mentions, prompt }),
 }

@@ -255,7 +255,8 @@ export const en = {
     'Changes in {count} file will be discarded. This cannot be undone. | Changes in {count} files will be discarded. This cannot be undone.',
   'dialog.gitDiscard.confirm': 'Discard',
   'dialog.gitDiscardAll.message':
-    'Unstaged changes in {count} file in the Changes group will be discarded. Staged changes, untracked files and conflicts will be kept. This cannot be undone. | Unstaged changes in {count} files in the Changes group will be discarded. Staged changes, untracked files and conflicts will be kept. This cannot be undone.',
+    'Restore tracked files to their staged versions: {restoreCount}. Delete untracked files: {deleteCount}. Staged changes and conflicts will be kept. This cannot be undone.',
+  'error.git.discardStatusChanged': 'The Git status of “{path}” has changed. Refresh and try again.',
   'dialog.gitUndoCommit.title': 'Undo last commit',
   'dialog.gitUndoCommit.message':
     'The last commit is taken back, its changes stay staged and the message returns to the input. Pushed commits will rewrite remote history.',
@@ -758,6 +759,11 @@ export const en = {
   'agent.jumpToLatest': 'Jump to latest',
   'agent.mentionRemove': 'Remove mention',
   'agent.mentionPick': 'Reference a file',
+  'agent.context.tokenDetails': 'Click to see token breakdown',
+  'agent.context.tokenBreakdown': 'Token Breakdown',
+  'agent.context.budgetHealthy': 'Budget is healthy',
+  'agent.context.largeContext': 'Large context may slow down responses',
+  'agent.context.hugeContext': 'Very large context may cause slow responses and higher cost',
   'agent.command.pick': 'Run a command',
   'agent.command.remove': 'Remove command',
   'agent.command.plan.label': 'Plan',
@@ -831,4 +837,11 @@ export const en = {
   'error.agent.chatTooLarge': 'This chat is too large to save',
 
   // @i18n-anchor
+  'agent.context.attached': 'Referenced paths: {count}',
+  'agent.context.estimate': '~{count} tokens',
+  'agent.context.prompt': 'Prompt',
+  'agent.context.estimateHint': 'Rough estimate of the draft and referenced file sizes on disk. Excludes session history, directory contents and CLI overhead; this is not a model context limit.',
+
+  'error.git.discardDirectory': 'Cannot discard {path}: a directory occupies this tracked file path.',
+
 } as const

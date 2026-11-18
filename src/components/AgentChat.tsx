@@ -9,6 +9,7 @@ import { shortcutKey } from '../lib/keys'
 import { AgentComposer } from './AgentComposer'
 import { AssistantMessage, UserMessage } from './AgentMessage'
 import { Icon } from './Icon'
+import { AgentTokenBudget } from './AgentTokenBudget'
 
 /** A chat tab: transcript, per-chat options and the composer. */
 export function AgentChat({ chatId }: { chatId: string }) {
@@ -310,6 +311,7 @@ export function AgentChat({ chatId }: { chatId: string }) {
             </div>
           ) : null}
           <AgentComposer
+            tokenBudget={<AgentTokenBudget chatId={chatId} />}
             root={chat.root}
             draft={draft.text}
             mentions={draft.mentions}
@@ -337,6 +339,11 @@ export function AgentChat({ chatId }: { chatId: string }) {
               void useAgent.getState().sendMessage(chatId, draft)
             }}
           />
+          {draft.mentions.length > 0 && (
+            <div className="px-1 text-2xs text-muted">
+              {t('agent.context.attached', { count: draft.mentions.length })}
+            </div>
+          )}
         </div>
       </div>
     </div>

@@ -381,7 +381,7 @@ function fileSaveKey(root: string, rel: string) {
 export async function suspendFileSaves(
   root: string,
   paths: string[],
-): Promise<(reschedule?: boolean) => void> {
+): Promise<(reschedule?: boolean | readonly string[]) => void> {
   const keys = paths.map((rel) => fileSaveKey(root, rel))
   for (const key of keys) {
     suspendedSaves.add(key)
@@ -391,11 +391,12 @@ export async function suspendFileSaves(
     if (tab.root === root && paths.includes(tab.rel)) cancelAutoSave(tab.id)
   }
   await Promise.allSettled(keys.flatMap((key) => [...(pendingWrites.get(key) ?? [])]))
-  return (reschedule = true) => {
+  return (reschedule: boolean | readonly string[] = true) => {
     for (const key of keys) suspendedSaves.delete(key)
     if (!reschedule) return
+    const retryPaths = reschedule === true ? paths : reschedule
     for (const tab of useTabs.getState().tabs) {
-      if (tab.root === root && paths.includes(tab.rel) && tab.dirty) scheduleAutoSave(tab.id)
+      if (tab.root === root && retryPaths.includes(tab.rel) && tab.dirty) scheduleAutoSave(tab.id)
     }
   }
 }
@@ -1640,11 +1641,12 @@ export const useTabs = create<TabsStore>((set, get) => ({
     const { force = false, paths } =
       typeof options === 'boolean' ? { force: options, paths: undefined } : (options ?? {})
     const matchesPath = (tab: Tab) =>
-      !paths || paths.some(
+      (force || !suspendedSaves.has(fileSaveKey(tab.root, tab.rel))) &&
+      (!paths || paths.some(
         (path) =>
           path === tab.rel ||
           (!force && (tab.rel.startsWith(`${path}/`) || path.startsWith(`${tab.rel}/`))),
-      )
+      ))
     if (force) {
       for (const tab of get().tabs) {
         if (tab.root === root && matchesPath(tab)) cancelAutoSave(tab.id)
@@ -1674,7 +1676,7 @@ export const useTabs = create<TabsStore>((set, get) => ({
     await get().syncDiffTabs(
       root,
       useGit.getState().statuses[root],
-      paths ? affectedTabs.map((tab) => tab.rel) : undefined,
+      affectedTabs.map((tab) => tab.rel),
     )
 
     // No reloadable text for image previews: sync mtime into the tab so ImageView rereads
@@ -1737,7 +1739,10 @@ export const useTabs = create<TabsStore>((set, get) => ({
           }
 
           const payload = await api.readFile(current.root, current.rel)
-          if (payload.binary) continue
+          if (payload.binary) {
+            if (force && paths) await closeMany([current.id], true)
+            continue
+          }
           const settings = useSettings.getState()
           // Disk content changed: line ending / indent may have changed too, detect again
           const textMeta = detectTextMeta(payload.content)
@@ -1774,7 +1779,12 @@ export const useTabs = create<TabsStore>((set, get) => ({
           const updated = get().tabs.find((t) => t.id === current.id)
           if (updated) useBlame.getState().scheduleFetch(updated)
         } catch (error) {
-          if (force && paths) useUi.getState().toast(errorText(error), 'error')
+          if (force && paths) {
+            // Discard already succeeded on disk: an unreadable replacement must never leave
+            // the obsolete editor buffer available to a later manual save or autosave.
+            await closeMany([tab.id], true)
+            useUi.getState().toast(errorText(error), 'error')
+          }
           /* One file failing does not affect the others */
         }
       }

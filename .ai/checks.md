@@ -79,8 +79,8 @@ the workflow files only; remote tag/release/CI state still needs a manual check 
 Write test code during implementation, but do not run it. The verification skill runs
 `cargo test --manifest-path src-tauri/Cargo.toml` when the user asked for tests, test code changed, or
 the change touches `src-tauri/src/update.rs`, `paths.rs` or `commands/theme.rs`. CI always runs it.
-Unit tests live in those three files; a test build uses the dev profile, which the release build does
-not reuse, which is why `verify` leaves it out.
+Unit tests also cover Git commands and agent providers, skill discovery and persistence. A test build
+uses the dev profile, which the release build does not reuse, which is why `verify` leaves it out.
 
 The release-check skill runs it unconditionally, because it mirrors the tag-time CI job.
 
@@ -98,4 +98,4 @@ adds tests when in scope. For a release, run the release-check skill first; it a
 bundle and manifest checks around the same gate. `pnpm app:dev` is only for a requested UI check.
 
 ---
-**Last updated**: 2026-11-17
+**Last updated**: 2026-11-18

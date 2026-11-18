@@ -38,6 +38,7 @@ import {
 } from './lib/actions'
 import { api, type RecentWorkspace, type Settings } from './lib/ipc'
 import { shortcutKey } from './lib/keys'
+import { isMac } from './lib/paths'
 import { installMemoryLifecycle } from './lib/memory'
 import {
   armEditorSession,
@@ -486,6 +487,9 @@ export function App() {
       if (!settingsStore.sidebarVisible) settingsStore.patch({ sidebarVisible: true })
       return true
     }
+    // Let the terminal's key handler send these characters before the global font shortcut.
+    if (terminalFocused() && !e.altKey && (isMac() ? e.metaKey : e.ctrlKey) &&
+        (shortcut === '=' || shortcut === '-')) return false
     // ⌘+ / ⌘= both fold into "=" (shifted punctuation is normalized), and ⌘- goes the other way
     if (shortcut === '=') {
       settingsStore.patch({ fontSize: clamp(settingsStore.fontSize + 1, 10, 24) })

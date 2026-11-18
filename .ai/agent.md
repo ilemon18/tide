@@ -91,3 +91,17 @@ on), then cached for the session; the settings page can rescan on demand.
 Add a `ProviderSpec` row in `agent/providers.rs`, an argument builder + JSONL translator next to
 `claude.rs`, its model catalog (or a curated one), and map its events to the same
 `AgentEvent`. Detected-but-unsupported CLIs stay in the settings list with a hint.
+
+## Draft token estimates
+
+- `src/components/AgentTokenBudget.tsx` renders a compact status ring immediately left of the
+  composer's send button, including while a turn is running. No count is shown in the toolbar;
+  hover exposes the estimate and clicking opens the total and per-source breakdown.
+  Escape, an outside click or the close button dismisses the breakdown.
+- Ring color indicates estimate size: neutral at zero, accent through 100k, warning above 100k,
+  danger above 150k. A center dot also distinguishes the warning states. This is a size
+  indicator, not a model context-window percentage.
+- Draft changes are debounced by 300ms. `agent_estimate_tokens` includes command/skill prompt
+  wrappers and disk file sizes without loading file contents. It excludes session history,
+  directory contents and CLI overhead. Stale responses are discarded; chat close clears estimates.
+- File references are selected explicitly through the `@` picker or explorer entry points.

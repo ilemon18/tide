@@ -233,7 +233,8 @@ export const es: Messages = {
     'Se descartarán los cambios de {count} archivo. No se puede deshacer. | Se descartarán los cambios de {count} archivos. No se puede deshacer.',
   'dialog.gitDiscard.confirm': 'Descartar',
   'dialog.gitDiscardAll.message':
-    'Se descartarán los cambios sin preparar de {count} archivo del grupo Cambios. Se conservarán los cambios preparados, los archivos sin seguimiento y los conflictos. No se puede deshacer. | Se descartarán los cambios sin preparar de {count} archivos del grupo Cambios. Se conservarán los cambios preparados, los archivos sin seguimiento y los conflictos. No se puede deshacer.',
+    'Restaurar archivos rastreados a su versión preparada: {restoreCount}. Eliminar archivos sin seguimiento: {deleteCount}. Se conservarán los cambios preparados y los conflictos. Esta acción no se puede deshacer.',
+  'error.git.discardStatusChanged': 'El estado de Git de «{path}» ha cambiado. Actualiza y vuelve a intentarlo.',
   'dialog.gitUndoCommit.title': 'Deshacer el último commit',
   'dialog.gitUndoCommit.message':
     'Se retira el último commit, sus cambios quedan preparados y el mensaje vuelve al campo. Los commits ya publicados reescribirán el historial remoto.',
@@ -726,6 +727,11 @@ export const es: Messages = {
   'agent.jumpToLatest': 'Ir a lo más reciente',
   'agent.mentionRemove': 'Quitar referencia',
   'agent.mentionPick': 'Referenciar un archivo',
+  'agent.context.tokenDetails': 'Haga clic para ver el desglose de tokens',
+  'agent.context.tokenBreakdown': 'Desglose de tokens',
+  'agent.context.budgetHealthy': 'El presupuesto es saludable',
+  'agent.context.largeContext': 'El contexto grande puede ralentizar las respuestas',
+  'agent.context.hugeContext': 'El contexto muy grande puede causar respuestas lentas y mayor costo',
   'agent.command.pick': 'Ejecutar un comando',
   'agent.command.remove': 'Quitar comando',
   'agent.command.plan.label': 'Planificar',
@@ -799,4 +805,11 @@ export const es: Messages = {
   'error.agent.chatTooLarge': 'Este chat es demasiado grande para guardarlo',
 
   // @i18n-anchor
+  'agent.context.attached': 'Rutas referenciadas: {count}',
+  'agent.context.estimate': '~{count} tokens',
+  'agent.context.prompt': 'Prompt',
+  'agent.context.estimateHint': 'Estimación aproximada del borrador y del tamaño de los archivos referenciados en disco. Excluye el historial, el contenido de directorios y el uso adicional del CLI; no es el límite de contexto del modelo.',
+
+  'error.git.discardDirectory': 'No se pueden descartar los cambios de {path}: un directorio ocupa la ruta de este archivo rastreado.',
+
 }

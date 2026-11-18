@@ -6,9 +6,8 @@
 
 ## Project
 
-Tide: lightweight macOS / Windows code editor. Tauri 2 + Rust; React 19 +
-TS + Vite 8 + Tailwind 4; CodeMirror 6; xterm.js + portable-pty; zustand 5; 21 themes + `system`; 6 locales (English
-is the source).
+macOS / Windows editor: Tauri 2 + Rust, React 19 + TS + Vite 8 + Tailwind 4, CodeMirror 6,
+xterm.js + portable-pty, zustand 5. 21 themes + `system`; 6 locales, English source.
 
 **Low memory and low startup cost** are deliberate; see the ceilings below.
 
@@ -22,7 +21,7 @@ is the source).
 | CodeMirror | `src/editor/`: `setup` `stateCache` `stateKeys` `viewRef` `openState` `mirror` `folding` `languages` `largeFile` `indentGuides` `blame` `conflicts` `highlight` `importLinks` `scrollMemory` `signals` `locale` `outline` |
 | State slices (14) | `src/store/`: `workspace` `tabs` `git` `search` `terminal` `settings` `ui` `blame` `watcher` `fileIndex` `commitHover` `folderChain` `update` `agent` |
 | Folder chain compaction | `src/store/folderChain.ts`, `resolve_dir_chain` in `src-tauri/src/commands/fs.rs`, `buildRows` in `FileTree.tsx` |
-| Built-in agent (chat tabs, local CLI turns) | `src/components/AgentChat.tsx`, `AgentComposer.tsx`, `AgentMessage.tsx`, `AgentMarkdown.tsx`, `AgentPickers.tsx`, `src/store/agent.ts`, `src/lib/agentSession.ts`, `src/lib/agentEvents.ts`, `src/lib/agentBridge.ts`, `src-tauri/src/commands/agent.rs`, `src-tauri/src/agent/{mod,providers,claude,codex,store}.rs` — [agent.md](./agent.md) |
+| Built-in agent | Chat UI in `src/components/Agent*.tsx`, state in `src/store/agent.ts`, Rust in `src-tauri/src/agent/` — [agent.md](./agent.md) |
 | IPC + DTO types | `src/lib/ipc.ts` (**only** `invoke` wrapper) |
 | Flows, palette entries, tab titles, untitled buffers, memory | `src/lib/actions.ts`, `commands.ts`, `tabTitle.ts`, `untitledDrafts.ts`, `memory.ts`, `memoryBudget.ts`, `layoutBus.ts` |
 | Text format, session restore | `src/lib/textMeta.ts`, `editorSession.ts`, backend `save_open_tabs` |
@@ -58,16 +57,14 @@ is the source).
 
 ### Updates & window scope
 - Check, download and install happen in Rust (`update.rs`); the webview never touches the network, it only drives the state machine.
-- Only https URLs on GitHub hosts; byte count and the `latest.json` SHA-256 must match; nothing runs before the user clicks. `latest.json` is generated at release time by `scripts/make-latest-json.mjs` and **never enters the repo**.- One window owns **one** project; several projects means several windows (`main` + `win-<pid>-<seq>`, project via `?open=<path>`). Only the main window persists the session (`IS_PRIMARY_WINDOW`).
+- Only https URLs on GitHub hosts; byte count and the `latest.json` SHA-256 must match; nothing runs before the user clicks. `latest.json` is generated at release time by `scripts/make-latest-json.mjs` and **never enters the repo**.
+- One window owns **one** project; several projects means several windows (`main` + `win-<pid>-<seq>`, project via `?open=<path>`). Only the main window persists the session (`IS_PRIMARY_WINDOW`).
 
 ## Common changes
 
 ### Add a backend command
-1. Implement `#[tauri::command] fn ... -> AppResult<T>` in `src-tauri/src/commands/<domain>.rs`
-2. Register it in `invoke_handler![...]` in `src-tauri/src/main.rs` (a missing entry fails only at runtime)
-3. Add a typed `api.xxx` in `src/lib/ipc.ts`
-4. Consume it in a store or `src/lib/actions.ts`, never in a component
-5. User-visible → add an entry in `src/lib/commands.ts`; user-facing error → add the code to the catalogs ([i18n.md](./i18n.md))
+Implement in `commands/<domain>.rs`, register in `main.rs`, type it in `lib/ipc.ts`, and
+consume through a store/action. Add palette entries in `lib/commands.ts` and errors to all catalogs.
 
 ### Add a setting
 Four places, always together: `Settings` in `src/lib/ipc.ts` → `DEFAULT_SETTINGS` in `src/store/settings.ts` (plus `SHARED_KEYS` if it syncs across windows) → `Settings` + migration in `src-tauri/src/commands/theme.rs` → `SettingsView.tsx`. `schemaVersion` is 9.
@@ -82,10 +79,6 @@ Five places: `palettes.ts` (`ui` / `syntax` / `terminal` + `CYCLE_ORDER`), `appl
 - `src/assets/fileIcons.generated.ts` ← `scripts/build-file-icons.mjs`
 - `src/vendor/prettier/` ← vendored standalone Prettier build
 - `src-tauri/icons/`, `src-tauri/gen/` ← `pnpm icon` / tauri
-
-## Architecture
-
-`App.tsx` →(selector) zustand →(`api.*`) `src/lib/ipc.ts` →(invoke, camelCase) `main.rs` →(authorize) `commands/*.rs` → fs / git subprocesses, ignore walker, portable-pty, notify. Data flows: [traps.md](./traps.md).
 
 ## Performance ceilings
 
@@ -105,12 +98,17 @@ Five places: `palettes.ts` (`ui` / `syntax` / `terminal` + `CYCLE_ORDER`), `appl
 
 - Agent transcripts live in `<config>/agent/chats/<id>.json`, open chat tabs in `<config>/agent/tabs.json` (primary window only).
 - `settings.json` / `session.json` live in `app_config_dir()` (macOS `~/Library/Application Support/com.aitify.tide/`), read/written under a lock by `commands/theme.rs`.
-- Defaults exist twice and must match: `DEFAULT_SETTINGS` (`src/store/settings.ts`) and `Settings::default` (`theme.rs`). A fresh install reads the Rust side (`schemaVersion` 0 → frontend migrates → writes back); after that `settings.json` wins.
-- `SHARED_KEYS` decides what syncs across windows (`locale` does, layout fields do not). Workspace roots are refcounted in `state.rs`: at zero the PTYs and watcher are reaped. First paint theme comes from `public/theme-boot.js` (no inline scripts under CSP).
+- Defaults and migration: see [traps.md](./traps.md), Config & settings.
+- Workspace roots are refcounted in `state.rs`; zero reaps PTYs and watchers. First paint uses `public/theme-boot.js` (CSP forbids inline scripts).
 
-## Commands
+## Maintaining docs
 
-`pnpm app:dev` is only for a requested UI check; `pnpm icon` regenerates app icons + the file icon table. **Never package unless the user asked**: no `pnpm app:build`, `app:build:win`, `app:release` or `tauri build` (debug bundles included). **No checks, tests or builds while coding**; when the user asks to verify, follow [`.ai/skills/verify/SKILL.md`](./skills/verify/SKILL.md). For a release check / 发布前检查, follow [the release-check skill](./skills/release-check/SKILL.md).
+- Update the relevant area doc when a module, path or behavior changes; keep paths and rules,
+  not copied code or line numbers. Keep this entry under 10KB and other area docs under 8KB.
+- Update [checks.md](./checks.md) and the relevant skill when a guard or check step changes.
+  Coding-policy changes must stay aligned with `AGENTS.md` and `CLAUDE.md`.
+- Remove obsolete designs and their references when retiring a feature. Keep one source of truth
+  for each topic; tool-specific skill entries only point to the canonical skill.
 
 ---
-**Last updated**: 2026-11-17
+**Last updated**: 2026-11-18

@@ -306,6 +306,7 @@ fn main() {
             commands::git::git_stage,
             commands::git::git_unstage,
             commands::git::git_discard,
+            commands::git::git_discard_changes,
             commands::git::git_commit,
             commands::git::git_undo_commit,
             commands::git::git_pull,
@@ -336,6 +337,7 @@ fn main() {
             commands::agent::agent_chat_delete,
             commands::agent::agent_tabs_save,
             commands::agent::agent_tabs_load,
+            commands::agent::agent_estimate_tokens,
             // settings / theme persistence
             commands::theme::load_settings,
             commands::theme::save_settings,

@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { api, errorText, type GitBranches, type GitStatus } from '../lib/ipc'
 import { useUi } from './ui'
 import { useWorkspace } from './workspace'
-import { t, tp } from '../i18n'
+import { t } from '../i18n'
 
 type GitStore = {
   statuses: Record<string, GitStatus>
@@ -241,7 +241,7 @@ export const useGit = create<GitStore>((set, get) => ({
   },
 
   stage: async (root, paths) => {
-    if (paths.length === 0) return
+    if (get().busy || paths.length === 0) return
     set({ busy: 'stage' })
     try {
       await api.gitStage(root, paths)
@@ -255,7 +255,7 @@ export const useGit = create<GitStore>((set, get) => ({
   },
 
   unstage: async (root, paths) => {
-    if (paths.length === 0) return
+    if (get().busy || paths.length === 0) return
     set({ busy: 'unstage' })
     try {
       await api.gitUnstage(root, paths)
@@ -269,14 +269,14 @@ export const useGit = create<GitStore>((set, get) => ({
   },
 
   discard: async (root, paths) => {
-    if (paths.length === 0) return
+    if (get().busy || paths.length === 0) return
     const ok = await useUi.getState().confirm({
       title: t('dialog.gitDiscard.title'),
       message: t('dialog.gitDiscard.message', { count: paths.length }),
       confirmText: t('dialog.gitDiscard.confirm'),
       danger: true,
     })
-    if (!ok) return
+    if (!ok || get().busy) return
     set({ busy: 'discard' })
     try {
       await api.gitDiscard(root, paths)
@@ -291,14 +291,21 @@ export const useGit = create<GitStore>((set, get) => ({
 
   discardAllChanges: async (root) => {
     if (get().busy || discardAllConfirmPending || useUi.getState().confirmReq) return
-    const paths = get().statuses[root]?.changes.map((file) => file.path) ?? []
-    if (paths.length === 0) return
+    const snapshot = get().statuses[root]
+    if (!snapshot || snapshot.error) return
+    const trackedPaths = snapshot.changes.map((file) => file.path)
+    const untrackedPaths = snapshot.untracked.map((file) => file.path)
+    const targets = [...trackedPaths, ...untrackedPaths]
+    if (targets.length === 0) return
     discardAllConfirmPending = true
     let ok: boolean
     try {
       ok = await useUi.getState().confirm({
         title: t('dialog.gitDiscard.title'),
-        message: tp('dialog.gitDiscardAll.message', paths.length),
+        message: t('dialog.gitDiscardAll.message', {
+          restoreCount: trackedPaths.length,
+          deleteCount: untrackedPaths.length,
+        }),
         confirmText: t('dialog.gitDiscard.confirm'),
         danger: true,
       })
@@ -306,33 +313,30 @@ export const useGit = create<GitStore>((set, get) => ({
       discardAllConfirmPending = false
     }
     if (!ok || get().busy || !useWorkspace.getState().roots.some((node) => node.id === root)) return
-    const status = get().statuses[root]
-    if (!status || status.error) return
-    const targets = paths.filter(
-      (path) =>
-        status.changes.some((file) => file.path === path) &&
-        !status.untracked.some((file) => file.path === path) &&
-        !status.conflicts.some((file) => file.path === path),
-    )
-    if (targets.length === 0) return
     set({ busy: 'discard' })
-    let resumeSaves: ((reschedule?: boolean) => void) | undefined
-    let restored = false
+    let resumeSaves: ((reschedule?: boolean | readonly string[]) => void) | undefined
+    const completed = new Set<string>()
     try {
       const { useTabs, suspendFileSaves } = await import('./tabs')
       resumeSaves = await suspendFileSaves(root, targets)
       try {
-        await api.gitDiscard(root, targets, true)
-        restored = true
+        const result = await api.gitDiscardChanges(root, trackedPaths, untrackedPaths)
+        for (const path of [...result.restored, ...result.deleted]) completed.add(path)
+        // Remove deleted buffers before refreshing diffs, including dirty editors in both panes.
+        for (const path of result.deleted) useTabs.getState().onDeleted(root, path)
+        if (result.restored.length > 0) {
+          await useTabs.getState().refreshFromDisk(root, { force: true, paths: result.restored })
+        }
+        if (result.error) useUi.getState().toast(errorText(result.error), 'error')
       } finally {
         signatures.delete(root)
         await get().refresh(root, true)
-        await useTabs.getState().refreshFromDisk(root, { force: restored, paths: targets })
       }
     } catch (error) {
       useUi.getState().toast(errorText(error), 'error')
     } finally {
-      resumeSaves?.(!restored)
+      // Never reschedule a successful discard's old buffer, even if disk reload failed.
+      resumeSaves?.(targets.filter((path) => !completed.has(path)))
       set({ busy: null })
     }
   },

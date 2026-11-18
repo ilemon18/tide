@@ -16,7 +16,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::agent::{self, providers, store, AgentEvent, AgentEventPayload, AgentTurnRequest};
 use crate::error::{AppError, AppResult};
-use crate::state::AppState;
+use crate::state::{assert_inside, resolve_in_root, AppState};
 
 /// Four concurrent CLIs is already a lot of CPU/network; more is a foot-gun, not a feature.
 const MAX_TURNS: usize = 4;
@@ -251,7 +251,10 @@ pub fn agent_send(
             }
         }
         let status = child.wait();
-        let ok = status.as_ref().map(|status| status.success()).unwrap_or(false);
+        let ok = status
+            .as_ref()
+            .map(|status| status.success())
+            .unwrap_or(false);
         let cancelled = cancel_flag.load(Ordering::Relaxed);
         let code = if ok {
             None
@@ -388,3 +391,63 @@ pub fn agent_tabs_save(
 pub fn agent_tabs_load(app: AppHandle) -> store::AgentTabs {
     store::load_tabs(&app)
 }
+
+use serde::Serialize;
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TokenEstimate {
+    pub total: usize,
+    pub breakdown: Vec<TokenBreakdown>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TokenBreakdown {
+    pub kind: String,
+    pub label: String,
+    pub tokens: usize,
+}
+
+#[tauri::command(async)]
+pub fn agent_estimate_tokens(
+    state: State<'_, AppState>,
+    root: String,
+    mentions: Vec<agent::AgentMention>,
+    prompt: String,
+) -> AppResult<TokenEstimate> {
+    let root_path = state.authorize(&root)?;
+    let mut breakdown = Vec::new();
+
+    // A rough byte-based estimate, never a claim about the provider's actual usage.
+    let prompt_tokens = prompt.len().div_ceil(4);
+    breakdown.push(TokenBreakdown {
+        kind: "prompt".to_string(),
+        label: String::new(),
+        tokens: prompt_tokens,
+    });
+
+    for mention in mentions {
+        let path = resolve_in_root(&root_path, &mention.rel)?;
+        assert_inside(&root_path, &path)?;
+        let Ok(meta) = std::fs::metadata(&path) else {
+            continue;
+        };
+        if !meta.is_file() {
+            continue;
+        }
+        // Stat only: estimating must not load large files into memory.
+        let tokens = (meta.len().min(usize::MAX as u64 / 2) as usize).div_ceil(3) + 20;
+        breakdown.push(TokenBreakdown {
+            kind: "file".to_string(),
+            label: mention.rel,
+            tokens,
+        });
+    }
+
+    let total = breakdown
+        .iter()
+        .fold(0usize, |total, item| total.saturating_add(item.tokens));
+    Ok(TokenEstimate { total, breakdown })
+}
+

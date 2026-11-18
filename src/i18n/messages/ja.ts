@@ -227,7 +227,8 @@ export const ja: Messages = {
   'dialog.gitDiscard.message': '{count} 個のファイルの変更を破棄します。元に戻せません。',
   'dialog.gitDiscard.confirm': '破棄',
   'dialog.gitDiscardAll.message':
-    '「変更」グループの {count} 個のファイルの未ステージの変更を破棄します。ステージ済みの内容、未追跡ファイル、競合ファイルは保持されます。この操作は取り消せません。',
+    '追跡済みファイルをステージ済みの内容に復元：{restoreCount} 件。未追跡ファイルを削除：{deleteCount} 件。ステージ済みの変更と競合ファイルは保持されます。この操作は取り消せません。',
+  'error.git.discardStatusChanged': '「{path}」の Git 状態が変わりました。更新してから再試行してください。',
   'dialog.gitUndoCommit.title': '直前のコミットを取り消し',
   'dialog.gitUndoCommit.message':
     '直前のコミットを取り消し、変更はステージに残したまま、メッセージを入力欄に戻します。プッシュ済みのコミットはリモート履歴を書き換えます。',
@@ -782,4 +783,16 @@ export const ja: Messages = {
   'error.agent.chatTooLarge': 'このチャットは大きすぎて保存できません',
 
   // @i18n-anchor
+  'agent.context.tokenDetails': 'トークン推定の内訳を表示',
+  'agent.context.tokenBreakdown': 'トークン推定の内訳',
+  'agent.context.budgetHealthy': 'コンテキストは小さめです',
+  'agent.context.largeContext': 'コンテキストが大きいと応答が遅くなる場合があります',
+  'agent.context.hugeContext': '非常に大きなコンテキストは応答の遅延や費用の増加につながる場合があります',
+  'agent.context.attached': '参照パス数：{count}',
+  'agent.context.estimate': '約 {count} トークン',
+  'agent.context.prompt': 'プロンプト',
+  'agent.context.estimateHint': '下書きと参照ファイルのディスク上のサイズによる概算です。会話履歴、ディレクトリの内容、CLI の追加使用量は含みません。モデルのコンテキスト上限ではありません。',
+
+  'error.git.discardDirectory': '{path} の変更を破棄できません。追跡中のファイルのパスにディレクトリがあります。',
+
 }
