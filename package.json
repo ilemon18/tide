@@ -22,6 +22,7 @@
     "app:build:win": "tauri build --debug --bundles nsis && node scripts/collect-app.mjs",
     "app:release": "tauri build",
     "release:version": "node scripts/set-version.mjs",
+    "release:check": "node scripts/release-check.mjs",
     "icon": "node scripts/make-icon.mjs && tauri icon assets/icon.png"
   },
   "dependencies": {

@@ -60,8 +60,8 @@ explicitly requested step.
 
 ## Out of scope
 
-Builds, installers, version bumps, release manifests, signing and GUI verification. Those need a
-separate explicit request from the user.
+Builds, installers, version bumps, release manifests, signing and GUI verification. For release
+packaging or publishing checks, use [the release-check skill](../release-check/SKILL.md).
 
 ---
 **Last updated**: 2026-11-17

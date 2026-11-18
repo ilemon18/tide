@@ -79,25 +79,27 @@ function parse(text: string): Block[] {
     const unordered = /^\s*[-*+]\s+(.*)$/.exec(line)
     if (unordered) {
       flushParagraph()
-      let items = list && list.type === 'ul' ? list : null
-      if (!items) {
+      if (!list || list.type !== 'ul') {
         flushList()
-        items = { type: 'ul', items: [] }
-        list = items
+        const next: Extract<Block, { type: 'ul' }> = { type: 'ul', items: [] }
+        list = next
+        next.items.push(unordered[1])
+      } else {
+        list.items.push(unordered[1])
       }
-      items.items.push(unordered[1])
       continue
     }
     const ordered = /^\s*\d+[.)]\s+(.*)$/.exec(line)
     if (ordered) {
       flushParagraph()
-      let items = list && list.type === 'ol' ? list : null
-      if (!items) {
+      if (!list || list.type !== 'ol') {
         flushList()
-        items = { type: 'ol', items: [] }
-        list = items
+        const next: Extract<Block, { type: 'ol' }> = { type: 'ol', items: [] }
+        list = next
+        next.items.push(ordered[1])
+      } else {
+        list.items.push(ordered[1])
       }
-      items.items.push(ordered[1])
       continue
     }
     flushList()

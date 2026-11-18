@@ -177,6 +177,7 @@ function snapshot(s: SettingsStore): Settings {
     trimTrailingWhitespace: s.trimTrailingWhitespace,
     insertFinalNewline: s.insertFinalNewline,
     indentGuides: s.indentGuides,
+    ligatures: s.ligatures,
     formatMode: s.formatMode,
     formatTool: s.formatTool,
     showHidden: s.showHidden,

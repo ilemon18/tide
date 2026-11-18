@@ -1,5 +1,6 @@
 import { memo } from 'react'
-import type { AgentItem, AgentMention, AgentMessage as Message } from '../store/agent'
+import type { AgentItem, AgentMessage as Message } from '../store/agent'
+import type { AgentMention } from '../lib/ipc'
 import { useTabs } from '../store/tabs'
 import { revealInExplorer } from '../lib/actions'
 import { basename } from '../lib/paths'

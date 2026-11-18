@@ -7,8 +7,9 @@ Smallest useful context for an agent. Human docs: [../README.md](../README.md).
 - **Every session** — [`context.md`](./context.md): file map, hard rules, architecture, common changes, pointers.
 - **Changing copy / adding a language** — [`i18n.md`](./i18n.md): catalog layout, plurals, placeholders, error codes.
 - **Touching the editor, file tree, Git/diff, window or settings** — [`traps.md`](./traps.md): the mistakes that already cost a session.
-- **Before packaging / releasing, or when the user asks to verify** — load [`.ai/skills/verify/SKILL.md`](./skills/verify/SKILL.md); it runs the gate in [`checks.md`](./checks.md), fixes failures and reruns.
-- **While coding** — write code, docs and tests only. Do not run i18n, workflow, typecheck, Rust, doc or test checks; leave execution to the verify skill or CI.
+- **Before packaging / releasing** — load [the release-check skill](./skills/release-check/SKILL.md); it checks local git/version, workflow, Tauri bundle and update-manifest state, then runs the verify gate, frontend build and Rust tests, and fixes local failures. It is user-triggered and never tags, pushes or publishes.
+- **When the user asks for verification** — load [the verify skill](./skills/verify/SKILL.md); it runs the gate in [checks.md](./checks.md), fixes failures and reruns.
+- **While coding** — write code, docs and tests only. Do not run i18n, workflow, typecheck, Rust, doc or test checks; leave execution to the verify/release-check skills or CI.
 - **On demand** — Rust commands in `src-tauri/src/commands/`, the editor in `src/editor/`, UI in `src/components/`.
 - **Don't** read the whole source tree, the README or `node_modules` at session start.
 - **Don't build unless asked.** No `pnpm app:build` / `app:build:win` / `app:release` / `tauri build`, debug
@@ -17,7 +18,7 @@ Smallest useful context for an agent. Human docs: [../README.md](../README.md).
 ## Maintaining these files
 
 - New module / architectural change / new trap → update the matching section of `context.md` (or `traps.md` for traps).
-- New guard script or a changed check step → update `checks.md` and the verify skill.
+- New guard script or a changed check step → update [checks.md](./checks.md), the verify skill and, when release-related, the release-check skill.
 - Changing the coding or verification policy → update `AGENTS.md`, `CLAUDE.md` and `checks.md` together.
 - New locale or a change to copy conventions → update `i18n.md`.
 - Paths and rules only: no code copies, no line numbers (they rot).

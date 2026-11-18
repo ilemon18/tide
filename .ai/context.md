@@ -33,7 +33,7 @@ is the source).
 | Rust entry, windows, single instance | `src-tauri/src/main.rs` |
 | Workspace grants, PTY / watcher tables | `src-tauri/src/state.rs` |
 | Commands, paths, subprocess, Dock, watcher, errors | `src-tauri/src/commands/{fs,format,git,blame,search,terminal,theme}.rs`, `paths.rs` `proc.rs` `dock_menu.rs` `watcher.rs` `error.rs` |
-| Scripts | `scripts/`: guards `check-ai-docs` `check-workflows` `i18n-check` `i18n-scan` ([checks.md](./checks.md)); build `build-file-icons` `make-icon` `collect-app` `make-latest-json` `set-version` |
+| Scripts | `scripts/`: guards `check-ai-docs` `check-workflows` `i18n-check` `i18n-scan` `release-check` ([checks.md](./checks.md)); build `build-file-icons` `make-icon` `collect-app` `make-latest-json` `release-targets` `set-version` |
 | Artifacts (gitignored) | `release/` (bundles), `dist/`, `website/` |
 
 ## Hard rules
@@ -110,7 +110,7 @@ Five places: `palettes.ts` (`ui` / `syntax` / `terminal` + `CYCLE_ORDER`), `appl
 
 ## Commands
 
-`pnpm app:dev` is only for a requested UI check; `pnpm icon` regenerates app icons + the file icon table. **Never package unless the user asked**: no `pnpm app:build`, `app:build:win`, `app:release` or `tauri build` (debug bundles included). **No checks, tests or builds while coding**; when the user asks to verify, follow [`.ai/skills/verify/SKILL.md`](./skills/verify/SKILL.md).
+`pnpm app:dev` is only for a requested UI check; `pnpm icon` regenerates app icons + the file icon table. **Never package unless the user asked**: no `pnpm app:build`, `app:build:win`, `app:release` or `tauri build` (debug bundles included). **No checks, tests or builds while coding**; when the user asks to verify, follow [`.ai/skills/verify/SKILL.md`](./skills/verify/SKILL.md). For a release check / 发布前检查, follow [the release-check skill](./skills/release-check/SKILL.md).
 
 ---
 **Last updated**: 2026-11-17

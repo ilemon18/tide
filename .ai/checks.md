@@ -6,12 +6,14 @@ triggers:
 
 > User asks to verify / check / 校验 / 收尾 → load and follow
 > [`.ai/skills/verify/SKILL.md`](./skills/verify/SKILL.md).
+> User asks for a release check / 发布前检查 / 打包前检查 → load and follow
+> [the release-check skill](./skills/release-check/SKILL.md).
 
-The skill runs the gate in order, fixes failures and reruns. Running the guards after every edit is
+The verify skill runs the gate in order, fixes failures and reruns. Running the guards after every edit is
 slow and memory-heavy, and a failing glossary entry is never what the feature is about. CI runs the
 frontend and Rust guards; the skill adds `check:docs` and the full sequence.
 
-One command gates a release:
+One command gates the code part of a release:
 
 ```bash
 pnpm verify
@@ -43,6 +45,19 @@ frontend-only. Steps 5–6 ride along only in `verify`.
 `pnpm verify` stops at the first failure. To collect several failures in one pass, run the six commands
 individually and continue after each; the skill describes the same flow.
 
+## Release preflight
+
+When the user asks for a release check / 发布前检查 / 打包前检查, load and follow
+[the release-check skill](./skills/release-check/SKILL.md). It is separate from verify because it
+also covers version/tag state, the Tauri bundle, both workflows and the update manifest.
+
+1. `pnpm release:check <version>` - local git, version, Tauri, workflow and manifest checks. No network.
+2. `pnpm install --frozen-lockfile`, `pnpm verify`, `pnpm build`, `cargo test --manifest-path src-tauri/Cargo.toml`.
+3. An optional local release bundle after the user agrees: macOS universal dmg or Windows NSIS exe.
+
+The skill fixes local files, but it never commits, tags, pushes or publishes. It checks local tags and
+the workflow files only; remote tag/release/CI state still needs a manual check after git fetch --tags.
+
 ## Typical failures
 
 - **`[zh-CN] missing key common.x`** — you added the key to `src/i18n/messages/en.ts` only. Add it to
@@ -67,6 +82,8 @@ the change touches `src-tauri/src/update.rs`, `paths.rs` or `commands/theme.rs`.
 Unit tests live in those three files; a test build uses the dev profile, which the release build does
 not reuse, which is why `verify` leaves it out.
 
+The release-check skill runs it unconditionally, because it mirrors the tag-time CI job.
+
 ## CI
 
 - `.github/workflows/ci.yml` — on every PR and tag: frontend job runs `pnpm check` + `pnpm build` on
@@ -77,7 +94,8 @@ not reuse, which is why `verify` leaves it out.
   Windows NSIS exe, then `scripts/make-latest-json.mjs` writes the update manifest.
 
 Locally: run the verification skill when the user asks; it wraps `pnpm verify` (or the same steps) and
-adds tests when in scope. `pnpm app:dev` is only for a requested UI check.
+adds tests when in scope. For a release, run the release-check skill first; it adds version, workflow,
+bundle and manifest checks around the same gate. `pnpm app:dev` is only for a requested UI check.
 
 ---
 **Last updated**: 2026-11-17

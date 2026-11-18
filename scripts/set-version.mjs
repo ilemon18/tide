@@ -2,7 +2,8 @@
 /**
  * The single entry point for the app version number.
  *
- *   node scripts/set-version.mjs 0.0.2      # or v0.0.2, both forms work
+ *   node scripts/set-version.mjs 0.0.2          # or v0.0.2, both forms work
+ *   node scripts/set-version.mjs --check 0.0.2  # validate only, write nothing
  *
  * Idempotently rewrites four files:
  *   package.json                .version
@@ -44,6 +45,9 @@ function fail(message) {
   process.exit(1)
 }
 
+const args = process.argv.slice(2)
+const check = args.includes('--check')
+
 function read(relPath) {
   try {
     return readFileSync(join(ROOT, relPath), 'utf8')
@@ -54,6 +58,7 @@ function read(relPath) {
 
 function writeIfChanged(relPath, next) {
   if (read(relPath) === next) return false
+  if (check) return true
   writeFileSync(join(ROOT, relPath), next, 'utf8')
   return true
 }
@@ -121,9 +126,50 @@ function rewriteCargoLock(version) {
   return { previous, text }
 }
 
-const requested = (process.argv[2] ?? '').trim()
+function validateJsonText(relPath, text, version) {
+  let parsed
+  try {
+    parsed = JSON.parse(text)
+  } catch (err) {
+    fail(`${relPath} is not valid JSON: ${err.message}`)
+  }
+  if (parsed.version !== version) {
+    fail(`${relPath} verification failed: generated version is ${parsed.version}`)
+  }
+}
+
+function validateCargoTomlText(text, version) {
+  const section = text.split(/^\s*\[package\]\s*$/m)[1]
+  // [package] body runs up to the next section header
+  const body = section === undefined ? '' : section.split(/^\s*\[[^\]]+\]\s*$/m)[0]
+  const found = body
+    .split(/\r?\n/)
+    .map((line) => PACKAGE_VERSION_LINE.exec(line))
+    .find(Boolean)
+  if (!found || found[2] !== version) {
+    fail(`${CARGO_TOML} verification failed: [package] has ${found ? found[2] : 'no version line'}`)
+  }
+}
+
+function validateCargoLockText(text, version) {
+  const entries = [...text.matchAll(new RegExp(LOCK_ENTRY.source, 'g'))]
+  if (entries.length !== 1 || entries[0][2] !== version) {
+    fail(`${CARGO_LOCK} verification failed: expected exactly one tide entry with version ${version}`)
+  }
+}
+
+const positional = args.filter((arg) => arg !== '--check')
+const unknown = positional.find((arg) => arg.startsWith('-'))
+if (unknown) {
+  fail(`unknown argument ${unknown}; usage: node scripts/set-version.mjs [--check] vX.Y.Z`)
+}
+if (positional.length > 1) {
+  fail(`unexpected argument ${positional[1]}; usage: node scripts/set-version.mjs [--check] vX.Y.Z`)
+}
+
+const requested = (positional[0] ?? '').trim()
 if (!requested) {
-  fail('missing version argument; usage: node scripts/set-version.mjs vX.Y.Z')
+  fail('missing version argument; usage: node scripts/set-version.mjs [--check] vX.Y.Z')
 }
 
 const version = requested.replace(/^v(?=\d)/, '')
@@ -137,47 +183,37 @@ if (version !== requested) {
 const results = []
 for (const relPath of [PACKAGE_JSON, TAURI_CONF]) {
   const { previous, text } = rewriteJson(relPath, version)
-  results.push({ file: relPath, previous, written: writeIfChanged(relPath, text) })
+  results.push({ file: relPath, previous, written: writeIfChanged(relPath, text), text })
 }
 {
   const { previous, text } = rewriteCargoToml(version)
-  results.push({ file: CARGO_TOML, previous, written: writeIfChanged(CARGO_TOML, text) })
+  results.push({ file: CARGO_TOML, previous, written: writeIfChanged(CARGO_TOML, text), text })
 }
 {
   const { previous, text } = rewriteCargoLock(version)
-  results.push({ file: CARGO_LOCK, previous, written: writeIfChanged(CARGO_LOCK, text) })
+  results.push({ file: CARGO_LOCK, previous, written: writeIfChanged(CARGO_LOCK, text), text })
 }
 
-// Read everything back: never trust "it was written"
-if (JSON.parse(read(PACKAGE_JSON)).version !== version) {
-  fail(`${PACKAGE_JSON} verification failed`)
-}
-if (JSON.parse(read(TAURI_CONF)).version !== version) {
-  fail(`${TAURI_CONF} verification failed`)
-}
-{
-  const section = read(CARGO_TOML).split(/^\s*\[package\]\s*$/m)[1]
-  // [package] body runs up to the next section header
-  const body = section === undefined ? '' : section.split(/^\s*\[[^\]]+\]\s*$/m)[0]
-  const found = body
-    .split(/\r?\n/)
-    .map((line) => PACKAGE_VERSION_LINE.exec(line))
-    .find(Boolean)
-  if (!found || found[2] !== version) {
-    fail(`${CARGO_TOML} verification failed: [package] has ${found ? found[2] : 'no version line'}`)
-  }
-}
-{
-  const entries = [...read(CARGO_LOCK).matchAll(new RegExp(LOCK_ENTRY.source, 'g'))]
-  if (entries.length !== 1 || entries[0][2] !== version) {
-    fail(`${CARGO_LOCK} verification failed: expected exactly one tide entry with version ${version}`)
-  }
-}
+// In check mode validate the text we would write; otherwise read everything back and never trust
+// "it was written".
+const planned = new Map(results.map((result) => [result.file, result.text]))
+const source = (relPath) => (check ? planned.get(relPath) : read(relPath))
+validateJsonText(PACKAGE_JSON, source(PACKAGE_JSON), version)
+validateJsonText(TAURI_CONF, source(TAURI_CONF), version)
+validateCargoTomlText(source(CARGO_TOML), version)
+validateCargoLockText(source(CARGO_LOCK), version)
 
 const width = Math.max(...results.map((r) => r.file.length))
 for (const { file, previous, written } of results) {
+  const outcome = check
+    ? written
+      ? 'would write'
+      : 'unchanged'
+    : written
+      ? 'written'
+      : 'unchanged'
   console.log(
-    `[set-version] ${file.padEnd(width)}  ${previous} -> ${version}  (${written ? 'written' : 'unchanged'})`,
+    `[set-version] ${file.padEnd(width)}  ${previous} -> ${version}  (${outcome})`,
   )
 }
-console.log(`[set-version] done: ${version}`)
+console.log(check ? `[set-version] check done: ${version} (no files written)` : `[set-version] done: ${version}`)

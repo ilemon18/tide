@@ -63,7 +63,7 @@ export function buildCommands(): Command[] {
       id: 'agent.ask',
       groupKey: 'commands.group.agent',
       titleKey: 'commands.agent.ask',
-      run: () => useAgent.getState().newChat(),
+      run: () => void useAgent.getState().newChat(),
     },
 
     {

@@ -24,11 +24,14 @@
 import { createHash } from 'node:crypto'
 import { readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
+import { RELEASE_TARGETS } from './release-targets.mjs'
 
-const TARGETS = {
-  macos: { prefix: 'tide-macos-', extension: '.dmg' },
-  windows: { prefix: 'tide-win-', extension: '.exe' },
-}
+const TARGETS = Object.fromEntries(
+  Object.entries(RELEASE_TARGETS).map(([key, target]) => [
+    key,
+    { prefix: `${target.assetPrefix}-`, extension: `.${target.extension}` },
+  ]),
+)
 
 function fail(message) {
   console.error(`\n[make-latest-json] error: ${message}\n`)
