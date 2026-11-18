@@ -80,26 +80,6 @@ fn in_path(name: &str) -> bool {
     std::env::split_paths(&path).any(|dir| dir.join(name).is_file())
 }
 
-/// User home directory: Windows has no `HOME`
-fn home_dir() -> Option<std::path::PathBuf> {
-    let key = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
-    std::env::var_os(key)
-        .filter(|v| !v.is_empty())
-        .map(std::path::PathBuf::from)
-        .or_else(|| {
-            // Fallback: HOME on Unix, HOMEDRIVE + HOMEPATH on Windows
-            if cfg!(windows) {
-                let drive = std::env::var_os("HOMEDRIVE")?;
-                let rest = std::env::var_os("HOMEPATH")?;
-                let mut path = std::path::PathBuf::from(drive);
-                path.push(rest);
-                Some(path)
-            } else {
-                None
-            }
-        })
-}
-
 /// The Rust side owns the whole PTY session: master, writer, child
 pub struct PtySession {
     master: Mutex<Box<dyn MasterPty + Send>>,
@@ -236,7 +216,7 @@ pub fn pty_open(
     cmd.env("TERM_PROGRAM", "vscode");
     cmd.env("TERM_PROGRAM_VERSION", env!("CARGO_PKG_VERSION"));
     // Without a project context fall back to the home dir: never inherit the app process cwd (e.g. build output/)
-    if let Some(dir) = cwd.or_else(home_dir) {
+    if let Some(dir) = cwd.or_else(crate::paths::home_dir) {
         cmd.cwd(dir);
     }
 

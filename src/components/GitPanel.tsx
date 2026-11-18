@@ -91,6 +91,7 @@ function RepoSection({ root, status }: { root: { id: string; name: string }; sta
   const stage = useGit((s) => s.stage)
   const unstage = useGit((s) => s.unstage)
   const discard = useGit((s) => s.discard)
+  const discardAllChanges = useGit((s) => s.discardAllChanges)
   const commit = useGit((s) => s.commit)
   const continueOperation = useGit((s) => s.continueOperation)
   const abortOperation = useGit((s) => s.abortOperation)
@@ -205,9 +206,7 @@ function RepoSection({ root, status }: { root: { id: string; name: string }; sta
 
   const submitLabel = operation
     ? t(OP_SUBMIT_LABEL[operation.kind] ?? 'common.continue')
-    : status && status.staged.length > 0
-      ? t('git.commitCount', { count: status.staged.length })
-      : t('git.commit')
+    : t('git.commit')
 
   /**
    * Row shortcut on the left of the stage / discard buttons: jump straight into the worktree file when the
@@ -228,7 +227,7 @@ function RepoSection({ root, status }: { root: { id: string; name: string }; sta
     key: string,
     title: string,
     files: GitFile[],
-    actions: { label: string; icon: IconName; run: () => void }[],
+    actions: { label: string; icon: IconName; run: () => void; disabled?: boolean }[],
     onClickFile: (file: GitFile) => void,
     rowActions: (file: GitFile) => { icon: IconName; title: string; run: () => void }[],
     conflictGroup = false,
@@ -252,8 +251,10 @@ function RepoSection({ root, status }: { root: { id: string; name: string }; sta
               <button
                 key={action.label}
                 data-tip={action.label}
+                aria-label={action.label}
+                disabled={action.disabled}
                 onClick={action.run}
-                className="flex h-[18px] w-[18px] items-center justify-center rounded-[4px] text-muted hover:bg-hover hover:text-fg"
+                className="flex h-[18px] w-[18px] items-center justify-center rounded-[4px] text-muted hover:bg-hover hover:text-fg disabled:pointer-events-none disabled:opacity-40"
               >
                 <Icon name={action.icon} size={12} />
               </button>
@@ -508,11 +509,11 @@ function RepoSection({ root, status }: { root: { id: string; name: string }; sta
         'staged',
         t('git.section.staged'),
         status.staged,
-        [{ label: t('git.unstageAll'), icon: 'undo', run: () => void unstage(root.id, status.staged.map((f) => f.path)) }],
+        [{ label: t('git.unstageAll'), icon: 'minus', run: () => void unstage(root.id, status.staged.map((f) => f.path)) }],
         (file) => void openDiff(root.id, file.path, true),
         (file) => [
           ...openFileAction(file),
-          { title: t('git.unstage'), icon: 'undo', run: () => void unstage(root.id, [file.path]) },
+          { title: t('git.unstage'), icon: 'minus', run: () => void unstage(root.id, [file.path]) },
         ],
       )}
 
@@ -520,7 +521,15 @@ function RepoSection({ root, status }: { root: { id: string; name: string }; sta
         'changes',
         t('git.section.changes'),
         status.changes,
-        [{ label: t('git.stageAll'), icon: 'plus', run: () => void stage(root.id, status.changes.map((f) => f.path)) }],
+        [
+          { label: t('git.stageAll'), icon: 'plus', run: () => void stage(root.id, status.changes.map((f) => f.path)) },
+          {
+            label: t('git.discardAllChanges'),
+            icon: 'undo',
+            disabled: busy !== null,
+            run: () => void discardAllChanges(root.id),
+          },
+        ],
         (file) => void openDiff(root.id, file.path, false),
         (file) => [
           ...openFileAction(file),

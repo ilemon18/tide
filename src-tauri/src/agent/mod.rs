@@ -9,6 +9,7 @@
 pub mod claude;
 pub mod codex;
 pub mod providers;
+pub mod skills;
 pub mod store;
 
 use std::path::{Path, PathBuf};

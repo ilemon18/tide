@@ -225,11 +225,6 @@ export function DiffView({ tab }: Props) {
   const [truncated, setTruncated] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
-  /** 未暂存差异为空（工作区和暂存区一致）时，直接显示文件本身的最新内容 */
-  const [fileLines, setFileLines] = useState<string[] | null>(null)
-  const [fileTokens, setFileTokens] = useState<LineTokens | null>(null)
-  const [fileError, setFileError] = useState<string | null>(null)
-  const [fileBinary, setFileBinary] = useState(false)
   /** Start (row index) of each folded unchanged region */
   const [collapsed, setCollapsed] = useState<Set<number>>(new Set())
   /** Syntax segments for both sides: plain text first, colors after parsing */
@@ -249,10 +244,14 @@ export function DiffView({ tab }: Props) {
   const pendingLocate = useRef(true)
   /** Scroll ratio captured before an in-place refresh, applied once the next view has laid out */
   const pendingScroll = useRef<number | null>(null)
+  /** Scroll progress captured before a refresh: handed to the file tab when the diff turns out empty */
+  const switchRatio = useRef(0)
+  /** The file view was already requested for this tab, so one refresh cannot ask twice */
+  const requestedFile = useRef(false)
   /** Incremented on external edits / staging changes: keeps the tab open, just refetches and re-diffs */
-  const epoch = useTabs((s) => s.diffEpoch[tab.root] ?? 0)
+  const epoch = useTabs((s) => (s.diffEpoch[tab.root] ?? 0) + (s.diffEpoch[tab.id] ?? 0))
 
-  /** Apply the captured ratio to whichever pane is mounted now (diff rows or the whole-file fallback) */
+  /** Apply the captured ratio to the diff panes that are mounted now */
   const restorePendingScroll = useCallback(() => {
     const ratio = pendingScroll.current
     if (ratio === null) return
@@ -285,8 +284,11 @@ export function DiffView({ tab }: Props) {
       setCollapsed(new Set())
     }
     // Remember where the reader was before an in-place refresh. The restore has to wait until the new view
-    // has laid out (a diff can become the whole-file view, whose content arrives one render later).
+    // has laid out. The same reading becomes the progress handed over when the diff turns out empty.
     const ruler = leftRef.current
+    const maxScroll = ruler ? Math.max(0, ruler.scrollHeight - ruler.clientHeight) : 0
+    switchRatio.current =
+      sameTab && ruler && maxScroll > 0 ? Math.min(1, Math.max(0, ruler.scrollTop / maxScroll)) : 0
     if (sameTab && ruler && ruler.scrollHeight > 0) {
       pendingScroll.current = ruler.scrollTop / ruler.scrollHeight
     }
@@ -475,83 +477,34 @@ export function DiffView({ tab }: Props) {
   }, [parsed, langPath, truncated])
 
   /**
-   * An empty diff means the file matches the index (unstaged tab) or the index matches HEAD (staged tab,
-   * typically right after a commit / `git add .`). Show the file itself instead of an empty notice.
+   * An empty diff means the file already matches its index side: just added to the staging area, committed,
+   * or the change was unstaged. The diff has nothing left to say, so the tab is replaced by the normal file
+   * view, which continues at the reader's relative position (switchRatio was captured before the refetch).
    */
   const emptyDiff = parsed !== null && parsed.rows.length === 0
-  const showFile = emptyDiff && !binary && !error
+  const handOver = emptyDiff && !binary && !error
 
-  useEffect(() => {
-    setFileLines(null)
-    setFileTokens(null)
-    setFileError(null)
-    setFileBinary(false)
-  }, [tab.id])
-
-  useEffect(() => {
-    if (!showFile) {
-      setFileLines(null)
-      setFileTokens(null)
-      setFileError(null)
-      setFileBinary(false)
-      return
-    }
-    let alive = true
-    setFileError(null)
-    setFileBinary(false)
-    void api
-      .readFile(tab.root, tab.rel)
-      .then((res) => {
-        if (!alive) return
-        setFileBinary(res.binary)
-        if (res.binary) {
-          setFileLines(null)
-          return
-        }
-        const lines = res.content.split('\n')
-        // 文末换行不算一行
-        if (lines.length > 0 && lines[lines.length - 1] === '') lines.pop()
-        setFileLines(lines)
-      })
-      .catch((e) => {
-        if (!alive) return
-        setFileBinary(false)
-        setFileError(errorText(e))
-      })
-    return () => {
-      alive = false
-    }
-  }, [showFile, tab.root, tab.rel, epoch])
-
-  // A tab switch must not replay the previous tab's position
+  // A tab switch must not replay the previous tab's position, nor keep the old tab's switch request
   useLayoutEffect(() => {
     pendingScroll.current = null
+    requestedFile.current = false
   }, [tab.id])
 
-  // Restore after a same-tab refresh, or after the diff swaps to the whole-file view and its lines arrive
+  useEffect(() => {
+    if (!handOver || requestedFile.current) return
+    requestedFile.current = true
+    void useTabs.getState().switchDiffToFile(tab.id, switchRatio.current)
+  }, [handOver, tab.id])
+
+  // Restore after a same-tab refresh: wait until the new rows have laid out
   useLayoutEffect(() => {
     // No scrollable content (loading / binary / error): drop the saved ratio instead of replaying it later
-    if (error || binary || fileError || fileBinary) {
+    if (error || binary) {
       pendingScroll.current = null
       return
     }
     restorePendingScroll()
-  }, [display, fileLines, showFile, error, binary, fileError, fileBinary, restorePendingScroll])
-
-  // 全文高亮同样放到下一个宏任务，避免首帧卡在解析上
-  useEffect(() => {
-    if (!fileLines || fileLines.length === 0 || fileLines.length > maxRows || truncated) return
-    let alive = true
-    const timer = setTimeout(() => {
-      void highlightSide(langPath, fileLines).then((result) => {
-        if (alive) setFileTokens(result)
-      })
-    }, 0)
-    return () => {
-      alive = false
-      clearTimeout(timer)
-    }
-  }, [fileLines, langPath, maxRows, truncated])
+  }, [display, error, binary, restorePendingScroll])
 
   const toggleRun = (index: number) => {
     setCollapsed((current) => {
@@ -612,20 +565,8 @@ export function DiffView({ tab }: Props) {
     }
     if (error) return placeholder(<span className="text-danger">{error}</span>)
     if (binary) return placeholder(t('diff.binary'))
-    // 差异为空（已提交 / 已暂存）：直接把文件最新内容铺开显示；文件已不存在时退回原来的提示
-    if (showFile) {
-      if (fileError && tab.staged) return placeholder(t('diff.noIndexChanges'))
-      return renderFile()
-    }
-    if (!parsed || parsed.rows.length === 0) return placeholder(t('diff.noIndexChanges'))
-    return null
-  }
-
-  /** 全文视图：行号 + 语法高亮，和差异页共用同一套行样式 */
-  const renderFile = () => {
-    if (fileBinary) return placeholder(t('diff.binary'))
-    if (!fileLines) {
-      if (fileError) return placeholder(<span className="text-danger">{fileError}</span>)
+    // 空差异：标签页马上换成文件视图，这里只留一个过渡，不再放提示文案
+    if (handOver) {
       return placeholder(
         <span className="inline-flex items-center gap-1.5">
           <Icon name="refresh" size={12} className="animate-spin" />
@@ -633,41 +574,7 @@ export function DiffView({ tab }: Props) {
         </span>,
       )
     }
-    const overLimit = fileLines.length > maxRows
-    const lines = overLimit ? fileLines.slice(0, maxRows) : fileLines
-    return (
-      <div className="flex min-h-0 flex-1 flex-col">
-        <div className="flex h-7 shrink-0 items-center gap-1.5 border-b border-line/60 bg-panel px-2 text-2xs">
-          <span className="shrink-0 rounded-[3px] bg-panel-alt px-1 font-semibold text-muted">
-            {t('diff.worktree')}
-          </span>
-          <FileIcon name={basename(tab.rel)} size={13} className="shrink-0" />
-          <span className="min-w-0 truncate text-muted/80">{basename(tab.rel)}</span>
-          {overLimit ? (
-            <span className="ml-auto shrink-0 text-warning">
-              {t('diff.overLimit', { count: maxRows })}
-            </span>
-          ) : null}
-        </div>
-        <div
-          ref={leftRef}
-          className="diff-selectable min-h-0 flex-1 overflow-auto font-mono"
-          style={{ fontSize: 'var(--text-xs)' }}
-        >
-          {lines.map((line, index) => (
-            <div key={index} className="flex min-w-full hover:bg-hover">
-              <LineNo no={index + 1} tone="none" />
-              <Cell
-                text={line}
-                tone="none"
-                tokens={fileTokens?.get(index + 1) ?? null}
-                syntax={syntax}
-              />
-            </div>
-          ))}
-        </div>
-      </div>
-    )
+    return null
   }
 
   const renderRow = (row: DisplayRow, side: 'left' | 'right') => {
@@ -765,7 +672,7 @@ export function DiffView({ tab }: Props) {
       <div className="flex h-8 shrink-0 items-center gap-2 border-b border-line/60 px-3 text-2xs text-muted">
         <Icon name="git" size={12} className="shrink-0" />
         <span className="min-w-0 truncate text-fg/80">{tab.rel}</span>
-        {tab.staged && !showFile ? (
+        {tab.staged ? (
           <span className="shrink-0 rounded bg-panel-alt px-1 text-2xs text-muted">
             {t('git.section.staged')}
           </span>

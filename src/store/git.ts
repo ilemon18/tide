@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { api, errorText, type GitBranches, type GitStatus } from '../lib/ipc'
 import { useUi } from './ui'
 import { useWorkspace } from './workspace'
-import { t } from '../i18n'
+import { t, tp } from '../i18n'
 
 type GitStore = {
   statuses: Record<string, GitStatus>
@@ -28,6 +28,7 @@ type GitStore = {
   stage: (root: string, paths: string[]) => Promise<void>
   unstage: (root: string, paths: string[]) => Promise<void>
   discard: (root: string, paths: string[]) => Promise<void>
+  discardAllChanges: (root: string) => Promise<void>
   commit: (root: string, message: string) => Promise<boolean>
   /** Undo the last commit (soft reset): changes stay staged, returns the previous commit message */
   undoLastCommit: (root: string) => Promise<string | null>
@@ -49,6 +50,8 @@ const BRANCH_TTL = 30_000
 
 const timers = new Map<string, ReturnType<typeof setTimeout>>()
 const signatures = new Map<string, string>()
+const statusRefreshes = new Map<string, Promise<void>>()
+let discardAllConfirmPending = false
 /** Roots asked to force-refresh while a request is in flight; rerun once it finishes */
 const pendingForceBranches = new Set<string>()
 
@@ -123,7 +126,19 @@ export const useGit = create<GitStore>((set, get) => ({
         get().forget(target)
         continue
       }
-      if (get().loading[target]) continue
+      const pending = statusRefreshes.get(target)
+      if (pending) {
+        if (force) {
+          await pending
+          await get().refresh(target, true)
+        }
+        continue
+      }
+      let finishRefresh = () => {}
+      const completed = new Promise<void>((resolve) => {
+        finishRefresh = resolve
+      })
+      statusRefreshes.set(target, completed)
       set({ loading: { ...get().loading, [target]: true } })
       try {
         const status = await api.gitStatus(target)
@@ -174,6 +189,9 @@ export const useGit = create<GitStore>((set, get) => ({
         }
         set({ loading: { ...get().loading, [target]: false } })
         if (force) useUi.getState().toast(errorText(e), 'error')
+      } finally {
+        statusRefreshes.delete(target)
+        finishRefresh()
       }
     }
   },
@@ -267,6 +285,54 @@ export const useGit = create<GitStore>((set, get) => ({
     } catch (e) {
       useUi.getState().toast(errorText(e), 'error')
     } finally {
+      set({ busy: null })
+    }
+  },
+
+  discardAllChanges: async (root) => {
+    if (get().busy || discardAllConfirmPending || useUi.getState().confirmReq) return
+    const paths = get().statuses[root]?.changes.map((file) => file.path) ?? []
+    if (paths.length === 0) return
+    discardAllConfirmPending = true
+    let ok: boolean
+    try {
+      ok = await useUi.getState().confirm({
+        title: t('dialog.gitDiscard.title'),
+        message: tp('dialog.gitDiscardAll.message', paths.length),
+        confirmText: t('dialog.gitDiscard.confirm'),
+        danger: true,
+      })
+    } finally {
+      discardAllConfirmPending = false
+    }
+    if (!ok || get().busy || !useWorkspace.getState().roots.some((node) => node.id === root)) return
+    const status = get().statuses[root]
+    if (!status || status.error) return
+    const targets = paths.filter(
+      (path) =>
+        status.changes.some((file) => file.path === path) &&
+        !status.untracked.some((file) => file.path === path) &&
+        !status.conflicts.some((file) => file.path === path),
+    )
+    if (targets.length === 0) return
+    set({ busy: 'discard' })
+    let resumeSaves: ((reschedule?: boolean) => void) | undefined
+    let restored = false
+    try {
+      const { useTabs, suspendFileSaves } = await import('./tabs')
+      resumeSaves = await suspendFileSaves(root, targets)
+      try {
+        await api.gitDiscard(root, targets, true)
+        restored = true
+      } finally {
+        signatures.delete(root)
+        await get().refresh(root, true)
+        await useTabs.getState().refreshFromDisk(root, { force: restored, paths: targets })
+      }
+    } catch (error) {
+      useUi.getState().toast(errorText(error), 'error')
+    } finally {
+      resumeSaves?.(!restored)
       set({ busy: null })
     }
   },

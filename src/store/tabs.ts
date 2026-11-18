@@ -19,7 +19,12 @@ import {
 import { getEditorView } from '../editor/viewRef'
 import { createMirrorState, forwardDocChange } from '../editor/mirror'
 import { mirrorKey, tabIdOfStateKey } from '../editor/stateKeys'
-import { forgetScrollForTab, rekeyScroll } from '../editor/scrollMemory'
+import {
+  dropScrollRatio,
+  forgetScrollForTab,
+  handOffScrollRatio,
+  rekeyScroll,
+} from '../editor/scrollMemory'
 import { tierFor, type DocTier } from '../editor/largeFile'
 import { signals } from '../editor/signals'
 import { useSettings } from './settings'
@@ -129,7 +134,7 @@ export type CursorInfo = { line: number; col: number }
 /** refreshFromDisk options: legacy calls pass a boolean meaning force */
 export type RefreshFromDiskOptions = {
   force?: boolean
-  /** Refresh only diff tabs matching these rels; omitted means all under that root */
+  /** Refresh only tabs matching these rels; omitted means all under that root */
   paths?: string[]
 }
 
@@ -251,12 +256,23 @@ type TabsStore = {
   closedTabs: ClosedTab[]
   /** Bumped when content is reloaded from disk; EditorHost uses it to remount the new EditorState */
   stateEpoch: number
-  /** Bumped per root: diff tabs refetch patches on it (external change / branch switch no longer closes them) */
+  /** Bumped per root or tab: diff views refetch without closing unrelated tabs */
   diffEpoch: Record<string, number>
   /** Manually formatting the current file (status bar spinner) */
   formatting: boolean
 
-  openFile: (root: string, rel: string, options?: { groupId?: TabGroupId; index?: number }) => Promise<void>
+  openFile: (
+    root: string,
+    rel: string,
+    options?: {
+      groupId?: TabGroupId
+      index?: number
+      /** Automated opens (empty diff → file view) must not toast when the file cannot be opened */
+      quiet?: boolean
+      /** Keep the other diff of the same file: a staged / unstaged pair stays readable */
+      keepDiffs?: boolean
+    },
+  ) => Promise<void>
   /** Open (or switch to) a file in the given panel at an optional index; used by drag to panel / tab */
   openFileInGroup: (root: string, rel: string, groupId: TabGroupId, index?: number) => Promise<void>
   /** Open (or switch to) the welcome tab */
@@ -285,6 +301,12 @@ type TabsStore = {
   toggleWordWrap: (id?: string) => void
   openAt: (root: string, rel: string, line: number, col: number, length?: number) => Promise<void>
   openDiff: (root: string, rel: string, staged: boolean) => Promise<void>
+  /**
+   * The viewed diff turned empty (file added / committed / unstaged): replace that diff tab with the
+   * file tab, handing over the reader's relative scroll position. If the file cannot be opened as a
+   * text file (deleted, folder, too large) only the now useless diff tab is closed.
+   */
+  switchDiffToFile: (diffTabId: string, scrollRatio: number) => Promise<void>
   reload: (root: string, rel: string, options?: { silent?: boolean }) => Promise<void>
   activate: (id: string, groupId?: TabGroupId) => void
   activateOffset: (delta: number) => void
@@ -331,7 +353,7 @@ type TabsStore = {
   /** force: drop unsaved edits too and reread from disk (after aborting merge / cherry-pick) */
   refreshFromDisk: (root: string, options?: RefreshFromDiskOptions | boolean) => Promise<void>
   /** Handle "file really gone" only: close diff tabs when the file vanished from disk. Content / commit / unstage changes refetch via diffEpoch. */
-  syncDiffTabs: (root: string, status: GitStatus | undefined) => Promise<void>
+  syncDiffTabs: (root: string, status: GitStatus | undefined, paths?: string[]) => Promise<void>
   markDirty: (id: string) => void
   /** The buffer went back to the text on disk (undo): drop the dot and the queued auto-save */
   markClean: (id: string) => void
@@ -348,6 +370,35 @@ type TabsStore = {
 }
 
 const autoSaveTimers = new Map<string, ReturnType<typeof setTimeout>>()
+const suspendedSaves = new Set<string>()
+const saveVersions = new Map<string, number>()
+const pendingWrites = new Map<string, Set<Promise<unknown>>>()
+
+function fileSaveKey(root: string, rel: string) {
+  return JSON.stringify([root, rel])
+}
+
+export async function suspendFileSaves(
+  root: string,
+  paths: string[],
+): Promise<(reschedule?: boolean) => void> {
+  const keys = paths.map((rel) => fileSaveKey(root, rel))
+  for (const key of keys) {
+    suspendedSaves.add(key)
+    saveVersions.set(key, (saveVersions.get(key) ?? 0) + 1)
+  }
+  for (const tab of useTabs.getState().tabs) {
+    if (tab.root === root && paths.includes(tab.rel)) cancelAutoSave(tab.id)
+  }
+  await Promise.allSettled(keys.flatMap((key) => [...(pendingWrites.get(key) ?? [])]))
+  return (reschedule = true) => {
+    for (const key of keys) suspendedSaves.delete(key)
+    if (!reschedule) return
+    for (const tab of useTabs.getState().tabs) {
+      if (tab.root === root && paths.includes(tab.rel) && tab.dirty) scheduleAutoSave(tab.id)
+    }
+  }
+}
 /** Last manual format time: a double-click fires twice, the second must not toast "already formatted" */
 let lastManualFormat = 0
 /** In-flight mirror-state prewarm before a split, so repeated clicks do not create it twice */
@@ -585,7 +636,7 @@ export const useTabs = create<TabsStore>((set, get) => ({
         })
       }
       // 打开文件就关掉同一文件的差异标签页：差异只是预览，编辑时不再并排留着
-      await closeDiffsFor(root, rel)
+      if (!options?.keepDiffs) await closeDiffsFor(root, rel)
       return
     }
 
@@ -624,13 +675,13 @@ export const useTabs = create<TabsStore>((set, get) => ({
         })
         useWorkspace.getState().setActiveRoot(root)
         revealInTree(tab)
-        await closeDiffsFor(root, rel)
+        if (!options?.keepDiffs) await closeDiffsFor(root, rel)
         return
       }
 
       const payload = await api.readFile(root, rel)
       if (payload.binary) {
-        useUi.getState().toast(t('toast.binaryFile'), 'error')
+        if (!options?.quiet) useUi.getState().toast(t('toast.binaryFile'), 'error')
         set({ opening: false })
         return
       }
@@ -683,7 +734,7 @@ export const useTabs = create<TabsStore>((set, get) => ({
       revealInTree(tab)
       useBlame.getState().scheduleFetch(tab)
       // 打开文件就关掉同一文件的差异标签页：差异只是预览，编辑时不再并排留着
-      await closeDiffsFor(root, rel)
+      if (!options?.keepDiffs) await closeDiffsFor(root, rel)
       // Unmerged file: land on the first conflict after opening, the gutter marks the rest
       if (conflicted) {
         const blocks = state.field(conflictField, false)
@@ -695,7 +746,7 @@ export const useTabs = create<TabsStore>((set, get) => ({
       }
     } catch (e) {
       set({ opening: false })
-      useUi.getState().toast(errorText(e), 'error')
+      if (!options?.quiet) useUi.getState().toast(errorText(e), 'error')
     }
   },
 
@@ -975,6 +1026,29 @@ export const useTabs = create<TabsStore>((set, get) => ({
       activeGroupId: groupId,
       groups: openInGroup(get().groups, groupId, id),
     })
+  },
+
+  switchDiffToFile: async (diffTabId, scrollRatio) => {
+    const state = get()
+    const tab = state.tabs.find((t) => t.id === diffTabId)
+    if (!tab || tab.kind !== 'diff') return
+    const fileId = fileTabId(tab.root, tab.rel)
+    // Hand the position over before opening: the editor's mount effect (which applies it) may run
+    // before this await resolves. A failed open drops it again below.
+    handOffScrollRatio(fileId, scrollRatio)
+    // Take the diff's slot in the same pane: the file view replaces it instead of hopping to another tab
+    const owner = state.groups.find((g) => g.order.includes(diffTabId))
+    const index = owner ? owner.order.indexOf(diffTabId) : undefined
+    // keepDiffs: another diff of the same file (staged vs unstaged) is still worth reading
+    await get().openFile(tab.root, tab.rel, {
+      quiet: true,
+      keepDiffs: true,
+      groupId: owner?.id,
+      index,
+    })
+    if (!get().tabs.some((t) => t.id === fileId)) dropScrollRatio(fileId)
+    // No file view to replace it with (deleted / folder / too large): the tab has nothing left to show
+    await get().close(diffTabId)
   },
 
   /** Reload file content after search-replace; silent is for batch refresh: no jump, no focus grab */
@@ -1535,7 +1609,7 @@ export const useTabs = create<TabsStore>((set, get) => ({
     })
   },
 
-  syncDiffTabs: async (root, status) => {
+  syncDiffTabs: async (root, status, paths) => {
     // No status yet / git errored: leave tabs alone
     if (!status || status.error) return
 
@@ -1545,7 +1619,9 @@ export const useTabs = create<TabsStore>((set, get) => ({
         (file) => file.path === rel,
       )
     const suspects = get().tabs.filter(
-      (tab) => tab.root === root && tab.kind === 'diff' && !listed(tab.rel),
+      (tab) =>
+        tab.root === root && tab.kind === 'diff' &&
+        (!paths || paths.includes(tab.rel)) && !listed(tab.rel),
     )
     if (suspects.length === 0) return
 
@@ -1563,28 +1639,46 @@ export const useTabs = create<TabsStore>((set, get) => ({
   refreshFromDisk: async (root, options) => {
     const { force = false, paths } =
       typeof options === 'boolean' ? { force: options, paths: undefined } : (options ?? {})
+    const matchesPath = (tab: Tab) =>
+      !paths || paths.some(
+        (path) =>
+          path === tab.rel ||
+          (!force && (tab.rel.startsWith(`${path}/`) || path.startsWith(`${tab.rel}/`))),
+      )
+    if (force) {
+      for (const tab of get().tabs) {
+        if (tab.root === root && matchesPath(tab)) cancelAutoSave(tab.id)
+      }
+    }
 
     // Diff tabs survive external changes: bump diffEpoch so DiffView refetches the patch. Only touched files
     // match, else one auto-save would recompute every open diff.
     const hitsDiff = (tab: Tab) => {
       if (tab.kind !== 'diff' || tab.root !== root) return false
       // No paths = full refresh (branch switch / stage / commit); with paths only those match
-      if (!paths) return true
-      if (paths.length === 0) return false
-      return paths.some(
-        (p) => p === tab.rel || tab.rel.startsWith(`${p}/`) || p.startsWith(`${tab.rel}/`),
-      )
+      return matchesPath(tab)
     }
-    if (get().tabs.some(hitsDiff)) {
-      set({ diffEpoch: { ...get().diffEpoch, [root]: (get().diffEpoch[root] ?? 0) + 1 } })
+    const affectedTabs = get().tabs.filter((tab) => tab.root === root && matchesPath(tab))
+    if (paths ? affectedTabs.length > 0 : get().tabs.some(hitsDiff)) {
+      const diffEpoch = { ...get().diffEpoch }
+      if (paths) {
+        for (const tab of affectedTabs) diffEpoch[tab.id] = (diffEpoch[tab.id] ?? 0) + 1
+      } else {
+        diffEpoch[root] = (diffEpoch[root] ?? 0) + 1
+      }
+      set({ diffEpoch })
     }
 
     // Close only diff tabs whose file is gone; content changes go through diffEpoch above.
     // The watcher's git refresh (350ms) lands before this (400ms), so the status is basically current.
-    void get().syncDiffTabs(root, useGit.getState().statuses[root])
+    await get().syncDiffTabs(
+      root,
+      useGit.getState().statuses[root],
+      paths ? affectedTabs.map((tab) => tab.rel) : undefined,
+    )
 
     // No reloadable text for image previews: sync mtime into the tab so ImageView rereads
-    for (const tab of get().tabs.filter((t) => t.root === root && t.kind === 'image')) {
+    for (const tab of get().tabs.filter((t) => t.root === root && t.kind === 'image' && matchesPath(t))) {
       try {
         const stat = await api.statFile(tab.root, tab.rel)
         const current = get().tabs.find((t) => t.id === tab.id)
@@ -1600,7 +1694,9 @@ export const useTabs = create<TabsStore>((set, get) => ({
     }
 
     const targets = get().tabs.filter(
-      (t) => t.root === root && t.kind === 'file' && !t.readOnly && (force || !t.dirty),
+      (t) =>
+        t.root === root && t.kind === 'file' && matchesPath(t) &&
+        (force || !t.dirty) && (!t.readOnly || (force && paths !== undefined)),
     )
 
     // Compare mtime / size with a cheap stat first: unchanged means no work (git add / own save keeps undo
@@ -1616,7 +1712,7 @@ export const useTabs = create<TabsStore>((set, get) => ({
           const stat = await api.statFile(tab.root, tab.rel)
           const current = get().tabs.find((t) => t.id === tab.id)
           // Skip if closed, modified or reopened meanwhile, so nothing the user is writing gets overwritten
-          if (!current || current.readOnly) continue
+          if (!current || (current.readOnly && !(force && paths !== undefined))) continue
           if (!force && current.dirty) continue
           if (!force && current.mtime === stat.mtime && current.size === stat.size) continue
           if (force) cancelAutoSave(current.id)
@@ -1677,7 +1773,8 @@ export const useTabs = create<TabsStore>((set, get) => ({
           })
           const updated = get().tabs.find((t) => t.id === current.id)
           if (updated) useBlame.getState().scheduleFetch(updated)
-        } catch {
+        } catch (error) {
+          if (force && paths) useUi.getState().toast(errorText(error), 'error')
           /* One file failing does not affect the others */
         }
       }
@@ -1722,6 +1819,11 @@ export const useTabs = create<TabsStore>((set, get) => ({
     // An untitled buffer has no path yet: ⌘S means "save as"
     if (tab?.kind === 'untitled') return get().saveAs(id)
     if (!tab || tab.kind !== 'file' || tab.readOnly) return false
+    const saveKey = fileSaveKey(tab.root, tab.rel)
+    const saveVersion = saveVersions.get(saveKey) ?? 0
+    const saveCancelled = () =>
+      suspendedSaves.has(saveKey) || (saveVersions.get(saveKey) ?? 0) !== saveVersion
+    if (saveCancelled()) return false
     const state = getEditorState(id)
     if (!state) return false
     const settings = useSettings.getState()
@@ -1732,6 +1834,7 @@ export const useTabs = create<TabsStore>((set, get) => ({
     if (settings.formatMode === 'onSave' && !tab.readOnly && state.doc.length <= FORMAT_MAX_CHARS) {
       try {
         const result = await formatWithSelectedTool(tab.root, tab.rel, state.doc.toString())
+        if (saveCancelled()) return false
         if (result.error && !opts?.quiet) useUi.getState().toast(result.error, 'error')
         if (result.changed && result.text) replaceDocText(id, result.text)
       } catch {
@@ -1741,6 +1844,7 @@ export const useTabs = create<TabsStore>((set, get) => ({
 
     // Tidy before save (optional in settings): edits the buffer itself,
     // else the trimmed whitespace stays in the editor and the next save writes it back
+    if (saveCancelled()) return false
     replaceDocText(
       id,
       tidyText((getEditorState(id) ?? state).doc.toString(), {
@@ -1752,7 +1856,14 @@ export const useTabs = create<TabsStore>((set, get) => ({
     const text = (getEditorState(id) ?? state).doc.toString()
     const content = tab.eol === 'crlf' ? text.replace(/\n/g, '\r\n') : text
     try {
-      const saved = await api.writeFile(tab.root, tab.rel, content)
+      const write = api.writeFile(tab.root, tab.rel, content)
+      const writes = pendingWrites.get(saveKey) ?? new Set<Promise<unknown>>()
+      writes.add(write)
+      pendingWrites.set(saveKey, writes)
+      const saved = await write.finally(() => {
+        writes.delete(write)
+        if (writes.size === 0) pendingWrites.delete(saveKey)
+      })
       // Typing may continue during the write: clean only if the document still equals what was written,
       // otherwise keep dirty so the next auto-save saves the new text (else that input is silently lost)
       const live = getEditorState(id)
@@ -2004,7 +2115,11 @@ async function closeMany(ids: string[], force?: boolean, groupId?: TabGroupId): 
       })
     : settleGroups(snapshot.groups, removed)
   const cursors = { ...snapshot.cursors }
-  for (const id of dropTabs) delete cursors[id]
+  const diffEpoch = { ...snapshot.diffEpoch }
+  for (const id of dropTabs) {
+    delete cursors[id]
+    delete diffEpoch[id]
+  }
   const layout = settleLayout(groups, snapshot.activeGroupId, snapshot.splitOrientation)
   useTabs.setState({
     tabs,
@@ -2013,6 +2128,7 @@ async function closeMany(ids: string[], force?: boolean, groupId?: TabGroupId): 
     splitOrientation: layout.split,
     activeId: deriveActiveId(layout.groups, layout.activeGroupId),
     cursors,
+    diffEpoch,
     // Bulked-closed tabs join the reopen stack too (only real closes, not the ones still open in another pane)
     closedTabs: fullyClosing.reduce(
       (list, tab) => pushClosed(list, tab, groupId ?? 'primary', snapshotBefore.cursors[tab.id]),
@@ -2030,7 +2146,7 @@ function scheduleAutoSave(id: string) {
   const settings = useSettings.getState()
   if (!settings.autoSave) return
   const tab = useTabs.getState().tabs.find((t) => t.id === id)
-  if (!tab || tab.kind !== 'file' || tab.readOnly) return
+  if (!tab || tab.kind !== 'file' || tab.readOnly || suspendedSaves.has(fileSaveKey(tab.root, tab.rel))) return
 
   cancelAutoSave(id)
   const delay = tab.tier === 'large' ? 1500 : 800

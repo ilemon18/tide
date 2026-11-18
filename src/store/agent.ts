@@ -7,6 +7,14 @@ import {
   type AgentMention,
   type AgentProviderInfo,
 } from '../lib/ipc'
+import {
+  buildAgentPrompt,
+  isAgentCommandId,
+  isAgentSkillRef,
+  normalizeAgentDraft,
+  type AgentDraft,
+  type AgentSkillInfo,
+} from '../lib/agentCommand'
 import { t } from '../i18n'
 import { useSettings } from './settings'
 import { useTabs } from './tabs'
@@ -41,6 +49,9 @@ export type AgentMessage = {
   at: number
   text?: string
   mentions?: AgentMention[]
+  /** Tag sent around the text, e.g. plan → <plan>…</plan> */
+  command?: AgentDraft['command']
+  skills?: AgentDraft['skills']
   items?: AgentItem[]
 }
 
@@ -69,7 +80,7 @@ export type ChatDefaults = { provider: string; model: string; effort: string }
 const emptyDefaults: ChatDefaults = { provider: '', model: '', effort: '' }
 
 /** Typed while a turn was running; sent as the next turn in the same chat */
-export type AgentQueuedMessage = { id: string; text: string; mentions: AgentMention[] }
+export type AgentQueuedMessage = { id: string } & AgentDraft
 
 /** Keep the tab title readable; the transcript keeps the full prompt. */
 export function titleFromPrompt(text: string): string {
@@ -136,7 +147,10 @@ type AgentStore = {
   running: Running
   loadingChats: Record<string, boolean>
   /** Per-chat composer text: switching tabs must not throw a half-written prompt away */
-  chatDrafts: Record<string, { text: string; mentions: AgentMention[] }>
+  chatDrafts: Record<string, AgentDraft>
+  /** Skill picker source, scanned once per root; missing = not scanned yet */
+  skillsByRoot: Record<string, AgentSkillInfo[]>
+  skillsLoading: Record<string, boolean>
   /** Messages queued behind the running turn, in send order */
   queues: Record<string, AgentQueuedMessage[]>
 
@@ -151,13 +165,14 @@ type AgentStore = {
   openChatTab: (id: string) => void
   /** Open a chat tab; mentions seed the composer with @file / @folder chips */
   newChat: (root?: string, mentions?: AgentMention[]) => string | null
-  sendMessage: (chatId: string, text: string, mentions: AgentMention[]) => Promise<void>
+  loadSkills: (root: string) => Promise<void>
+  sendMessage: (chatId: string, draft: AgentDraft) => Promise<void>
   removeQueued: (chatId: string, id: string) => void
   stop: (chatId: string) => Promise<void>
   applyEvent: (payload: AgentEventPayload) => void
   setChatProvider: (chatId: string, provider: string) => void
   setChatOptions: (chatId: string, patch: { model?: string; effort?: string }) => void
-  setChatDraft: (chatId: string, patch: { text?: string; mentions?: AgentMention[] }) => void
+  setChatDraft: (chatId: string, patch: Partial<AgentDraft>) => void
   newChatFrom: (chatId: string) => void
   flushChats: () => void
 }
@@ -226,9 +241,15 @@ function normalizeChat(raw: unknown): AgentChat | null {
   const value = raw as Partial<AgentChat>
   if (typeof value.id !== 'string' || typeof value.root !== 'string') return null
   if (!Array.isArray(value.messages)) return null
-  const messages = value.messages.filter(
-    (message) => message && (message.role === 'user' || message.role === 'assistant'),
-  )
+  const messages = value.messages
+    .filter((message) => message && (message.role === 'user' || message.role === 'assistant'))
+    .map((message) => {
+      if (message.role !== 'user') return message
+      const command = isAgentCommandId(message.command) ? message.command : undefined
+      const rawSkills = Array.isArray(message.skills) ? message.skills : []
+      const skills = rawSkills.filter(isAgentSkillRef)
+      return { ...message, command, skills: skills.length > 0 ? skills : undefined }
+    })
   // A turn interrupted by a restart leaves an empty assistant bubble; the user message is enough
   const last = messages[messages.length - 1]
   if (last && last.role === 'assistant' && (last.items?.length ?? 0) === 0) messages.pop()
@@ -253,8 +274,7 @@ function normalizeChat(raw: unknown): AgentChat | null {
 export const useAgent = create<AgentStore>((set, get) => {
   const runTurn = async (
     chatId: string,
-    prompt: string,
-    mentions: AgentMention[],
+    draft: AgentDraft,
     appendUser: boolean,
     clearDraft = appendUser,
   ) => {
@@ -269,13 +289,16 @@ export const useAgent = create<AgentStore>((set, get) => {
         id: agentUid('u'),
         role: 'user',
         at: now,
-        text: prompt,
-        mentions,
+        text: draft.text,
+        mentions: draft.mentions,
+        command: draft.command,
+        skills: draft.skills,
       })
     }
     const assistantId = agentUid('a')
     messages.push({ id: assistantId, role: 'assistant', at: now, items: [] })
-    const title = chat.title || titleFromPrompt(prompt)
+    const title =
+      chat.title || titleFromPrompt(draft.text || (draft.skills?.[0]?.name ?? ''))
     set({
       chats: {
         ...get().chats,
@@ -308,8 +331,8 @@ export const useAgent = create<AgentStore>((set, get) => {
         sessionId: chat.sessionId,
         model: chat.model || null,
         effort: chat.effort || null,
-        prompt,
-        mentions,
+        prompt: buildAgentPrompt(draft),
+        mentions: draft.mentions,
       })
     } catch (e) {
       const current = get().chats[chatId]
@@ -346,13 +369,13 @@ export const useAgent = create<AgentStore>((set, get) => {
   }
 
   /** Keep a message typed during a turn; it starts the next turn once the current one ends */
-  const enqueueMessage = (chatId: string, text: string, mentions: AgentMention[]) => {
-    if (!text.trim()) return
+  const enqueueMessage = (chatId: string, draft: AgentDraft) => {
+    if (!draft.text.trim() && !(draft.skills ?? []).length) return
     const queue = get().queues[chatId] ?? []
     set({
       queues: {
         ...get().queues,
-        [chatId]: [...queue, { id: agentUid('q'), text, mentions }],
+        [chatId]: [...queue, { id: agentUid('q'), ...draft }],
       },
       // The message left the composer; a new draft typed meanwhile stays untouched
       chatDrafts: Object.fromEntries(
@@ -371,7 +394,12 @@ export const useAgent = create<AgentStore>((set, get) => {
     if (rest.length > 0) queues[chatId] = rest
     else delete queues[chatId]
     set({ queues })
-    void runTurn(chatId, head.text, head.mentions, true, false)
+    void runTurn(
+      chatId,
+      { text: head.text, mentions: head.mentions, command: head.command, skills: head.skills },
+      true,
+      false,
+    )
   }
 
   const patchLastAssistant = (
@@ -412,6 +440,8 @@ export const useAgent = create<AgentStore>((set, get) => {
     loadingChats: {},
     chatDrafts: {},
     queues: {},
+    skillsByRoot: {},
+    skillsLoading: {},
 
     chatDefaults: emptyDefaults,
 
@@ -573,19 +603,21 @@ export const useAgent = create<AgentStore>((set, get) => {
       return chatId
     },
 
-    sendMessage: async (chatId, text, mentions) => {
+    sendMessage: async (chatId, draft) => {
       const chat = get().chats[chatId]
       if (!chat) return
       if (!useSettings.getState().agentEnabled) return
+      const next = normalizeAgentDraft(draft)
+      if (!next.text.trim() && !(next.skills ?? []).length) return
       retried.delete(chatId)
       const queue = get().queues[chatId] ?? []
       // Running turn, or a queue left over from a stopped / disabled turn: keep FIFO order
       if (chat.status === 'running' || queue.length > 0) {
-        enqueueMessage(chatId, text, mentions)
+        enqueueMessage(chatId, next)
         if (chat.status !== 'running') drainQueue(chatId)
         return
       }
-      await runTurn(chatId, text, mentions, true)
+      await runTurn(chatId, next, true)
     },
 
     removeQueued: (chatId, id) => {
@@ -697,7 +729,16 @@ export const useAgent = create<AgentStore>((set, get) => {
                 },
               },
             })
-            void runTurn(chatId, lastUser.text ?? '', lastUser.mentions ?? [], false)
+            void runTurn(
+              chatId,
+              {
+                text: lastUser.text ?? '',
+                mentions: lastUser.mentions ?? [],
+                command: lastUser.command,
+                skills: lastUser.skills,
+              },
+              false,
+            )
             return
           }
         }
@@ -870,8 +911,24 @@ export const useAgent = create<AgentStore>((set, get) => {
       schedulePersist(chatId)
     },
 
+    loadSkills: async (root) => {
+      if (!root) return
+      if (get().skillsByRoot[root] || get().skillsLoading[root]) return
+      set({ skillsLoading: { ...get().skillsLoading, [root]: true } })
+      try {
+        const skills = await api.agentSkills(root)
+        set({
+          skillsByRoot: { ...get().skillsByRoot, [root]: skills },
+          skillsLoading: { ...get().skillsLoading, [root]: false },
+        })
+      } catch {
+        // Leave it unscanned so the next `$` retries
+        set({ skillsLoading: { ...get().skillsLoading, [root]: false } })
+      }
+    },
+
     setChatDraft: (chatId, patch) => {
-      const current = get().chatDrafts[chatId] ?? { text: '', mentions: [] }
+      const current: AgentDraft = get().chatDrafts[chatId] ?? { text: '', mentions: [] }
       set({
         chatDrafts: { ...get().chatDrafts, [chatId]: { ...current, ...patch } },
       })

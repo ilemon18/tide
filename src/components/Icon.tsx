@@ -13,6 +13,7 @@ export type IconName =
   | 'chevron-right'
   | 'chevron-down'
   | 'plus'
+  | 'minus'
   | 'folder-plus'
   | 'refresh'
   | 'download'
@@ -47,6 +48,7 @@ export type IconName =
   | 'format'
   | 'split-right'
   | 'pin'
+  | 'sparkle'
   | 'replace'
   | 'agent'
   | 'send'
@@ -154,6 +156,7 @@ const shapes: Record<IconName, ReactNode> = {
   'chevron-right': <path d="M9.5 5.5 16 12l-6.5 6.5" />,
   'chevron-down': <path d="M5.5 9.5 12 16l6.5-6.5" />,
   plus: <path d="M12 5v14M5 12h14" />,
+  minus: <path d="M5 12h14" />,
   'folder-plus': (
     <>
       <path d="M3.5 6.5a1.5 1.5 0 0 1 1.5-1.5h3.6l1.8 2h8.6a1.5 1.5 0 0 1 1.5 1.5v9a1.5 1.5 0 0 1-1.5 1.5H5a1.5 1.5 0 0 1-1.5-1.5v-11Z" />
@@ -327,6 +330,10 @@ const shapes: Record<IconName, ReactNode> = {
       <path d="M10 4v6l-2 4h8l-2-4V4" />
       <path d="M12 14v6" />
     </>
+  ),
+  // Four-point star for skill chips
+  sparkle: (
+    <path d="M12 3.5l1.7 5.1 5.1 1.7-5.1 1.7-1.7 5.1-1.7-5.1-5.1-1.7 5.1-1.7Z" />
   ),
 }
 

@@ -29,7 +29,8 @@ when the current project equals the last project.
 `src/store/watcher.ts` → refresh directory / refresh Git (350ms; if `isRepo` changed, sync it back to the
 workspace root so `git init` in the terminal is noticed) / `refreshFromDisk` (400ms; compares mtime +
 size first, then re-pulls diff tabs in place by bumping `diffEpoch`). **Never close a tab because of a
-git status change** — only a file that really vanished from disk gets closed.
+git status change** — only a file that really vanished from disk gets closed. The one exception is a
+diff tab whose diff turned empty: it has nothing left to show and becomes the file tab instead.
 
 ## Editor & tabs
 
@@ -47,7 +48,8 @@ git status change** — only a file that really vanished from disk gets closed.
 - **Structure outline** walks the Lezer tree, not the text: a declaration is a leaf unless it is a container
   (class / struct / interface / module). Descending into function bodies would list locals. `ensureSyntaxTree`
   is forced only under 512KB, so a very large file may show a viewport-only tree.
-- A diff tab is re-pulled by `useTabs.diffEpoch[root]`, not by closing and recreating it.
+- A diff tab is re-pulled by `useTabs.diffEpoch[root]` plus `diffEpoch[tab.id]`, not by closing and
+  recreating it. Path-scoped refreshes bump only matching tabs (including the file's diff ruler).
 - Editor DOM built by extensions (conflict buttons, inline blame, fold arrows) does not re-render with
   React: a locale switch must dispatch `localeEffect` from `src/editor/locale.ts`, and the unsubscribe
   function from `watchLocale` has to be wired into the plugin's `destroy()`.
@@ -94,12 +96,29 @@ on `app:hidden`. Closing a chat tab stops its turn and keeps the file.
 
 ## Git & diff
 
+- The Changes group's bulk discard is `useGit.discardAllChanges(root)`: one dangerous confirmation
+  with the file count, guarded before and after the dialog against concurrent Git operations. Its
+  snapshot is restricted to tracked, non-conflicted Changes entries in that root; staged contents,
+  untracked files and other groups stay intact. `api.gitDiscard(root, paths, true)` / `git_discard`
+  with `fromIndex: true` restores only the worktree from the index. Omitting the option keeps the
+  legacy HEAD restore / untracked deletion behavior; all Git failures are surfaced. Paths are literal
+  pathspecs, conflicts and index membership are checked before any restore.
+- Bulk discard suspends saves only for its target files (`suspendFileSaves` in `store/tabs.ts`),
+  cancels queued autosaves, invalidates pending on-save formatting and waits for in-flight writes.
+  A forced Git refresh waits for any older status request, then re-reads instead of being dropped.
+  Then it calls `refreshFromDisk(root, { force: true, paths })`: forced path matching
+  is exact across text, image and diff tabs, so unrelated dirty editors are never overwritten. On Git
+  failure refresh is non-forced, preserving unsaved buffers and rescheduling their autosaves. A successful
+  discard never requeues the old buffer's autosave, even if its disk reload fails. Rust regression tests live in
+  `commands/git.rs`; execute them only through the user-triggered verification / release gate.
 - An empty diff is not a new file: the "compare against /dev/null" fallback in `git_diff` /
   `git_diff_full` is only for **untracked** files (`is_tracked`). Otherwise an untouched file renders as
   a full-height green add bar.
 - An empty diff is not a dead tab: an unstaged tab (worktree == index) and a staged tab (index == HEAD
-  after a commit / `git add`) both show the whole file. Only a missing file falls back to
-  `diff.noIndexChanges`. The scroll ratio survives the diff ↔ file swap via `pendingScroll` in DiffView.
+  after a commit / `git add`) is replaced by the normal file tab, which keeps the reader's relative
+  scroll position (`switchDiffToFile` in the tabs store hands a ratio over through `scrollMemory`). If the
+  file cannot be opened as text (deleted, folder, too large) only the diff tab is closed; no
+  "no changes in the index" notice remains. `pendingScroll` still restores in-place diff refreshes.
 - Conflict detection is two-stage (`lib/conflictFiles.ts`): no `<<<<<<<` in the content means no IPC at
   all; the git status cache is used when loaded, and only files that really contain markers ask the
   backend (`git ls-files -u`), because status can be stale right after a cherry-pick in the terminal.
@@ -147,4 +166,4 @@ on `app:hidden`. Closing a chat tab stops its turn and keeps the file.
   is a vendored standalone build — do not hand-edit either.
 
 ---
-**Last updated**: 2026-11-16
+**Last updated**: 2026-11-18

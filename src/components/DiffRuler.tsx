@@ -80,7 +80,7 @@ type Props = {
 
 export function DiffRuler({ root, rel, dirty, mtime, tabId, groupId }: Props) {
   const t = useT()
-  const epoch = useTabs((s) => s.diffEpoch[root] ?? 0)
+  const epoch = useTabs((s) => (s.diffEpoch[root] ?? 0) + (s.diffEpoch[tabId] ?? 0))
   const status = useGit((s) => s.statuses[root])
   const key = `${root}\u0000${rel}`
 

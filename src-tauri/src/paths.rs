@@ -25,6 +25,25 @@ pub fn canon(path: &Path) -> std::io::Result<PathBuf> {
     dunce::canonicalize(path)
 }
 
+/// User home directory: Windows has no `HOME`. Shared by the terminal and skill scans.
+pub fn home_dir() -> Option<PathBuf> {
+    let key = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
+    std::env::var_os(key)
+        .filter(|v| !v.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| {
+            if cfg!(windows) {
+                let drive = std::env::var_os("HOMEDRIVE")?;
+                let rest = std::env::var_os("HOMEPATH")?;
+                let mut path = PathBuf::from(drive);
+                path.push(rest);
+                Some(path)
+            } else {
+                None
+            }
+        })
+}
+
 /// Per-component comparison: case-insensitive on Windows, strict elsewhere.
 fn same_component(a: &OsStr, b: &OsStr) -> bool {
     if a == b {

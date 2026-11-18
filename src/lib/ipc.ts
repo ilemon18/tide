@@ -327,6 +327,17 @@ export type AgentCatalog = {
 /** A file or folder mentioned in a prompt (workspace-relative) */
 export type AgentMention = { rel: string; isDir: boolean }
 
+/** Where a skill was found: the open project, or the user's own CLI config */
+export type AgentSkillSource = 'project' | 'user'
+
+export type AgentSkillInfo = {
+  name: string
+  description: string
+  /** Workspace-relative for project skills, absolute for user-level skills */
+  path: string
+  source: AgentSkillSource
+}
+
 export type AgentTurnRequest = {
   chatId: string
   root: string
@@ -396,7 +407,8 @@ export const api = {
     }),
   gitStage: (root: string, paths: string[]) => invoke<void>('git_stage', { root, paths }),
   gitUnstage: (root: string, paths: string[]) => invoke<void>('git_unstage', { root, paths }),
-  gitDiscard: (root: string, paths: string[]) => invoke<void>('git_discard', { root, paths }),
+  gitDiscard: (root: string, paths: string[], fromIndex = false) =>
+    invoke<void>('git_discard', { root, paths, fromIndex }),
   gitCommit: (root: string, message: string) => invoke<string>('git_commit', { root, message }),
   /** Undo the last commit (soft reset); returns that commit's message */
   gitUndoCommit: (root: string) => invoke<string>('git_undo_commit', { root }),
@@ -506,6 +518,7 @@ export const api = {
   agentProviders: (force = false) => invoke<AgentProviderInfo[]>('agent_providers', { force }),
   agentModels: (provider: string, force = false) =>
     invoke<AgentCatalog>('agent_models', { provider, force }),
+  agentSkills: (root: string) => invoke<AgentSkillInfo[]>('agent_skills', { root }),
   agentSend: (request: AgentTurnRequest) => invoke<void>('agent_send', { request }),
   agentCancel: (chatId: string) => invoke<void>('agent_cancel', { chatId }),
   /** Transcripts are opaque frontend JSON; the backend only checks the id and the size */

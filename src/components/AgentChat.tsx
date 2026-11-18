@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAgent } from '../store/agent'
+import type { AgentDraft } from '../lib/agentCommand'
 import { useSettings } from '../store/settings'
 import { useT } from '../i18n'
 import { openSettings } from '../lib/actions'
@@ -103,7 +104,7 @@ export function AgentChat({ chatId }: { chatId: string }) {
   }
 
   const running = chat.status === 'running'
-  const draft = draftState ?? { text: '', mentions: [] }
+  const draft: AgentDraft = draftState ?? { text: '', mentions: [] }
   const providerInfo = providers?.find((provider) => provider.id === chat.provider)
   const providerMissing =
     providers !== null && (!providerInfo || !providerInfo.installed || !providerInfo.supported)
@@ -244,6 +245,24 @@ export function AgentChat({ chatId }: { chatId: string }) {
                 >
                   <Icon name="clock" size={11} className="shrink-0" />
                   <span className="shrink-0">{t('agent.queue.badge')}</span>
+                  {item.command ? (
+                    <span className="shrink-0 rounded-[3px] bg-accent/10 px-1 font-mono text-[10px] text-accent">
+                      /{item.command}
+                    </span>
+                  ) : null}
+                  {(item.skills ?? []).slice(0, 2).map((skill) => (
+                    <span
+                      key={skill.path}
+                      className="max-w-[110px] shrink-0 truncate rounded-[3px] bg-panel px-1 font-mono text-[10px] text-fg/70"
+                    >
+                      ${skill.name}
+                    </span>
+                  ))}
+                  {(item.skills?.length ?? 0) > 2 ? (
+                    <span className="shrink-0 text-[10px] text-muted">
+                      +{(item.skills?.length ?? 0) - 2}
+                    </span>
+                  ) : null}
                   <span className="min-w-0 flex-1 truncate text-fg/80">
                     {item.text.split('\n')[0]}
                   </span>
@@ -294,6 +313,8 @@ export function AgentChat({ chatId }: { chatId: string }) {
             root={chat.root}
             draft={draft.text}
             mentions={draft.mentions}
+            command={draft.command}
+            skills={draft.skills ?? []}
             provider={chat.provider}
             model={chat.model}
             effort={chat.effort}
@@ -304,15 +325,16 @@ export function AgentChat({ chatId }: { chatId: string }) {
             autoFocusKey={chatId}
             onDraft={(text) => useAgent.getState().setChatDraft(chatId, { text })}
             onMentions={(mentions) => useAgent.getState().setChatDraft(chatId, { mentions })}
+            onCommand={(command) => useAgent.getState().setChatDraft(chatId, { command })}
+            onSkills={(skills) => useAgent.getState().setChatDraft(chatId, { skills })}
             onProvider={(provider) => useAgent.getState().setChatProvider(chatId, provider)}
             onModel={(model) => useAgent.getState().setChatOptions(chatId, { model })}
             onEffort={(effort) => useAgent.getState().setChatOptions(chatId, { effort })}
             onStop={() => void useAgent.getState().stop(chatId)}
             onSend={() => {
-              const text = draft.text.trim()
-              if (!text) return
+              if (!draft.text.trim() && !(draft.skills ?? []).length) return
               setAtBottom(true)
-              void useAgent.getState().sendMessage(chatId, text, draft.mentions)
+              void useAgent.getState().sendMessage(chatId, draft)
             }}
           />
         </div>

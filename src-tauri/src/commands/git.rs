@@ -703,42 +703,77 @@ pub fn git_unstage(state: State<'_, AppState>, root: String, paths: Vec<String>)
 }
 
 #[tauri::command(async)]
-pub fn git_discard(state: State<'_, AppState>, root: String, paths: Vec<String>) -> AppResult<()> {
+pub fn git_discard(
+    state: State<'_, AppState>,
+    root: String,
+    paths: Vec<String>,
+    from_index: Option<bool>,
+) -> AppResult<()> {
     let root_path = state.authorize(&root)?;
+    discard_paths(&root_path, &paths, from_index.unwrap_or(false))
+}
+
+fn discard_paths(root_path: &Path, paths: &[String], from_index: bool) -> AppResult<()> {
     let root_str = root_path.to_string_lossy().to_string();
     if paths.is_empty() {
         return Ok(());
     }
 
-    // `git restore` fails on conflicted files; the old code swallowed the error while the UI
-    // reported "discarded"
-    let mut check: Vec<&str> = vec!["ls-files", "-u", "-z", "--"];
-    check.extend(paths.iter().map(|p| p.as_str()));
-    let (_, unmerged, _) = run_bytes(&root_str, &check)?;
+    for rel in paths {
+        let abs = crate::state::resolve_in_root(root_path, rel)?;
+        crate::state::assert_inside(root_path, &abs)?;
+    }
+
+    let mut check: Vec<&str> = vec!["--literal-pathspecs", "ls-files", "-u", "-z", "--"];
+    check.extend(paths.iter().map(|path| path.as_str()));
+    let (ok, unmerged, error) = run_bytes(&root_str, &check)?;
+    if !ok {
+        return Err(AppError::new(error));
+    }
     if !unmerged.is_empty() {
         return Err(AppError::c("git.conflictCannotDiscard"));
     }
 
-    let mut args: Vec<String> = vec![
-        "restore".into(),
-        "--worktree".into(),
-        "--source=HEAD".into(),
-        "--".into(),
-    ];
-    args.extend(paths.clone());
-    let refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
-    let _ = run_text(&root_str, &refs);
-
-    // Untracked files are deleted outright (this dangerous operation was already confirmed)
+    let mut tracked = Vec::new();
+    let mut untracked = Vec::new();
+    let mut list = vec!["--literal-pathspecs", "ls-files", "-z", "--"];
+    list.extend(paths.iter().map(|path| path.as_str()));
+    let (ok, listed, error) = run_bytes(&root_str, &list)?;
+    if !ok {
+        return Err(AppError::new(error));
+    }
+    let indexed: std::collections::HashSet<&[u8]> = listed
+        .split(|byte| *byte == 0)
+        .filter(|path| !path.is_empty())
+        .collect();
     for rel in paths {
-        let tracked = run_text(&root_str, &["ls-files", "--error-unmatch", "--", &rel]);
-        let is_tracked = matches!(tracked, Ok((true, _)));
-        if !is_tracked {
-            let abs = crate::state::resolve_in_root(&root_path, &rel)?;
-            crate::state::assert_inside(&root_path, &abs)?;
-            if abs.is_file() {
-                std::fs::remove_file(&abs)?;
-            }
+        if indexed.contains(rel.as_bytes()) {
+            tracked.push(rel.as_str());
+        } else if from_index {
+            return Err(AppError::p("git.notTracked", [("path", rel.clone())]));
+        } else {
+            untracked.push(rel);
+        }
+    }
+
+    if !tracked.is_empty() {
+        let mut args = vec!["--literal-pathspecs", "restore", "--worktree"];
+        if !from_index {
+            args.push("--source=HEAD");
+        }
+        args.push("--");
+        args.extend(tracked);
+        let (ok, text) = run_text(&root_str, &args)?;
+        if !ok {
+            return Err(AppError::new(text));
+        }
+    }
+
+    for rel in untracked {
+        let abs = crate::state::resolve_in_root(root_path, rel)?;
+        crate::state::assert_inside(root_path, &abs)?;
+        if abs.is_file() {
+            std::fs::remove_file(&abs)?;
         }
     }
     Ok(())
@@ -1484,7 +1519,242 @@ pub fn git_conflict_reset(
 
 #[cfg(test)]
 mod tests {
-    use super::truncate_patch;
+    use super::{discard_paths, git_cmd, run_text, truncate_patch};
+    use std::io::Write;
+    use std::path::PathBuf;
+    use std::process::Stdio;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    static NEXT_REPO: AtomicU64 = AtomicU64::new(0);
+
+    struct TestRepo {
+        root: PathBuf,
+    }
+
+    impl TestRepo {
+        fn new() -> Self {
+            let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+            let ordinal = NEXT_REPO.fetch_add(1, Ordering::Relaxed);
+            let root = std::env::temp_dir().join(format!(
+                "tide-git-discard-{}-{timestamp}-{ordinal}",
+                std::process::id(),
+            ));
+            std::fs::create_dir_all(&root).unwrap();
+            let repo = Self { root: std::fs::canonicalize(root).unwrap() };
+            repo.git(&["init", "-q"]);
+            repo.git(&["config", "user.name", "Tide tests"]);
+            repo.git(&["config", "user.email", "tests@example.invalid"]);
+            repo.git(&["config", "core.autocrlf", "false"]);
+            repo.git(&["config", "core.hooksPath", ".git/no-hooks"]);
+            repo
+        }
+
+        fn git(&self, args: &[&str]) -> String {
+            let (ok, text) = run_text(self.root.to_str().unwrap(), args).unwrap();
+            assert!(ok, "git {args:?}: {text}");
+            text
+        }
+
+        fn write(&self, rel: &str, content: &str) {
+            std::fs::write(self.root.join(rel), content).unwrap();
+        }
+
+        fn read(&self, rel: &str) -> String {
+            std::fs::read_to_string(self.root.join(rel)).unwrap()
+        }
+
+        fn commit(&self) {
+            self.git(&["add", "--all"]);
+            self.git(&["-c", "commit.gpgsign=false", "commit", "-qm", "baseline"]);
+        }
+
+        fn discard(&self, paths: &[&str], from_index: bool) -> crate::error::AppResult<()> {
+            let paths = paths.iter().map(|path| (*path).to_string()).collect::<Vec<_>>();
+            discard_paths(&self.root, &paths, from_index)
+        }
+    }
+
+    impl Drop for TestRepo {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.root);
+        }
+    }
+
+    #[test]
+    fn discard_from_index_preserves_staged_untracked_and_other_files() {
+        let repo = TestRepo::new();
+        for path in ["first.txt", "second.txt", "untouched.txt"] {
+            repo.write(path, "head\n");
+        }
+        repo.commit();
+        repo.write("first.txt", "staged\n");
+        repo.git(&["add", "--", "first.txt"]);
+        let index = repo.git(&["ls-files", "--stage", "-z"]);
+        repo.write("first.txt", "unstaged\n");
+        repo.write("second.txt", "unstaged\n");
+        repo.write("untouched.txt", "keep\n");
+        repo.write("new.txt", "untracked\n");
+        let other = TestRepo::new();
+        other.write("first.txt", "other repo\n");
+
+        repo.discard(&["first.txt", "second.txt"], true).unwrap();
+
+        assert_eq!(repo.read("first.txt"), "staged\n");
+        assert_eq!(repo.read("second.txt"), "head\n");
+        assert_eq!(repo.read("untouched.txt"), "keep\n");
+        assert_eq!(repo.read("new.txt"), "untracked\n");
+        assert_eq!(other.read("first.txt"), "other repo\n");
+        assert_eq!(repo.git(&["ls-files", "--stage", "-z"]), index);
+        repo.discard(&["first.txt", "second.txt"], true).unwrap();
+        assert_eq!(repo.read("first.txt"), "staged\n");
+    }
+
+    #[test]
+    fn discard_from_index_restores_deleted_files_and_staged_additions_without_head() {
+        let repo = TestRepo::new();
+        repo.write("new.txt", "staged addition\n");
+        repo.git(&["add", "--", "new.txt"]);
+        std::fs::remove_file(repo.root.join("new.txt")).unwrap();
+        repo.discard(&["new.txt"], true).unwrap();
+        assert_eq!(repo.read("new.txt"), "staged addition\n");
+        repo.commit();
+        std::fs::remove_file(repo.root.join("new.txt")).unwrap();
+        repo.discard(&["new.txt"], true).unwrap();
+        assert_eq!(repo.read("new.txt"), "staged addition\n");
+    }
+
+    #[test]
+    fn discard_treats_special_paths_literally() {
+        let repo = TestRepo::new();
+        let paths = ["[literal].txt", "--space 'é'.txt"];
+        for path in paths.iter().copied().chain(["l.txt"]) {
+            repo.write(path, "head\n");
+        }
+        repo.commit();
+        for path in paths.iter().copied().chain(["l.txt"]) {
+            repo.write(path, "modified\n");
+        }
+        repo.discard(&paths, true).unwrap();
+        for path in paths {
+            assert_eq!(repo.read(path), "head\n");
+        }
+        assert_eq!(repo.read("l.txt"), "modified\n");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn discard_handles_pathspec_magic_and_newlines_in_names() {
+        let repo = TestRepo::new();
+        let paths = [":(glob)*.txt", "line\nbreak.txt"];
+        for path in paths.iter().copied().chain(["other.txt"]) {
+            repo.write(path, "head\n");
+        }
+        repo.commit();
+        for path in paths.iter().copied().chain(["other.txt"]) {
+            repo.write(path, "modified\n");
+        }
+        repo.discard(&paths, true).unwrap();
+        for path in paths {
+            assert_eq!(repo.read(path), "head\n");
+        }
+        assert_eq!(repo.read("other.txt"), "modified\n");
+    }
+
+    #[test]
+    fn discard_from_index_rejects_untracked_files_before_restoring_anything() {
+        let repo = TestRepo::new();
+        repo.write("tracked.txt", "head\n");
+        repo.commit();
+        repo.write("tracked.txt", "modified\n");
+        repo.write("new.txt", "keep\n");
+        let error = repo.discard(&["tracked.txt", "new.txt"], true).unwrap_err();
+        assert_eq!(error.code, "git.notTracked");
+        assert_eq!(repo.read("tracked.txt"), "modified\n");
+        assert_eq!(repo.read("new.txt"), "keep\n");
+    }
+
+    #[test]
+    fn discard_rejects_conflicts_before_restoring_other_files() {
+        let repo = TestRepo::new();
+        repo.write("conflict.txt", "head\n");
+        repo.write("other.txt", "head\n");
+        repo.commit();
+        let blob = repo.git(&["rev-parse", "HEAD:conflict.txt"]);
+        let mut child = git_cmd(repo.root.to_str().unwrap())
+            .args(["update-index", "--index-info"])
+            .stdin(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let entries = format!(
+            "0 {}\tconflict.txt\n100644 {blob} 1\tconflict.txt\n100644 {blob} 2\tconflict.txt\n100644 {blob} 3\tconflict.txt\n",
+            "0".repeat(blob.trim().len()),
+            blob = blob.trim(),
+        );
+        child.stdin.take().unwrap().write_all(entries.as_bytes()).unwrap();
+        assert!(child.wait().unwrap().success());
+        repo.write("conflict.txt", "<<<<<<< ours\n=======\n>>>>>>> theirs\n");
+        repo.write("other.txt", "keep\n");
+        let index = repo.git(&["ls-files", "--stage", "-z"]);
+        let error = repo.discard(&["other.txt", "conflict.txt"], true).unwrap_err();
+        assert_eq!(error.code, "git.conflictCannotDiscard");
+        assert_eq!(repo.read("other.txt"), "keep\n");
+        assert!(repo.read("conflict.txt").starts_with("<<<<<<<"));
+        assert_eq!(repo.git(&["ls-files", "--stage", "-z"]), index);
+        repo.discard(&["other.txt"], true).unwrap();
+        assert_eq!(repo.read("other.txt"), "head\n");
+        assert!(repo.read("conflict.txt").starts_with("<<<<<<<"));
+        assert_eq!(repo.git(&["ls-files", "--stage", "-z"]), index);
+    }
+
+    #[test]
+    fn discard_reports_git_probe_and_restore_failures() {
+        let repo = TestRepo::new();
+        repo.write("new.txt", "staged\n");
+        repo.git(&["add", "--", "new.txt"]);
+        repo.write("new.txt", "modified\n");
+        let error = repo.discard(&["new.txt"], false).unwrap_err();
+        assert_eq!(error.code, "message");
+        assert!(!error.params["message"].is_empty());
+        assert_eq!(repo.read("new.txt"), "modified\n");
+        std::fs::write(repo.root.join(".git/index"), b"broken index").unwrap();
+        let error = repo.discard(&["new.txt"], true).unwrap_err();
+        assert_eq!(error.code, "message");
+        assert!(!error.params["message"].is_empty());
+        assert_eq!(repo.read("new.txt"), "modified\n");
+    }
+
+    #[test]
+    fn default_discard_keeps_head_restore_and_untracked_deletion() {
+        let repo = TestRepo::new();
+        repo.write("tracked.txt", "head\n");
+        repo.commit();
+        repo.write("tracked.txt", "staged\n");
+        repo.git(&["add", "--", "tracked.txt"]);
+        repo.write("tracked.txt", "modified\n");
+        repo.write("new.txt", "delete\n");
+        let index = repo.git(&["ls-files", "--stage", "-z"]);
+        repo.discard(&["tracked.txt", "new.txt"], false).unwrap();
+        assert_eq!(repo.read("tracked.txt"), "head\n");
+        assert!(!repo.root.join("new.txt").exists());
+        assert_eq!(repo.git(&["ls-files", "--stage", "-z"]), index);
+    }
+
+    #[test]
+    fn discard_from_index_reports_restore_failure_without_removing_untracked_contents() {
+        let repo = TestRepo::new();
+        repo.write("tracked.txt", "head\n");
+        repo.commit();
+        std::fs::remove_file(repo.root.join("tracked.txt")).unwrap();
+        std::fs::create_dir(repo.root.join("tracked.txt")).unwrap();
+        repo.write("tracked.txt/untracked.txt", "keep\n");
+        let index = repo.git(&["ls-files", "--stage", "-z"]);
+        let error = repo.discard(&["tracked.txt"], true).unwrap_err();
+        assert_eq!(error.code, "message");
+        assert!(!error.params["message"].is_empty());
+        assert_eq!(repo.read("tracked.txt/untracked.txt"), "keep\n");
+        assert_eq!(repo.git(&["ls-files", "--stage", "-z"]), index);
+    }
 
     #[test]
     fn truncate_patch_keeps_complete_lines_and_valid_utf8() {

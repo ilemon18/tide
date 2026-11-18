@@ -77,6 +77,17 @@ pub fn agent_models(provider: String, force: bool) -> providers::AgentCatalog {
     providers::catalog(&provider, force)
 }
 
+/// Read-only skill discovery for the composer's `$` picker. The root is authorized like every
+/// other project path; the scan itself only reads the known skill directories.
+#[tauri::command(async)]
+pub fn agent_skills(
+    state: State<'_, AppState>,
+    root: String,
+) -> AppResult<Vec<agent::skills::SkillInfo>> {
+    let root = state.authorize(&root)?;
+    Ok(agent::skills::scan(&root))
+}
+
 #[tauri::command(async)]
 pub fn agent_send(
     app: AppHandle,

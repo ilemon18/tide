@@ -32,9 +32,12 @@ on), then cached for the session; the settings page can rescan on demand.
 - `src/lib/agentSession.ts`: restores chat tabs, persists the open chat list, closes the bridge.
 - `src/lib/agentBridge.ts`: one-way tab-close callback (avoids a tabs ↔ agent import cycle).
 - `src/components/AgentChat.tsx`, `AgentComposer.tsx`,
-  `AgentMessage.tsx`, `AgentMarkdown.tsx`, `AgentPickers.tsx`.
-- `src-tauri/src/commands/agent.rs`: spawn/cancel turns, chat and tab persistence commands.
-- `src-tauri/src/agent/`: provider scan, argument builders, JSONL translators, file store.
+  `AgentMessage.tsx`, `AgentMarkdown.tsx`, `AgentPickers.tsx`, `AgentTags.tsx`.
+- `src/lib/agentCommand.ts`: command catalog, `/` `$` trigger detection, skill ranking and
+  prompt assembly.
+- `src-tauri/src/commands/agent.rs`: spawn/cancel turns, skill scan, chat and tab persistence.
+- `src-tauri/src/agent/`: provider scan, skill discovery, argument builders, JSONL translators,
+  file store.
 
 ## Turn lifecycle
 
@@ -47,6 +50,21 @@ on), then cached for the session; the settings page can rescan on demand.
    and closes the turn on `done`.
 4. Stop / window close / app exit / disabling the agent kill the process group (setsid on Unix,
    `taskkill /T` on Windows). At most 4 turns run at once; one turn per chat.
+
+## Composer commands and skills
+
+- `/` opens the built-in command list (`plan` `goal` `review` `test` `explain`). A space after
+  an exact name, or Enter on a row, moves it into a chip. One command per message; picking
+  another replaces it. On send the text is wrapped as `<plan>…</plan>` for every provider.
+- `$` opens the skill picker. Sources: `<root>/.agents/skills`, `<root>/.claude/skills`,
+  `~/.claude/skills`, and `$CODEX_HOME/skills` (default `~/.codex/skills`). Only the frontmatter
+  `name` / `description` and the SKILL.md path travel; the agent reads the file itself.
+- Multiple skill chips are allowed. The prompt starts with
+  `Use the skill "<name>" (SKILL.md: <path>).`; project paths are workspace-relative, user-level
+  paths absolute. Mentions are still added by `agent::build_prompt`.
+- The scan is lazy (first `$` per root), cached in `store/agent.ts` for the session, and retried
+  after a failure. No watcher and no cache in Rust.
+- Queue entries and the session-reset retry carry `command` / `skills` along with the text.
 
 ## Provider mapping
 

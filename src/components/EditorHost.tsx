@@ -25,7 +25,12 @@ import { stickyRange } from '../editor/highlight'
 import { setEditorView, setFocusedGroup } from '../editor/viewRef'
 import { linkMirror, unlinkMirror, unlinkView } from '../editor/mirror'
 import { signals } from '../editor/signals'
-import { rememberScroll, restoreScroll, cancelScrollCorrection } from '../editor/scrollMemory'
+import {
+  cancelScrollCorrection,
+  rememberScroll,
+  restoreScroll,
+  takeScrollRatio,
+} from '../editor/scrollMemory'
 import { onLayoutDragging } from '../lib/layoutBus'
 import { Icon } from './Icon'
 import { ImageView } from './ImageView'
@@ -49,11 +54,12 @@ function swapState(
   prevId: string | null,
   fallback: number,
   keepCurrent = false,
+  ratio?: number,
 ) {
   if (prevId && prevId !== id) rememberScroll(prevId, view.scrollDOM.scrollTop)
   view.setState(state)
   reconfigureTheme(view)
-  restoreScroll(view, id, fallback, keepCurrent)
+  restoreScroll(view, id, fallback, keepCurrent, ratio)
 }
 
 /** These tabs show no editor: images / diffs mount other content, SVG preview gives the area to the image. */
@@ -265,6 +271,8 @@ export function EditorHost({ groupId }: { groupId: TabGroupId }) {
           prevAlive && shown ? scrollKey(shown) : null,
           fallback,
           keepCurrent,
+          // Handed over by the empty diff that just became this file tab
+          takeScrollRatio(activeId),
         )
       }
       shownIdRef.current = activeId
@@ -282,7 +290,7 @@ export function EditorHost({ groupId }: { groupId: TabGroupId }) {
         // Nothing was swapped because the view still holds this document: coming back from a diff / image /
         // welcome tab, the offset has to be written back by hand — measuring and focusing the hidden editor
         // in between can leave the reader at the top of the file.
-        restoreScroll(view, scrollKey(activeId), 0, false)
+        restoreScroll(view, scrollKey(activeId), 0, false, takeScrollRatio(activeId))
       }
       return
     }
@@ -313,6 +321,7 @@ export function EditorHost({ groupId }: { groupId: TabGroupId }) {
           prevAlive && shown ? scrollKey(shown) : null,
           fallback,
           keepCurrent,
+          takeScrollRatio(activeId),
         )
       }
       // A freshly mounted side pane may not be measured yet (width 0 makes CodeMirror compute no viewport),

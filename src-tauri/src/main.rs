@@ -328,6 +328,7 @@ fn main() {
             // agent
             commands::agent::agent_providers,
             commands::agent::agent_models,
+            commands::agent::agent_skills,
             commands::agent::agent_send,
             commands::agent::agent_cancel,
             commands::agent::agent_chat_save,
