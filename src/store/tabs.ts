@@ -1935,7 +1935,6 @@ export const useTabs = create<TabsStore>((set, get) => ({
       }
       if (!result.text) return false
       if (!result.changed) {
-        ui.toast(t('toast.formatUnchanged'), 'info')
         return false
       }
       replaceDocText(tab.id, result.text)

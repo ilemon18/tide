@@ -456,7 +456,7 @@ export const useGit = create<GitStore>((set, get) => ({
     set({ busy: 'pull' })
     try {
       const out = await api.gitPull(root)
-      useUi.getState().toast(out || t('toast.pullDone'), 'success')
+      if (out.trim()) useUi.getState().toast(out, 'success')
       signatures.delete(root)
       await get().refresh(root, true)
     } catch (e) {
@@ -470,7 +470,7 @@ export const useGit = create<GitStore>((set, get) => ({
     set({ busy: 'push' })
     try {
       const out = await api.gitPush(root)
-      useUi.getState().toast(out || t('toast.pushDone'), 'success')
+      if (out.trim()) useUi.getState().toast(out, 'success')
       await get().refresh(root, true)
     } catch (e) {
       useUi.getState().toast(errorText(e), 'error')
@@ -484,7 +484,6 @@ export const useGit = create<GitStore>((set, get) => ({
     try {
       // Sync remote branches only, no push and no worktree merge
       await api.gitFetch(root)
-      useUi.getState().toast(t('toast.fetchDone'), 'success')
       signatures.delete(root)
       await get().loadBranches(root, true)
       await get().refresh(root, true)

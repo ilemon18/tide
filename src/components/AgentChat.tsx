@@ -323,7 +323,6 @@ export function AgentChat({ chatId }: { chatId: string }) {
             running={running}
             disabled={!enabled}
             blocked={providerMissing}
-            disabledText={t('agent.disabled')}
             autoFocusKey={chatId}
             onDraft={(text) => useAgent.getState().setChatDraft(chatId, { text })}
             onMentions={(mentions) => useAgent.getState().setChatDraft(chatId, { mentions })}
@@ -339,11 +338,6 @@ export function AgentChat({ chatId }: { chatId: string }) {
               void useAgent.getState().sendMessage(chatId, draft)
             }}
           />
-          {draft.mentions.length > 0 && (
-            <div className="px-1 text-2xs text-muted">
-              {t('agent.context.attached', { count: draft.mentions.length })}
-            </div>
-          )}
         </div>
       </div>
     </div>

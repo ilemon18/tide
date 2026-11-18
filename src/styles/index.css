@@ -830,20 +830,6 @@
   flex-shrink: 0;
 }
 
-.token-details .details-footer {
-  padding: 10px 12px;
-  border-top: 1px solid var(--c-border);
-  font-size: 12px;
-}
-
-.token-details .warning-message {
-  color: var(--c-warning);
-}
-
-.token-details .ok-message {
-  color: var(--c-success);
-}
-
 /* ---- Tide: plain light island ---------------------------------------------
    No decorative tint: the base is white with neutral, very light surfaces (panel #fafafa, borders #e5e5e5).
    The accent stays functional only — buttons, focus rings, badges, links — so the window reads as a plain

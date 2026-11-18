@@ -15,7 +15,6 @@ import { SETTINGS_SECTIONS, type SettingsSectionId } from '../lib/settingsSectio
 import { Icon } from './Icon'
 import {
   LOCALES,
-  LOCALE_ENGLISH_NAMES,
   LOCALE_LABELS,
   useT,
   type MessageKey,
@@ -212,21 +211,12 @@ export function SettingsView() {
     general: (
       <>
         <Card title={t('settings.memory.card')}>
-          <Row
-            label={t('settings.memory.lightweight')}
-            hint={t('settings.memory.lightweightHint')}
-          >
+          <Row label={t('settings.memory.lightweight')} hint={t('settings.memory.lightweightHint')}>
             <Toggle
               value={settings.lightweightMode}
               onChange={(v) => set('lightweightMode', v)}
             />
           </Row>
-          {settings.lightweightMode ? (
-            <div className="flex items-center gap-1.5 border-b border-line/60 px-4 py-2 text-xs text-muted last:border-b-0">
-              <Icon name="check" size={11} className="shrink-0 text-accent" />
-              <span className="min-w-0">{t('settings.memory.lightweightOn')}</span>
-            </div>
-          ) : null}
         </Card>
 
         <Card title={t('settings.language.card')}>
@@ -248,11 +238,6 @@ export function SettingsView() {
                   {active ? <Icon name="check" size={12} /> : null}
                 </span>
                 <span className="min-w-0 flex-1 truncate">{LOCALE_LABELS[locale]}</span>
-                {locale === 'en' ? null : (
-                  <span className="min-w-0 shrink truncate text-2xs text-muted/70">
-                    {LOCALE_ENGLISH_NAMES[locale]}
-                  </span>
-                )}
               </button>
             )
           })}
@@ -300,10 +285,7 @@ export function SettingsView() {
         </Card>
 
         <Card title={t('settings.appearance.fonts')}>
-          <Row
-            label={t('settings.appearance.codeFont')}
-            hint={t('settings.appearance.codeFontHint')}
-          >
+          <Row label={t('settings.appearance.codeFont')}>
             <div className="flex max-w-[320px] flex-wrap justify-end gap-1">
               {MONO_FONT_OPTIONS.map((option) => (
                 <button
@@ -335,10 +317,7 @@ export function SettingsView() {
           <Row label={t('settings.appearance.editorFontSize')}>
             <Stepper value={settings.fontSize} min={10} max={24} onChange={(v) => set('fontSize', v)} />
           </Row>
-          <Row
-            label={t('settings.appearance.ligatures')}
-            hint={t('settings.appearance.ligaturesHint')}
-          >
+          <Row label={t('settings.appearance.ligatures')}>
             <Toggle value={settings.ligatures} onChange={(v) => set('ligatures', v)} />
           </Row>
         </Card>
@@ -348,7 +327,7 @@ export function SettingsView() {
     editor: (
       <>
         <Card title={t('settings.editor.edit')}>
-          <Row label={t('settings.editor.autoSave')} hint={t('settings.editor.autoSaveHint')}>
+          <Row label={t('settings.editor.autoSave')}>
             <Toggle value={settings.autoSave} onChange={(v) => set('autoSave', v)} />
           </Row>
           <Row label={t('settings.editor.wordWrap')} hint={t('settings.editor.wordWrapHint')}>
@@ -360,12 +339,7 @@ export function SettingsView() {
         </Card>
 
         <Card title={t('settings.editor.format')}>
-          <Row
-            label={t('settings.editor.formatMode')}
-            hint={t(
-              (FORMAT_MODES.find((m) => m.id === settings.formatMode) ?? FORMAT_MODES[0]).hintKey,
-            )}
-          >
+          <Row label={t('settings.editor.formatMode')}>
             <div className="flex flex-wrap justify-end gap-1">
               {FORMAT_MODES.map((mode) => (
                 <button
@@ -381,16 +355,7 @@ export function SettingsView() {
           </Row>
           <Row
             label={t('settings.editor.formatTool')}
-            hint={
-              settings.formatMode === 'off'
-                ? t('settings.editor.formatToolOffHint')
-                : settings.formatTool === 'auto'
-                  ? t('settings.editor.formatToolAutoHint')
-                  : t('settings.editor.formatToolFixedHint', {
-                      tool: (FORMAT_TOOLS.find((tool) => tool.id === settings.formatTool) ??
-                        FORMAT_TOOLS[0]).label,
-                    })
-            }
+            hint={settings.formatTool === 'auto' ? t('settings.editor.formatToolAutoHint') : undefined}
           >
             <div
               className={`flex max-w-[340px] flex-wrap justify-end gap-1 ${
@@ -425,16 +390,10 @@ export function SettingsView() {
         </Card>
 
         <Card title={t('settings.editor.display')}>
-          <Row
-            label={t('settings.editor.inlineBlame')}
-            hint={t('settings.editor.inlineBlameHint')}
-          >
+          <Row label={t('settings.editor.inlineBlame')}>
             <Toggle value={settings.inlineBlame} onChange={(v) => set('inlineBlame', v)} />
           </Row>
-          <Row
-            label={t('settings.editor.indentGuides')}
-            hint={t('settings.editor.indentGuidesHint')}
-          >
+          <Row label={t('settings.editor.indentGuides')}>
             <Toggle value={settings.indentGuides} onChange={(v) => set('indentGuides', v)} />
           </Row>
         </Card>
@@ -506,7 +465,7 @@ export function SettingsView() {
             ))}
           </div>
         </Row>
-        <Row label={t('settings.terminal.webgl')} hint={t('settings.terminal.webglHint')}>
+        <Row label={t('settings.terminal.webgl')}>
           <Toggle value={settings.terminalWebgl} onChange={(v) => set('terminalWebgl', v)} />
         </Row>
       </Card>
@@ -515,13 +474,10 @@ export function SettingsView() {
     agent: (
       <>
         <Card title={t('settings.agent.card')}>
-          <Row label={t('settings.agent.enable')} hint={t('settings.agent.enableHint')}>
+          <Row label={t('settings.agent.enable')}>
             <Toggle value={settings.agentEnabled} onChange={(v) => set('agentEnabled', v)} />
           </Row>
-          <Row
-            label={t('settings.agent.defaultAgent')}
-            hint={t('settings.agent.defaultAgentHint')}
-          >
+          <Row label={t('settings.agent.defaultAgent')}>
             <Picker
               label=""
               value={settings.agentDefaultProvider}
@@ -536,10 +492,7 @@ export function SettingsView() {
               }}
             />
           </Row>
-          <Row
-            label={t('settings.agent.defaultModel')}
-            hint={t('settings.agent.defaultModelHint')}
-          >
+          <Row label={t('settings.agent.defaultModel')}>
             <Picker
               label=""
               value={settings.agentDefaultModel}
@@ -583,8 +536,7 @@ export function SettingsView() {
         </Card>
 
         <Card title={t('settings.agent.detected')}>
-          <div className="flex items-center justify-between gap-3 border-b border-line/60 px-4 py-2 text-xs text-muted">
-            <span className="min-w-0">{t('settings.agent.detectedHint')}</span>
+          <div className="flex justify-end border-b border-line/60 px-4 py-2">
             <button
               type="button"
               onClick={() => {
@@ -628,20 +580,15 @@ export function SettingsView() {
                     {provider.version ?? ''}
                   </span>
                 </div>
-                <span
-                  className={'shrink-0 text-2xs ' +
-                    (!provider.installed
-                      ? 'text-muted'
-                      : provider.supported
-                        ? 'text-success'
-                        : 'text-warning')}
-                >
-                  {!provider.installed
-                    ? t('settings.agent.notInstalled')
-                    : provider.supported
-                      ? t('settings.agent.ready')
-                      : t('settings.agent.unsupported')}
-                </span>
+                {!provider.installed ? (
+                  <span className="shrink-0 text-2xs text-muted">
+                    {t('settings.agent.notInstalled')}
+                  </span>
+                ) : provider.supported ? null : (
+                  <span className="shrink-0 text-2xs text-warning">
+                    {t('settings.agent.unsupported')}
+                  </span>
+                )}
               </div>
             ))
           )}

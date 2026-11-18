@@ -32,7 +32,6 @@ type Props = {
   disabled?: boolean
   /** The current agent is missing: keep the agent picker usable so the user can switch */
   blocked?: boolean
-  disabledText?: string
   /** Bumped when the panel opens or the active chat changes: the textarea takes focus */
   autoFocusKey?: number | string
   /** Chats keep the agent that started them: hide the picker there */
@@ -93,7 +92,6 @@ export function AgentComposer({
   running,
   disabled,
   blocked,
-  disabledText,
   autoFocusKey,
   showAgentPicker = true,
   onDraft,
@@ -355,9 +353,7 @@ export function AgentComposer({
           disabled={disabled}
           spellCheck={false}
           placeholder={
-            disabled
-              ? disabledText ?? t('agent.composer.disabled')
-              : t('agent.composer.placeholder')
+            disabled ? '' : t('agent.composer.placeholder')
           }
           onChange={(e) => {
             const value = e.target.value

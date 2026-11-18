@@ -53,13 +53,6 @@ export function AgentTokenBudget({ chatId }: Props) {
 
   const statusClass = isHuge ? 'danger' : isLarge ? 'warning' : total > 0 ? 'ok' : 'empty'
   const summary = t('agent.context.estimate', { count: formatTokens(total) })
-  const status = t(
-    isHuge
-      ? 'agent.context.hugeContext'
-      : isLarge
-        ? 'agent.context.largeContext'
-        : 'agent.context.budgetHealthy',
-  )
 
   return (
     <div ref={containerRef} className="token-budget">
@@ -68,8 +61,8 @@ export function AgentTokenBudget({ chatId }: Props) {
         type="button"
         className={`token-summary ${statusClass}`}
         onClick={() => setShowDetails(open => !open)}
-        title={summary + ' · ' + status}
-        aria-label={summary + ' · ' + status + ' · ' + t('agent.context.tokenDetails')}
+        title={summary}
+        aria-label={summary + ' · ' + t('agent.context.tokenDetails')}
         aria-expanded={showDetails}
         aria-controls={showDetails ? detailsId : undefined}
       >
@@ -106,24 +99,6 @@ export function AgentTokenBudget({ chatId }: Props) {
                 <span className="tokens">{formatTokens(item.tokens)}</span>
               </div>
             ))}
-          </div>
-          <div className="details-footer">
-            <p>{t('agent.context.estimateHint')}</p>
-            {isHuge && (
-              <div className="warning-message">
-                ⚠️ {t('agent.context.hugeContext')}
-              </div>
-            )}
-            {isLarge && !isHuge && (
-              <div className="warning-message">
-                💡 {t('agent.context.largeContext')}
-              </div>
-            )}
-            {!isLarge && (
-              <div className="ok-message">
-                ✓ {t('agent.context.budgetHealthy')}
-              </div>
-            )}
           </div>
         </div>
       )}

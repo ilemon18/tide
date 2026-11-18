@@ -138,10 +138,8 @@ export const UserMessage = memo(function UserMessage({
   root: string
   message: Message
 }) {
-  const t = useT()
   return (
     <div className="flex max-w-[85%] flex-col gap-1.5 self-end rounded-[var(--r-popup)] border border-line-soft bg-panel px-3 py-2">
-      <div className="text-2xs font-medium text-muted">{t('agent.you')}</div>
       {message.command || (message.skills && message.skills.length > 0) ? (
         <div className="flex flex-wrap gap-1">
           {message.command ? <CommandChip id={message.command} /> : null}

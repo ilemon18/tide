@@ -30,11 +30,10 @@ type PickerProps = {
   options: PickerOption[]
   onPick: (id: string) => void
   disabled?: boolean
-  tip?: string
 }
 
 /** One compact footer chip; the agent, model and complexity menus share it. */
-export function Picker({ label, value, options, onPick, disabled, tip }: PickerProps) {
+export function Picker({ label, value, options, onPick, disabled }: PickerProps) {
   const buttonRef = useRef<HTMLButtonElement>(null)
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   const current = options.find((option) => option.id === value)
@@ -50,7 +49,6 @@ export function Picker({ label, value, options, onPick, disabled, tip }: PickerP
         ref={buttonRef}
         type="button"
         disabled={disabled}
-        data-tip={tip}
         onClick={() => {
           const rect = buttonRef.current?.getBoundingClientRect()
           if (rect) setMenu({ x: rect.left, y: rect.bottom + 4 })
@@ -95,7 +93,6 @@ export function AgentPicker({
       options={usable.map((provider) => ({ id: provider.id, label: provider.name }))}
       onPick={onPick}
       disabled={disabled || usable.length === 0}
-      tip={t('agent.picker.agentTip')}
     />
   )
 }
@@ -141,7 +138,6 @@ export function ModelPicker({
           })
       }}
       disabled={disabled}
-      tip={t('agent.picker.modelTip')}
     />
   )
 }
@@ -177,7 +173,6 @@ export function EffortPicker({
       options={options}
       onPick={onPick}
       disabled={disabled}
-      tip={t('agent.picker.complexityTip')}
     />
   )
 }
