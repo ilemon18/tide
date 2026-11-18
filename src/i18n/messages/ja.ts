@@ -32,6 +32,10 @@ export const ja: Messages = {
   'titlebar.projectAria': 'プロジェクト {name}',
   'titlebar.welcomeTip': 'ようこそ',
   'titlebar.newWindowTip': '新しいウィンドウ (⇧⌘N)',
+  'titlebar.minimizeTip': '最小化',
+  'titlebar.maximizeTip': '最大化',
+  'titlebar.restoreTip': '元に戻す',
+  'titlebar.closeTip': '閉じる',
 
   'sidebar.explorer': 'エクスプローラー',
   'sidebar.search': '検索',
@@ -606,6 +610,7 @@ export const ja: Messages = {
   'error.search.invalidFilter': 'ファイルフィルターが不正です: {error}',
   'error.git.spawnFailed': 'git を実行できません: {error}（Git がインストールされているか確認してください）',
   'error.git.timeout': 'Git の操作がタイムアウトしました（180 秒）。ネットワークまたは認証情報を確認してください。',
+  'error.git.readTimeout': 'Git が 20 秒以内に応答しませんでした。リポジトリの状態を確認して再試行してください。',
   'error.git.emptyMessage': 'コミットメッセージを空にできません',
   'error.git.messagePipe': 'git にコミットメッセージを渡せません',
   'error.git.messageWriteFailed': 'コミットメッセージの書き込みに失敗しました: {error}',

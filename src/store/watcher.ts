@@ -20,6 +20,39 @@ const diskTimers = new Map<string, ReturnType<typeof setTimeout>>()
 /** Paths accumulated within the debounce window: null means recompute all diff tabs under that root */
 const diskPaths = new Map<string, string[] | null>()
 
+type BranchTransition = {
+  depth: number
+  graceTimer?: ReturnType<typeof setTimeout>
+}
+/** Explicit checkout/create refresh owns the watcher work until it finishes, plus one watcher debounce window. */
+const branchTransitions = new Map<string, BranchTransition>()
+const BRANCH_WATCH_GRACE_MS = 800
+
+export function beginBranchTransition(root: string): void {
+  const current = branchTransitions.get(root)
+  if (current) {
+    if (current.graceTimer) clearTimeout(current.graceTimer)
+    current.graceTimer = undefined
+    current.depth += 1
+    return
+  }
+  branchTransitions.set(root, { depth: 1 })
+}
+
+export function endBranchTransition(root: string): void {
+  const current = branchTransitions.get(root)
+  if (!current) return
+  current.depth = Math.max(0, current.depth - 1)
+  if (current.depth > 0 || current.graceTimer) return
+  // The backend batches fs events for 350ms. Keep the last checkout event from kicking off the same full
+  // status / tree / open-file refresh immediately after the explicit one has completed.
+  current.graceTimer = setTimeout(() => {
+    if (branchTransitions.get(root) === current && current.depth === 0) {
+      branchTransitions.delete(root)
+    }
+  }, BRANCH_WATCH_GRACE_MS)
+}
+
 /** After external changes reload open files on demand; debounced to avoid repeated reads during checkout. No paths means recompute everything under that root. */
 function scheduleRefreshFromDisk(root: string, paths?: string[] | null) {
   if (paths == null) {
@@ -56,6 +89,10 @@ export async function setupFsEvents() {
   try {
     await listen<FsChanged>('fs:changed', (event) => {
       const { root, git, worktree, paths } = event.payload
+      // checkout/create explicitly rebuild status, branches, tree and open files. Ignore the watcher's
+      // duplicate .git/tree batch while that work is active (and through its debounce tail).
+      if (git && branchTransitions.has(root)) return
+
       const workspace = useWorkspace.getState()
       const node = workspace.roots.find((r) => r.id === root)
       if (!node) return

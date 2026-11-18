@@ -693,7 +693,9 @@ export function DiffView({ tab }: Props) {
             A newly opened tab starts at line 1, an already open tab returns to where it left off. */}
         {goneInWorktree ? null : (
           <button
-            onClick={() => void useTabs.getState().openFile(tab.root, tab.rel)}
+            onClick={() =>
+              void useTabs.getState().openFile(tab.root, tab.rel, { temporary: false })
+            }
             data-tip={t('diff.openWorkingTip')}
             className="ml-auto flex h-5 shrink-0 items-center gap-1 rounded-[var(--r-control)] px-1.5 text-2xs text-muted transition-colors duration-fast hover:bg-hover hover:text-fg"
           >

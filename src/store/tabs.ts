@@ -90,6 +90,8 @@ export type Tab = {
   tier: DocTier
   /** Pinned tabs sort first, show icon only, and are skipped by bulk close */
   pinned: boolean
+  /** Preview tab: a later ordinary file open in the same pane replaces it until it is promoted */
+  temporary: boolean
   /** Per-file word wrap override (⌥Z); undefined follows the global setting */
   wordWrap?: boolean
   /** Ordinal of an untitled buffer: Untitled-1, Untitled-2 … used for the title and the save dialog default */
@@ -271,6 +273,8 @@ type TabsStore = {
       quiet?: boolean
       /** Keep the other diff of the same file: a staged / unstaged pair stays readable */
       keepDiffs?: boolean
+      /** Ordinary opens are preview tabs; explicit preserves (drag, save as, reopen) pass false */
+      temporary?: boolean
     },
   ) => Promise<void>
   /** Open (or switch to) a file in the given panel at an optional index; used by drag to panel / tab */
@@ -342,6 +346,8 @@ type TabsStore = {
   closeUnmodified: (options?: { force?: boolean }) => Promise<void>
   /** Reopen the most recently closed tab (⌘⇧T) */
   reopenClosed: () => Promise<void>
+  /** A preview tab becomes permanent after a deliberate action / the first document change */
+  promoteTab: (id: string) => void
   /** Go to a line in the current file (⌃G / `:42` in quick open; `col` is used by the structure view) */
   jumpToLine: (line: number, col?: number) => void
   /** Restore last session's files at startup (skips deleted / oversized files) */
@@ -602,6 +608,169 @@ function resolveGroupId(groupId: TabGroupId | undefined): TabGroupId {
   return activeGroupId
 }
 
+type OpenRequest = {
+  groupId: TabGroupId
+  tabId: string
+  sequence: number
+  token: number
+  epoch: number
+}
+
+/** Last ordinary-open request per pane: a slow read must not overwrite a newer tab. */
+const openRequestSequence = new Map<TabGroupId, number>()
+/** The newest request for a file id owns any cache created for that id while requests overlap. */
+const latestOpenTokenByTab = new Map<string, number>()
+/** Requests still reading a tab id: an older request must not release a newer request's cache. */
+const pendingOpenTokensByTab = new Map<string, Set<number>>()
+const pendingOpenRequests = new Set<number>()
+let openRequestToken = 0
+/** Bumped by reset so a request from the old workspace can never become current after sequences restart. */
+let openRequestEpoch = 0
+
+function beginOpenRequest(groupId: TabGroupId, tabId: string): OpenRequest {
+  const sequence = (openRequestSequence.get(groupId) ?? 0) + 1
+  const token = ++openRequestToken
+  openRequestSequence.set(groupId, sequence)
+  latestOpenTokenByTab.set(tabId, token)
+  const pendingForTab = pendingOpenTokensByTab.get(tabId) ?? new Set<number>()
+  pendingForTab.add(token)
+  pendingOpenTokensByTab.set(tabId, pendingForTab)
+  pendingOpenRequests.add(token)
+  return { groupId, tabId, sequence, token, epoch: openRequestEpoch }
+}
+
+function isCurrentOpenRequest(request: OpenRequest): boolean {
+  return (
+    request.epoch === openRequestEpoch &&
+    openRequestSequence.get(request.groupId) === request.sequence
+  )
+}
+
+function finishOpenRequest(request: OpenRequest) {
+  pendingOpenRequests.delete(request.token)
+  const pendingForTab = pendingOpenTokensByTab.get(request.tabId)
+  pendingForTab?.delete(request.token)
+  if (pendingForTab?.size === 0) pendingOpenTokensByTab.delete(request.tabId)
+  // A reset invalidates every in-flight sequence but leaves these per-tab sets intact. Once the final
+  // same-file request finishes, release any cache that never reached the tab registry and retire the map entry.
+  if (!pendingForTab || pendingForTab.size === 0) {
+    discardPreparedTab(request.tabId)
+    latestOpenTokenByTab.delete(request.tabId)
+  }
+  if (pendingOpenRequests.size === 0 && useTabs.getState().opening) {
+    useTabs.setState({ opening: false })
+  }
+}
+
+/**
+ * Release everything that belongs to a tab which never made it into the store. A newer request for the same
+ * file owns the cache while it is pending (or after it completed), so a stale request must leave it alone.
+ */
+function discardPreparedTab(id: string, requestToken?: number) {
+  if (requestToken !== undefined && latestOpenTokenByTab.get(id) !== requestToken) return
+  const pendingForTab = pendingOpenTokensByTab.get(id)
+  if (pendingForTab && [...pendingForTab].some((token) => token !== requestToken)) return
+  if (useTabs.getState().tabs.some((tab) => tab.id === id)) return
+  cancelAutoSave(id)
+  dropEditorState(id)
+  forgetScrollForTab(id)
+  dropScrollRatio(id)
+  useBlame.getState().invalidate(id)
+}
+
+/** At most one replaceable preview belongs to a pane; two candidates mean an old race, so keep both. */
+function temporaryTabInGroup(tabs: Tab[], groups: TabGroup[], groupId: TabGroupId): Tab | undefined {
+  const group = groups.find((g) => g.id === groupId)
+  if (!group) return undefined
+  const candidates = groupTabs(tabs, group).filter(
+    (tab) =>
+      tab.temporary &&
+      !tab.dirty &&
+      !tab.pinned &&
+      (tab.kind === 'file' || tab.kind === 'image'),
+  )
+  return candidates.length === 1 ? candidates[0] : undefined
+}
+
+/** Replace a preview in place, leaving both its pane position and active id on the new tab. */
+function replaceInGroup(
+  groups: TabGroup[],
+  groupId: TabGroupId,
+  oldId: string,
+  newId: string,
+): TabGroup[] {
+  return groups.map((group) => {
+    if (group.id !== groupId) return group
+    return {
+      ...group,
+      order: group.order.map((id) => (id === oldId ? newId : id)),
+      activeId: newId,
+    }
+  })
+}
+
+/**
+ * Commit a successfully read tab. Preview replacement removes only the pane's ownership while the old tab is
+ * still visible elsewhere; a fully replaced preview is discarded without entering the reopen stack.
+ */
+function commitOpenedTab(
+  tab: Tab,
+  groupId: TabGroupId,
+  index: number | undefined,
+  temporary: boolean,
+  requestToken: number,
+): boolean {
+  const state = useTabs.getState()
+  if (!state.groups.some((group) => group.id === groupId)) {
+    discardPreparedTab(tab.id, requestToken)
+    return false
+  }
+
+  const target = state.groups.find((group) => group.id === groupId)!
+  const existing = state.tabs.find((current) => current.id === tab.id)
+  const alreadyOwned = target.order.includes(tab.id)
+  // Opening an already-owned tab activates it; it must not consume another preview in the same pane.
+  const replaced =
+    temporary && !alreadyOwned
+      ? temporaryTabInGroup(state.tabs, state.groups, groupId)
+      : undefined
+  const groups = replaced
+    ? replaceInGroup(state.groups, groupId, replaced.id, tab.id)
+    : index === undefined
+      ? openInGroup(state.groups, groupId, tab.id)
+      : insertInGroup(state.groups, groupId, tab.id, index)
+  const replacedStillShown =
+    replaced !== undefined && groups.some((group) => group.order.includes(replaced.id))
+  // Keep one registry entry per file id. Two panes can finish reading the same file concurrently; the later
+  // commit must join the pane instead of appending a duplicate registry entry. Do not downgrade a permanent
+  // tab just because a later ordinary open requested a preview.
+  let tabs = existing
+    ? state.tabs.map((current) =>
+        current.id === tab.id
+          ? { ...current, temporary: temporary ? current.temporary : false }
+          : current,
+      )
+    : [...state.tabs, tab]
+  if (replaced && !replacedStillShown) {
+    tabs = tabs.filter((current) => current.id !== replaced.id)
+  }
+  const cursors = existing
+    ? { ...state.cursors }
+    : { ...state.cursors, [tab.id]: { line: 1, col: 1 } }
+  if (replaced && !replacedStillShown) delete cursors[replaced.id]
+
+  useTabs.setState({
+    tabs,
+    groups,
+    activeId: tab.id,
+    activeGroupId: groupId,
+    cursors,
+  })
+
+  if (replaced && !replacedStillShown) discardPreparedTab(replaced.id)
+  return true
+}
+
 export const useTabs = create<TabsStore>((set, get) => ({
   tabs: [],
   activeId: null,
@@ -618,38 +787,43 @@ export const useTabs = create<TabsStore>((set, get) => ({
 
   openFile: async (root, rel, options) => {
     const id = fileTabId(root, rel)
-    const existing = get().tabs.find((t) => t.id === id)
-    if (existing) {
-      // Already open in another pane: it must exist in the target pane too (VSCode-like synced panes)
-      const groupId = resolveGroupId(options?.groupId)
-      const groups =
-        options?.index === undefined
-          ? openInGroup(get().groups, groupId, id)
-          : insertInGroup(get().groups, groupId, id, options.index)
-      set({ activeId: id, activeGroupId: groupId, groups })
-      useWorkspace.getState().setActiveRoot(root)
-      revealInTree(existing)
-      // A conflicted file lands on its first conflict again when switched back, to keep working on it
-      const blocks = getEditorState(id)?.field(conflictField, false)
-      if (blocks && blocks.length > 0) {
-        set({
-          reveal: { tabId: id, line: blocks[0].startLine, col: 1, nonce: Date.now() },
-        })
-      }
-      // 打开文件就关掉同一文件的差异标签页：差异只是预览，编辑时不再并排留着
-      if (!options?.keepDiffs) await closeDiffsFor(root, rel)
-      return
-    }
-
     const groupId = resolveGroupId(options?.groupId)
+    const request = beginOpenRequest(groupId, id)
     set({ opening: true })
     try {
+      const existing = get().tabs.find((t) => t.id === id)
+      if (existing) {
+        // A drop / save-as / reopen is an explicit preserve: promote an already-open preview rather than
+        // silently keeping it temporary just because the fast path did not need to read the file again.
+        if (options?.temporary === false && existing.temporary) get().promoteTab(id)
+        // Already open in another pane: it must exist in the target pane too (VSCode-like synced panes)
+        const groups =
+          options?.index === undefined
+            ? openInGroup(get().groups, groupId, id)
+            : insertInGroup(get().groups, groupId, id, options.index)
+        set({ activeId: id, activeGroupId: groupId, groups })
+        useWorkspace.getState().setActiveRoot(root)
+        revealInTree(existing)
+        // A conflicted file lands on its first conflict again when switched back, to keep working on it
+        const blocks = getEditorState(id)?.field(conflictField, false)
+        if (blocks && blocks.length > 0) {
+          set({
+            reveal: { tabId: id, line: blocks[0].startLine, col: 1, nonce: Date.now() },
+          })
+        }
+        // 打开文件就关掉同一文件的差异标签页：差异只是预览，编辑时不再并排留着
+        if (!options?.keepDiffs) await closeDiffsFor(root, rel)
+        return
+      }
+
+      const temporary = options?.temporary ?? true
       // A new tab starts at line 1: any remembered scroll position for this id is void
       forgetScrollForTab(id)
 
       // Images go to preview: never read as text (binary detection would reject them), no EditorState either
       if (isImagePath(rel)) {
         const stat = await api.statFile(root, rel)
+        if (!isCurrentOpenRequest(request)) return
         const tab: Tab = {
           id,
           root,
@@ -660,20 +834,11 @@ export const useTabs = create<TabsStore>((set, get) => ({
           readOnly: true,
           tier: 'preview',
           pinned: false,
+          temporary,
           size: stat.size,
           mtime: stat.mtime,
         }
-        set({
-          tabs: [...get().tabs.filter((t) => t.id !== id), tab],
-          activeId: id,
-          activeGroupId: groupId,
-          groups:
-            options?.index === undefined
-              ? openInGroup(get().groups, groupId, id)
-              : insertInGroup(get().groups, groupId, id, options.index),
-          opening: false,
-          cursors: { ...get().cursors, [id]: { line: 1, col: 1 } },
-        })
+        if (!commitOpenedTab(tab, groupId, options?.index, temporary, request.token)) return
         useWorkspace.getState().setActiveRoot(root)
         revealInTree(tab)
         if (!options?.keepDiffs) await closeDiffsFor(root, rel)
@@ -681,9 +846,9 @@ export const useTabs = create<TabsStore>((set, get) => ({
       }
 
       const payload = await api.readFile(root, rel)
+      if (!isCurrentOpenRequest(request)) return
       if (payload.binary) {
         if (!options?.quiet) useUi.getState().toast(t('toast.binaryFile'), 'error')
-        set({ opening: false })
         return
       }
       const tier = tierFor(payload.size)
@@ -704,6 +869,10 @@ export const useTabs = create<TabsStore>((set, get) => ({
         wordWrap: settings.wordWrap,
         inlineBlame: settings.inlineBlame,
       })
+      if (!isCurrentOpenRequest(request)) {
+        discardPreparedTab(id, request.token)
+        return
+      }
       const tab: Tab = {
         id,
         root,
@@ -714,30 +883,21 @@ export const useTabs = create<TabsStore>((set, get) => ({
         readOnly,
         tier,
         pinned: false,
+        temporary,
         size: payload.size,
         mtime: payload.mtime,
         eol: meta.eol,
         indentSize: meta.indentSize,
         useTabs: meta.useTabs,
       }
-      set({
-        tabs: [...get().tabs.filter((t) => t.id !== id), tab],
-        activeId: id,
-        activeGroupId: groupId,
-        groups:
-          options?.index === undefined
-            ? openInGroup(get().groups, groupId, id)
-            : insertInGroup(get().groups, groupId, id, options.index),
-        opening: false,
-        cursors: { ...get().cursors, [id]: { line: 1, col: 1 } },
-      })
+      if (!commitOpenedTab(tab, groupId, options?.index, temporary, request.token)) return
       useWorkspace.getState().setActiveRoot(root)
       revealInTree(tab)
       useBlame.getState().scheduleFetch(tab)
       // 打开文件就关掉同一文件的差异标签页：差异只是预览，编辑时不再并排留着
       if (!options?.keepDiffs) await closeDiffsFor(root, rel)
       // Unmerged file: land on the first conflict after opening, the gutter marks the rest
-      if (conflicted) {
+      if (conflicted && isCurrentOpenRequest(request) && get().activeId === id) {
         const blocks = state.field(conflictField, false)
         if (blocks && blocks.length > 0) {
           set({
@@ -746,13 +906,17 @@ export const useTabs = create<TabsStore>((set, get) => ({
         }
       }
     } catch (e) {
-      set({ opening: false })
-      if (!options?.quiet) useUi.getState().toast(errorText(e), 'error')
+      if (!get().tabs.some((tab) => tab.id === id)) discardPreparedTab(id, request.token)
+      if (!options?.quiet && isCurrentOpenRequest(request)) {
+        useUi.getState().toast(errorText(e), 'error')
+      }
+    } finally {
+      finishOpenRequest(request)
     }
   },
 
   openFileInGroup: async (root, rel, groupId, index) => {
-    await get().openFile(root, rel, { groupId, index })
+    await get().openFile(root, rel, { groupId, index, temporary: false })
     // Opening may be async (read + build EditorState) and the active pane can change meanwhile;
     // a drop means "open in the pane it landed in", so pin the target pane once more here.
     const state = get()
@@ -792,6 +956,7 @@ export const useTabs = create<TabsStore>((set, get) => ({
       readOnly: true,
       tier: 'full',
       pinned: false,
+      temporary: false,
       mtime: 0,
     }
     set({
@@ -819,6 +984,7 @@ export const useTabs = create<TabsStore>((set, get) => ({
       readOnly: true,
       tier: 'full',
       pinned: false,
+      temporary: false,
       mtime: 0,
     }
     set({
@@ -847,6 +1013,7 @@ export const useTabs = create<TabsStore>((set, get) => ({
       readOnly: true,
       tier: 'full',
       pinned: false,
+      temporary: false,
       mtime: 0,
     }
     set({
@@ -883,6 +1050,7 @@ export const useTabs = create<TabsStore>((set, get) => ({
       readOnly: false,
       tier: 'full',
       pinned: false,
+      temporary: false,
       seq,
       size: text.length,
       mtime: 0,
@@ -939,7 +1107,7 @@ export const useTabs = create<TabsStore>((set, get) => ({
     await get().close(id, true)
     await useWorkspace.getState().refreshDir(root.id, dirname(rel)).catch(() => {})
     useFileIndex.getState().invalidate(root.id)
-    await get().openFile(root.id, rel)
+    await get().openFile(root.id, rel, { temporary: false })
     useUi.getState().toast(t('toast.savedAs', { name: rel }), 'success')
     return true
   },
@@ -1018,6 +1186,7 @@ export const useTabs = create<TabsStore>((set, get) => ({
       readOnly: true,
       tier: 'preview',
       pinned: false,
+      temporary: false,
       staged,
       mtime: 0,
     }
@@ -1046,6 +1215,7 @@ export const useTabs = create<TabsStore>((set, get) => ({
       keepDiffs: true,
       groupId: owner?.id,
       index,
+      temporary: false,
     })
     if (!get().tabs.some((t) => t.id === fileId)) dropScrollRatio(fileId)
     // No file view to replace it with (deleted / folder / too large): the tab has nothing left to show
@@ -1159,6 +1329,7 @@ export const useTabs = create<TabsStore>((set, get) => ({
     // There is a focused-pane concept: split / move acts on the pane the user is looking at
     const activeId =
       state.groups.find((g) => g.id === state.activeGroupId)?.activeId ?? primary.activeId
+    if (activeId) get().promoteTab(activeId)
 
     if (state.groups.length > 1) {
       // Already split: just change orientation; "split and move" moves the current tab to the other pane (max two)
@@ -1235,6 +1406,7 @@ export const useTabs = create<TabsStore>((set, get) => ({
     const dest = state.groups.find((g) => g.id === target)
     if (!source || !dest) return
     if (dest.order.includes(id) && !source.order.includes(id)) return
+    get().promoteTab(id)
 
     const sourceOrder = source.order.filter((x) => x !== id)
     const destOrder = dest.order.filter((x) => x !== id)
@@ -1424,7 +1596,7 @@ export const useTabs = create<TabsStore>((set, get) => ({
       useUi.getState().toast(t('toast.fileGone', { name: tab.rel }), 'error')
       return
     }
-    await get().openFile(tab.root, tab.rel, { groupId: last.groupId })
+    await get().openFile(tab.root, tab.rel, { groupId: last.groupId, temporary: false })
     const reopened = get().tabs.find((t) => t.root === tab.root && t.rel === tab.rel)
     if (reopened && last.cursor) {
       // Restore the caret from before close (EditorHost clamps it if the file got shorter)
@@ -1438,6 +1610,14 @@ export const useTabs = create<TabsStore>((set, get) => ({
         },
       })
     }
+  },
+
+  promoteTab: (id) => {
+    const tab = get().tabs.find((t) => t.id === id)
+    if (!tab?.temporary) return
+    set({
+      tabs: get().tabs.map((t) => (t.id === id ? { ...t, temporary: false } : t)),
+    })
   },
 
   jumpToLine: (line, col = 1) => {
@@ -1505,6 +1685,7 @@ export const useTabs = create<TabsStore>((set, get) => ({
               readOnly: true,
               tier: 'preview',
               pinned: false,
+              temporary: false,
               size: stat.size,
               mtime: stat.mtime,
             }
@@ -1522,6 +1703,7 @@ export const useTabs = create<TabsStore>((set, get) => ({
             readOnly: tier === 'preview',
             tier,
             pinned: false,
+            temporary: false,
             size: stat.size,
             mtime: stat.mtime,
             // eol / indent are unknown until the file is read: buildFromDisk fills them in on first open, and
@@ -1588,8 +1770,14 @@ export const useTabs = create<TabsStore>((set, get) => ({
   pinTab: (id, pinned) => {
     const state = get()
     const tab = state.tabs.find((t) => t.id === id)
-    if (!tab || tab.pinned === pinned) return
-    const tabs = state.tabs.map((t) => (t.id === id ? { ...t, pinned } : t))
+    if (!tab) return
+    if (tab.pinned === pinned) {
+      if (pinned && tab.temporary) get().promoteTab(id)
+      return
+    }
+    const tabs = state.tabs.map((t) =>
+      t.id === id ? { ...t, pinned, temporary: false } : t,
+    )
     const byId = new Map(tabs.map((t) => [t.id, t]))
     // Pinned tabs come first in the group, keeping their relative order
     const groups = state.groups.map((g) => {
@@ -1801,7 +1989,13 @@ export const useTabs = create<TabsStore>((set, get) => ({
     const tab = get().tabs.find((t) => t.id === id)
     if (!tab) return
     if (!tab.dirty) {
-      set({ tabs: get().tabs.map((t) => (t.id === id ? { ...t, dirty: true } : t)) })
+      set({
+        tabs: get().tabs.map((t) =>
+          t.id === id ? { ...t, dirty: true, temporary: false } : t,
+        ),
+      })
+    } else if (tab.temporary) {
+      get().promoteTab(id)
     }
     // Untitled buffers are not auto-saved (no path): mirror them into localStorage instead, so quitting,
     // crashing or a cache eviction does not lose the text
@@ -1974,6 +2168,11 @@ export const useTabs = create<TabsStore>((set, get) => ({
     for (const tab of get().tabs) forgetScrollForTab(tab.id)
     clearEditorStates()
     useBlame.getState().clear()
+    // Pending reads belong to the old workspace: invalidate their pane sequences, but keep the per-tab request
+    // tracking so the final stale request can release any EditorState it builds after clearEditorStates().
+    openRequestEpoch += 1
+    openRequestSequence.clear()
+    pendingOpenRequests.clear()
     set({
       tabs: [],
       activeId: null,
@@ -1982,6 +2181,7 @@ export const useTabs = create<TabsStore>((set, get) => ({
       splitOrientation: null,
       cursors: {},
       reveal: null,
+      opening: false,
       stateEpoch: 0,
       diffEpoch: {},
       closedTabs: [],

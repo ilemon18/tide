@@ -1,4 +1,5 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { getCurrentWindow } from '@tauri-apps/api/window'
 import { activeRoot, IS_PRIMARY_WINDOW, useWorkspace } from '../store/workspace'
 import { useTabs } from '../store/tabs'
 import { useSettings } from '../store/settings'
@@ -6,7 +7,95 @@ import { useAgent } from '../store/agent'
 import { Icon } from './Icon'
 import { UpdateBadge } from './UpdateBadge'
 import { newWindow, revealInExplorer } from '../lib/actions'
+import { isMac } from '../lib/paths'
 import { useT } from '../i18n'
+
+function hasTauriWindow(): boolean {
+  return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
+}
+
+/** Windows / Linux custom caption buttons: the native decorations are disabled in Rust. */
+function WindowControls() {
+  const t = useT()
+  const [maximized, setMaximized] = useState(false)
+
+  useEffect(() => {
+    let disposed = false
+    let unlisten: (() => void) | undefined
+    try {
+      const win = getCurrentWindow()
+      const sync = () => {
+        void win
+          .isMaximized()
+          .then((value) => {
+            if (!disposed) setMaximized(value)
+          })
+          .catch(() => {})
+      }
+      sync()
+      void win
+        .onResized(sync)
+        .then((stop) => {
+          if (disposed) stop()
+          else unlisten = stop
+        })
+        .catch(() => {})
+    } catch {
+      /* Plain browser preview: there is no native window to control */
+    }
+    return () => {
+      disposed = true
+      unlisten?.()
+    }
+  }, [])
+
+  const control = (action: 'minimize' | 'toggle-maximize' | 'close') => {
+    try {
+      const win = getCurrentWindow()
+      const request =
+        action === 'minimize'
+          ? win.minimize()
+          : action === 'toggle-maximize'
+            ? win.toggleMaximize()
+            : win.close()
+      void request.catch(() => {})
+    } catch {
+      /* Plain browser preview */
+    }
+  }
+
+  return (
+    <div className="app-region-no-drag ml-1 flex h-full shrink-0 items-stretch">
+      <button
+        type="button"
+        data-tip={t('titlebar.minimizeTip')}
+        aria-label={t('titlebar.minimizeTip')}
+        onClick={() => control('minimize')}
+        className="flex w-[44px] items-center justify-center text-muted transition-colors duration-fast hover:bg-hover hover:text-fg"
+      >
+        <Icon name="window-minimize" size={12} strokeWidth={1.2} />
+      </button>
+      <button
+        type="button"
+        data-tip={maximized ? t('titlebar.restoreTip') : t('titlebar.maximizeTip')}
+        aria-label={maximized ? t('titlebar.restoreTip') : t('titlebar.maximizeTip')}
+        onClick={() => control('toggle-maximize')}
+        className="flex w-[44px] items-center justify-center text-muted transition-colors duration-fast hover:bg-hover hover:text-fg"
+      >
+        <Icon name={maximized ? 'window-restore' : 'window-maximize'} size={12} strokeWidth={1.2} />
+      </button>
+      <button
+        type="button"
+        data-tip={t('titlebar.closeTip')}
+        aria-label={t('titlebar.closeTip')}
+        onClick={() => control('close')}
+        className="flex w-[44px] items-center justify-center text-muted transition-colors duration-fast hover:bg-danger/15 hover:text-danger"
+      >
+        <Icon name="close" size={13} strokeWidth={1.2} />
+      </button>
+    </div>
+  )
+}
 
 /**
  * Project badge: first two letters/digits of the name (for CJK, the first two chars),
@@ -41,9 +130,10 @@ function ProjectBadge({ name, root }: { name: string; root: string }) {
   )
 }
 
-/** Custom title bar: room for the traffic lights on the left, clickable breadcrumbs in the middle, actions on the right */
+/** Custom title bar: traffic-light inset on macOS, caption buttons on Windows/Linux */
 export function TitleBar() {
   const t = useT()
+  const mac = isMac()
   const roots = useWorkspace((s) => s.roots)
   const activeId = useTabs((s) => s.activeId)
   const tabs = useTabs((s) => s.tabs)
@@ -75,7 +165,9 @@ export function TitleBar() {
   return (
     <div
       data-tauri-drag-region
-      className="flex h-[35px] shrink-0 select-none items-center gap-2 border-b border-line bg-panel pl-[92px] pr-2"
+      className={`flex h-[35px] shrink-0 select-none items-center gap-2 border-b border-line bg-panel ${
+        mac ? 'pl-[92px] pr-2' : 'pl-2 pr-0'
+      }`}
     >
       <div data-tauri-drag-region className="flex min-w-0 flex-1 items-center gap-1.5">
         {root ? (
@@ -106,7 +198,7 @@ export function TitleBar() {
         })}
       </div>
 
-      <div className="app-region-no-drag flex shrink-0 items-center gap-1">
+      <div className={`app-region-no-drag flex shrink-0 items-center gap-1 ${mac ? '' : 'pr-1'}`}>
         <UpdateBadge primary={IS_PRIMARY_WINDOW} />
         {agentEnabled ? (
           <button
@@ -136,6 +228,7 @@ export function TitleBar() {
           <Icon name="window" size={15} />
         </button>
       </div>
+      {!mac && hasTauriWindow() ? <WindowControls /> : null}
     </div>
   )
 }

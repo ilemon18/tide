@@ -1,4 +1,4 @@
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
@@ -11,8 +11,10 @@ use crate::paths;
 use crate::proc;
 use crate::state::AppState;
 
-/// Timeout for network operations (pull / push)
+/// Timeout for network operations (pull / push / fetch)
 const NET_TIMEOUT: Duration = Duration::from_secs(180);
+/// Read-only probes must never leave the status bar or branch menu spinning forever on Windows.
+const READ_TIMEOUT: Duration = Duration::from_secs(20);
 
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -115,8 +117,14 @@ fn run_text(root: &str, args: &[&str]) -> AppResult<(bool, String)> {
     Ok((ok, text))
 }
 
-/// Variant with a timeout, for pull / push which may block on the network
-fn run_with_timeout(root: &str, args: &[&str], timeout: Duration) -> AppResult<(bool, String)> {
+/// Timed command runner that drains both pipes while waiting. Reading only after exit would deadlock once a
+/// large `git status` / branch listing fills the OS pipe buffer before the timeout can fire.
+fn run_bytes_with_deadline(
+    root: &str,
+    args: &[&str],
+    timeout: Duration,
+    timeout_code: &'static str,
+) -> AppResult<(bool, Vec<u8>, String)> {
     let mut child = git_cmd(root)
         .args(args)
         .stdout(Stdio::piped())
@@ -124,33 +132,85 @@ fn run_with_timeout(root: &str, args: &[&str], timeout: Duration) -> AppResult<(
         .spawn()
         .map_err(spawn_error)?;
 
+    let mut stdout_pipe = child
+        .stdout
+        .take()
+        .ok_or_else(|| AppError::new("Git stdout pipe is unavailable"))?;
+    let mut stderr_pipe = child
+        .stderr
+        .take()
+        .ok_or_else(|| AppError::new("Git stderr pipe is unavailable"))?;
+    let stdout_reader = std::thread::spawn(move || {
+        let mut bytes = Vec::new();
+        stdout_pipe.read_to_end(&mut bytes).map(|_| bytes)
+    });
+    let stderr_reader = std::thread::spawn(move || {
+        let mut bytes = Vec::new();
+        stderr_pipe.read_to_end(&mut bytes).map(|_| bytes)
+    });
+
     let deadline = Instant::now() + timeout;
-    loop {
-        match child.try_wait().map_err(AppError::from)? {
-            Some(_) => break,
-            None => {
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) => {
                 if Instant::now() > deadline {
                     let _ = child.kill();
                     let _ = child.wait();
-                    return Err(AppError::c("git.timeout"));
+                    return Err(AppError::c(timeout_code));
                 }
                 std::thread::sleep(Duration::from_millis(60));
             }
-        }
-    }
-
-    let out = child.wait_with_output().map_err(AppError::from)?;
-    let mut text = String::from_utf8_lossy(&out.stdout).to_string();
-    if !out.status.success() {
-        let err = String::from_utf8_lossy(&out.stderr);
-        if !err.is_empty() {
-            if !text.is_empty() {
-                text.push('\n');
+            Err(error) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(AppError::from(error));
             }
-            text.push_str(&err);
         }
+    };
+
+    let stdout = stdout_reader
+        .join()
+        .map_err(|_| AppError::new("Git stdout reader failed"))??;
+    let stderr = stderr_reader
+        .join()
+        .map_err(|_| AppError::new("Git stderr reader failed"))??;
+    Ok((
+        status.success(),
+        stdout,
+        String::from_utf8_lossy(&stderr).to_string(),
+    ))
+}
+
+/// Read-only git commands share a short deadline so a stuck repo never pins the UI in loading.
+fn run_bytes_with_timeout(root: &str, args: &[&str]) -> AppResult<(bool, Vec<u8>, String)> {
+    run_bytes_with_deadline(root, args, READ_TIMEOUT, "git.readTimeout")
+}
+
+fn run_text_with_timeout(root: &str, args: &[&str]) -> AppResult<(bool, String)> {
+    let (ok, stdout, stderr) = run_bytes_with_timeout(root, args)?;
+    let mut text = String::from_utf8_lossy(&stdout).to_string();
+    if !ok {
+        if !text.is_empty() {
+            text.push('\n');
+        }
+        text.push_str(&stderr);
     }
-    Ok((out.status.success(), text))
+    Ok((ok, text))
+}
+
+/// Variant with a timeout, for pull / push which may block on the network
+fn run_with_timeout(root: &str, args: &[&str], timeout: Duration) -> AppResult<(bool, String)> {
+    let (ok, stdout, stderr) =
+        run_bytes_with_deadline(root, args, timeout, "git.timeout")?;
+    let mut text = String::from_utf8_lossy(&stdout).to_string();
+    if !ok && !stderr.is_empty() {
+        if !text.is_empty() {
+            text.push('\n');
+        }
+        text.push_str(&stderr);
+    }
+    Ok((ok, text))
 }
 
 /// Repo top-level directory + the real git dir: for worktree / submodule the gitdir is not under
@@ -161,19 +221,22 @@ struct RepoPaths {
     gitdir: std::path::PathBuf,
 }
 
-fn repo_paths(root: &str) -> Option<RepoPaths> {
-    let (ok, stdout, _) = run_bytes(root, &["rev-parse", "--show-toplevel", "--absolute-git-dir"]).ok()?;
+fn repo_paths(root: &str) -> AppResult<Option<RepoPaths>> {
+    let (ok, stdout, _) =
+        run_bytes_with_timeout(root, &["rev-parse", "--show-toplevel", "--absolute-git-dir"])?;
     if !ok {
-        return None;
+        return Ok(None);
     }
     let text = String::from_utf8_lossy(&stdout);
     let mut lines = text.lines().map(str::trim).filter(|l| !l.is_empty());
-    let toplevel = lines.next()?.to_string();
+    let Some(toplevel) = lines.next().map(str::to_string) else {
+        return Ok(None);
+    };
     let gitdir = lines
         .next()
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| Path::new(&toplevel).join(".git"));
-    Some(RepoPaths { toplevel, gitdir })
+    Ok(Some(RepoPaths { toplevel, gitdir }))
 }
 
 
@@ -317,7 +380,7 @@ pub fn git_status(state: State<'_, AppState>, root: String) -> AppResult<GitStat
 fn read_status(root_path: &Path) -> AppResult<GitStatus> {
     let root_str = root_path.to_string_lossy().to_string();
 
-    let Some(paths) = repo_paths(&root_str) else {
+    let Some(paths) = repo_paths(&root_str)? else {
         return Ok(GitStatus::empty(false, None));
     };
     let toplevel = paths.toplevel.clone();
@@ -335,7 +398,7 @@ fn read_status(root_path: &Path) -> AppResult<GitStatus> {
         _ => String::new(),
     };
 
-    let (ok, stdout, stderr) = run_bytes(
+    let (ok, stdout, stderr) = run_bytes_with_timeout(
         &root_str,
         &[
             "status",
@@ -969,7 +1032,7 @@ pub fn git_undo_commit(state: State<'_, AppState>, root: String) -> AppResult<St
     let root_str = root_path.to_string_lossy().to_string();
 
     // No history rewriting while merge / rebase etc. is running; let the user finish it first
-    match repo_paths(&root_str) {
+    match repo_paths(&root_str)? {
         Some(paths) => {
             if let Some(op) = detect_operation(&paths.gitdir) {
                 // One code per operation so each language can phrase it naturally
@@ -1395,13 +1458,13 @@ pub fn git_branches(state: State<'_, AppState>, root: String) -> AppResult<GitBr
     let root_str = root_path.to_string_lossy().to_string();
 
     // rev-parse returns the literal HEAD when detached
-    let current = match run_text(&root_str, &["rev-parse", "--abbrev-ref", "HEAD"]) {
-        Ok((true, text)) => text.trim().to_string(),
+    let current = match run_text_with_timeout(&root_str, &["rev-parse", "--abbrev-ref", "HEAD"])? {
+        (true, text) => text.trim().to_string(),
         _ => String::new(),
     };
     let detached = current.is_empty() || current == "HEAD";
 
-    let (ok, stdout, stderr) = run_bytes(
+    let (ok, stdout, stderr) = run_bytes_with_timeout(
         &root_str,
         &[
             "for-each-ref",
@@ -1483,12 +1546,10 @@ pub fn git_checkout(
     if kind == "remote" {
         // origin/feature -> feature: switch to a local branch of the same name, else create a tracking one
         let local = name.split_once('/').map(|(_, rest)| rest).unwrap_or(name);
-        let exists = run_text(
+        let (exists, _) = run_text_with_timeout(
             &root_str,
             &["rev-parse", "--verify", &format!("refs/heads/{local}")],
-        )
-        .map(|(ok, _)| ok)
-        .unwrap_or(false);
+        )?;
         let (ok, text) = if exists {
             run_text(&root_str, &["checkout", local])?
         } else {
@@ -1527,7 +1588,8 @@ pub fn git_branch_create(
     }
 
     // Validate the name first so failures show git's own hint, clearer than checkout's error
-    let (valid, text) = run_text(&root_str, &["check-ref-format", "--branch", name])?;
+    let (valid, text) =
+        run_text_with_timeout(&root_str, &["check-ref-format", "--branch", name])?;
     if !valid {
         return Err(AppError::new(text.trim().to_string()));
     }
@@ -1562,7 +1624,7 @@ pub fn git_continue(
 ) -> AppResult<String> {
     let root_path = state.authorize(&root)?;
     let root_str = root_path.to_string_lossy().to_string();
-    let paths = repo_paths(&root_str).ok_or_else(|| AppError::c("git.notRepo"))?;
+    let paths = repo_paths(&root_str)?.ok_or_else(|| AppError::c("git.notRepo"))?;
     let op = detect_operation(&paths.gitdir).ok_or_else(|| AppError::c("git.noOperation"))?;
 
     if let Some(text) = message.filter(|m| !m.trim().is_empty()) {
@@ -1595,7 +1657,7 @@ pub fn git_continue(
 pub fn git_abort(state: State<'_, AppState>, root: String) -> AppResult<String> {
     let root_path = state.authorize(&root)?;
     let root_str = root_path.to_string_lossy().to_string();
-    let paths = repo_paths(&root_str).ok_or_else(|| AppError::c("git.notRepo"))?;
+    let paths = repo_paths(&root_str)?.ok_or_else(|| AppError::c("git.notRepo"))?;
     let op = detect_operation(&paths.gitdir).ok_or_else(|| AppError::c("git.noOperation"))?;
     let args = vec![op.kind.as_str(), "--abort"];
     let (ok, text) = run_with_timeout(&root_str, &args, Duration::from_secs(120))?;
@@ -1609,7 +1671,7 @@ pub fn git_abort(state: State<'_, AppState>, root: String) -> AppResult<String> 
 pub fn git_skip(state: State<'_, AppState>, root: String) -> AppResult<String> {
     let root_path = state.authorize(&root)?;
     let root_str = root_path.to_string_lossy().to_string();
-    let paths = repo_paths(&root_str).ok_or_else(|| AppError::c("git.notRepo"))?;
+    let paths = repo_paths(&root_str)?.ok_or_else(|| AppError::c("git.notRepo"))?;
     let op = detect_operation(&paths.gitdir).ok_or_else(|| AppError::c("git.noOperation"))?;
     if !op.can_skip {
         return Err(AppError::c("git.mergeCannotSkip"));

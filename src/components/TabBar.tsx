@@ -37,6 +37,7 @@ export function TabBar({ groupId }: { groupId: TabGroupId }) {
   const activate = useTabs((s) => s.activate)
   const closeIn = useTabs((s) => s.closeIn)
   const moveTabToGroup = useTabs((s) => s.moveTabToGroup)
+  const promoteTab = useTabs((s) => s.promoteTab)
   const closeOthers = useTabs((s) => s.closeOthers)
   const closeLeft = useTabs((s) => s.closeLeft)
   const closeRight = useTabs((s) => s.closeRight)
@@ -214,6 +215,7 @@ export function TabBar({ groupId }: { groupId: TabGroupId }) {
         )
           return
         current.active = true
+        promoteTab(current.id)
         unlockSelection = lockTextSelection()
       }
       const trackLeftNow = trackEl.getBoundingClientRect().left
@@ -328,15 +330,16 @@ export function TabBar({ groupId }: { groupId: TabGroupId }) {
                     setMenu({ x: e.clientX, y: e.clientY, tabId: tab.id })
                   }}
                   onDoubleClick={(e) => {
-                    // Double-clicking the close button is a double-close misclick, not a close-others request
+                    // Double-clicking the close button is a double-close misclick, not a tab promotion
                     if ((e.target as HTMLElement).closest('button')) return
-                    void closeOthers(tab.id)
+                    promoteTab(tab.id)
                   }}
                   title={tabTooltip(tab)}
                   data-active={active}
                   data-dragging={dragging}
                   data-away={away}
                   data-pinned={tab.pinned}
+                  data-temporary={tab.temporary}
                   className={`tab-pill group absolute left-0 top-[3px] flex h-[28px] cursor-default items-center gap-1.5 overflow-hidden pl-2.5 pr-1.5 text-sm ${
                     active ? 'text-fg' : 'text-muted hover:bg-hover hover:text-fg/90'
                   } ${dragging ? 'cursor-grabbing' : ''}`}
@@ -363,7 +366,7 @@ export function TabBar({ groupId }: { groupId: TabGroupId }) {
                   )}
                   {/* Pinned tabs show the file name like normal ones; only the right slot becomes a pin
                      (no close button to avoid accidental closes; unpin via the context menu). Same look as VSCode. */}
-                  <span className="min-w-0 truncate">
+                  <span className={`min-w-0 truncate ${tab.temporary ? 'italic' : ''}`}>
                     {tabTitle(tab)}
                   </span>
                   {tab.dirty ? (

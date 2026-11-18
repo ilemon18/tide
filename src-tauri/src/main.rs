@@ -82,7 +82,7 @@ fn create_window(
         .traffic_light_position(tauri::LogicalPosition::new(16.0, 18.0));
 
     // Windows / Linux: `titleBarStyle` is macOS-only, and the native title bar would stack on top
-    // of the frontend one. Drop native decorations; TitleBar draws the drag area and buttons.
+    // of the frontend one. Drop native decorations; TitleBar draws the drag area and caption buttons.
     #[cfg(not(target_os = "macos"))]
     let builder = builder.decorations(false);
 

@@ -8,6 +8,8 @@ import { useTerminal } from '../store/terminal'
 import { useBlame } from '../store/blame'
 import { useUi } from '../store/ui'
 import { useSettings } from '../store/settings'
+import { useFileIndex } from '../store/fileIndex'
+import { beginBranchTransition, endBranchTransition } from '../store/watcher'
 import type { SettingsSectionId } from './settingsSections'
 import { t } from '../i18n'
 
@@ -121,7 +123,24 @@ export async function newWindow(path?: string): Promise<void> {
   }
 }
 
-/** Checkout a branch: block on unsaved files, then refresh the explorer and open files */
+/**
+ * A successful checkout already switched the worktree. Kick off the expensive explorer / status / open-file
+ * refresh in the background so the status bar leaves "Switching…" immediately; the watcher stays suppressed
+ * until these explicit reads finish, otherwise the same branch change scans everything twice.
+ */
+async function refreshAfterBranchChange(root: string): Promise<void> {
+  const git = useGit.getState()
+  git.invalidateBranches(root)
+  useFileIndex.getState().invalidate(root)
+  await Promise.allSettled([
+    git.refresh(root, true),
+    git.loadBranches(root, true),
+    useWorkspace.getState().refreshTree(root, { quiet: true }),
+    useTabs.getState().refreshFromDisk(root),
+  ])
+}
+
+/** Checkout a branch: block on unsaved files, then let the worktree refresh run in the background */
 export async function checkoutBranch(
   root: string,
   branch: string,
@@ -134,24 +153,25 @@ export async function checkoutBranch(
   }
   const git = useGit.getState()
   git.setBusy('checkout')
+  beginBranchTransition(root)
+  let refreshStarted = false
   try {
     await api.gitCheckout(root, branch, kind)
     useBlame.getState().clear()
-    // These four are independent; run them in parallel so the user is not left waiting
-    await Promise.all([
-      git.refresh(root, true),
-      git.loadBranches(root, true),
-      useWorkspace.getState().refreshTree(root, { quiet: true }),
-      useTabs.getState().refreshFromDisk(root),
-    ])
+    refreshStarted = true
+    // The checkout is complete; let the command stop blocking the status bar while the caches catch up.
+    void refreshAfterBranchChange(root)
+      .catch(() => {})
+      .finally(() => endBranchTransition(root))
   } catch (e) {
     useUi.getState().toast(errorText(e), 'error')
   } finally {
+    if (!refreshStarted) endBranchTransition(root)
     git.setBusy(null)
   }
 }
 
-/** Create a branch and switch to it: same checks and refresh as checkout. false keeps the dialog open so the name can be retried. */
+/** Create a branch and switch to it: same checks and background refresh. false keeps the dialog open so the name can be retried. */
 export async function createBranch(root: string, name: string): Promise<boolean> {
   const dirty = useTabs.getState().tabs.some((t) => t.root === root && t.dirty)
   if (dirty) {
@@ -160,20 +180,21 @@ export async function createBranch(root: string, name: string): Promise<boolean>
   }
   const git = useGit.getState()
   git.setBusy('checkout')
+  beginBranchTransition(root)
+  let refreshStarted = false
   try {
     await api.gitBranchCreate(root, name)
     useBlame.getState().clear()
-    await Promise.all([
-      git.refresh(root, true),
-      git.loadBranches(root, true),
-      useWorkspace.getState().refreshTree(root, { quiet: true }),
-      useTabs.getState().refreshFromDisk(root),
-    ])
+    refreshStarted = true
+    void refreshAfterBranchChange(root)
+      .catch(() => {})
+      .finally(() => endBranchTransition(root))
     return true
   } catch (e) {
     useUi.getState().toast(errorText(e), 'error')
     return false
   } finally {
+    if (!refreshStarted) endBranchTransition(root)
     git.setBusy(null)
   }
 }

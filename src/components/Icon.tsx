@@ -42,6 +42,9 @@ export type IconName =
   | 'folder-open'
   | 'filter'
   | 'window'
+  | 'window-minimize'
+  | 'window-maximize'
+  | 'window-restore'
   | 'external'
   | 'copy'
   | 'palette'
@@ -283,6 +286,14 @@ const shapes: Record<IconName, ReactNode> = {
       <rect x="3" y="5" width="12.5" height="10.5" rx="1.6" />
       <path d="M6.5 19h10A3.5 3.5 0 0 0 20 15.5V8.5" />
       <path d="M5.5 8h7.5" />
+    </>
+  ),
+  'window-minimize': <path d="M6 12h12" />,
+  'window-maximize': <rect x="6" y="6" width="12" height="12" rx="0.5" />,
+  'window-restore': (
+    <>
+      <rect x="5.5" y="8.5" width="10" height="10" rx="0.5" />
+      <path d="M8.5 8.5v-3h10v10h-3" />
     </>
   ),
   // External: an arrow leaving a box, for "this opens outside the app"

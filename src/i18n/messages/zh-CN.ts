@@ -32,6 +32,10 @@ export const zhCN: Messages = {
   'titlebar.projectAria': '项目 {name}',
   'titlebar.welcomeTip': '欢迎页',
   'titlebar.newWindowTip': '新建窗口 (⇧⌘N)',
+  'titlebar.minimizeTip': '最小化',
+  'titlebar.maximizeTip': '最大化',
+  'titlebar.restoreTip': '还原',
+  'titlebar.closeTip': '关闭',
 
   'sidebar.explorer': '项目',
   'sidebar.search': '搜索',
@@ -590,6 +594,7 @@ export const zhCN: Messages = {
   'error.search.invalidFilter': '文件过滤规则无效：{error}',
   'error.git.spawnFailed': '无法执行 git：{error}（请确认系统已安装 Git）',
   'error.git.timeout': 'Git 操作超时（180s），请检查网络或凭据配置',
+  'error.git.readTimeout': 'Git 20 秒内没有响应，请检查仓库状态后重试',
   'error.git.emptyMessage': '提交信息不能为空',
   'error.git.messagePipe': '无法把提交信息写入 git',
   'error.git.messageWriteFailed': '写入提交信息失败：{error}',

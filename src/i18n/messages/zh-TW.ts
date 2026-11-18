@@ -32,6 +32,10 @@ export const zhTW: Messages = {
   'titlebar.projectAria': '專案 {name}',
   'titlebar.welcomeTip': '歡迎頁',
   'titlebar.newWindowTip': '新增視窗 (⇧⌘N)',
+  'titlebar.minimizeTip': '最小化',
+  'titlebar.maximizeTip': '最大化',
+  'titlebar.restoreTip': '還原',
+  'titlebar.closeTip': '關閉',
 
   'sidebar.explorer': '檔案總管',
   'sidebar.search': '搜尋',
@@ -589,6 +593,7 @@ export const zhTW: Messages = {
   'error.search.invalidFilter': '檔案篩選規則無效：{error}',
   'error.git.spawnFailed': '無法執行 git：{error}（請確認系統已安裝 Git）',
   'error.git.timeout': 'Git 操作逾時（180 秒），請檢查網路或認證設定',
+  'error.git.readTimeout': 'Git 20 秒內沒有回應，請檢查倉庫狀態後重試',
   'error.git.emptyMessage': '提交訊息不能為空',
   'error.git.messagePipe': '無法把提交訊息寫入 git',
   'error.git.messageWriteFailed': '寫入提交訊息失敗：{error}',

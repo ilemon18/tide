@@ -32,6 +32,10 @@ export const ko: Messages = {
   'titlebar.projectAria': '프로젝트 {name}',
   'titlebar.welcomeTip': '환영 페이지',
   'titlebar.newWindowTip': '새 창 (⇧⌘N)',
+  'titlebar.minimizeTip': '최소화',
+  'titlebar.maximizeTip': '최대화',
+  'titlebar.restoreTip': '복원',
+  'titlebar.closeTip': '닫기',
 
   'sidebar.explorer': '탐색기',
   'sidebar.search': '검색',
@@ -607,6 +611,7 @@ export const ko: Messages = {
   'error.search.invalidFilter': '파일 필터가 올바르지 않습니다: {error}',
   'error.git.spawnFailed': 'git을 실행할 수 없습니다: {error} (Git 설치 여부를 확인하세요)',
   'error.git.timeout': 'Git 작업 시간이 초과되었습니다(180초). 네트워크나 인증 정보를 확인하세요.',
+  'error.git.readTimeout': 'Git이 20초 안에 응답하지 않았습니다. 저장소 상태를 확인하고 다시 시도하세요.',
   'error.git.emptyMessage': '커밋 메시지는 비울 수 없습니다',
   'error.git.messagePipe': 'git에 커밋 메시지를 전달할 수 없습니다',
   'error.git.messageWriteFailed': '커밋 메시지를 쓸 수 없습니다: {error}',

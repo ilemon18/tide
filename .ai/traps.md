@@ -31,6 +31,10 @@ workspace root so `git init` in the terminal is noticed) / `refreshFromDisk` (40
 size first, then re-pulls diff tabs in place by bumping `diffEpoch`). **Never close a tab because of a
 git status change** — only a file that really vanished from disk gets closed. The one exception is a
 diff tab whose diff turned empty: it has nothing left to show and becomes the file tab instead.
+During an explicit checkout/create, `beginBranchTransition` suppresses the watcher's duplicate `.git`
+batch while the command refreshes status, branches, the tree and open files in the background. The busy
+state clears as soon as checkout succeeds; the transition keeps a short grace window so the watcher's
+350ms debounce cannot immediately repeat the same scans.
 
 ## Editor & tabs
 
@@ -45,6 +49,15 @@ diff tab whose diff turned empty: it has nothing left to show and becomes the fi
   hot exit (`lib/untitledDrafts.ts`), and ⌘S goes through `saveAs` instead of writing. Adding a kind means
   touching `editor/openState.ts`, `tabs.activate`, the filter in `lib/editorSession.ts`, and TabBar's
   icon/title, and (for chat) `lib/agentSession.ts` for restore plus `AgentChat` in `EditorHost`.
+- **Temporary preview tabs**: ordinary `openFile` file/image opens set `temporary: true`; the title is
+  italic while the icon, close button and pill styling stay unchanged. A successful open replaces the
+  target pane's single clean, unpinned temporary file/image tab in place; it does not replace tabs in
+  another pane, and a failed read leaves the current preview untouched. The replaced tab's state,
+  scroll/cursor, autosave and blame cache are released only when no other pane still shows it; it never
+  enters `closedTabs`. First document change, double-click, pin, drag-threshold crossing, split and
+  explicit preserves (drag to pane, save-as, diff-to-file, reopen) call `promoteTab`; undoing an edit
+  must not make it temporary again. Restored and non-file virtual tabs are always non-temporary.
+  Double-click promotes a tab; "Close others" remains available only from the context menu.
 - CodeMirror documents are always `\n` internally: **every write path must restore `tab.eol`**, or a CRLF
   file is rewritten whole and the diff becomes the entire file.
 - Indent/newline are per file (`tab.indentSize` / `tab.useTabs` / `tab.eol`); `settings.tabSize` is only
@@ -127,7 +140,10 @@ on `app:hidden`. Closing a chat tab stops its turn and keeps the file.
   all; the git status cache is used when loaded, and only files that really contain markers ask the
   backend (`git ls-files -u`), because status can be stale right after a cherry-pick in the terminal.
 - Git runs as a subprocess: `git -C <root>` with `GIT_TERMINAL_PROMPT=0`, `GIT_OPTIONAL_LOCKS=0`,
-  editors/pager disabled, `LC_ALL=C`, stdin closed; 180s timeout for network operations.
+  editors/pager disabled, `LC_ALL=C`, stdin closed. Read-only `status` / `branches` / `repo_paths` probes
+  and checkout's existence / branch-name preflights use a 20s deadline so a stuck index cannot leave the
+  UI loading forever; network operations keep the 180s timeout. Do not add the short deadline to checkout
+  itself, because killing it can leave the worktree half-switched.
 - Large diffs are bounded twice: `memoryBudget.diffRows()` caps frontend rows/parsing (3k normal,
   1.5k light), and `git_diff_full` switches files over 1MB to `-U3`, then cuts the patch at 512KB.
   Do not raise these thresholds without profiling a generated-file diff.
@@ -140,6 +156,11 @@ on `app:hidden`. Closing a chat tab stops its turn and keeps the file.
 
 - Terminal `Cmd/Ctrl +/-` character input must pass through App's capture-phase handler before
   TerminalView can send it to the PTY. Outside the terminal those keys still adjust editor font size.
+
+- macOS reserves the left 92px for native traffic lights. Windows and Linux use `decorations(false)`, so
+  they must not reserve that macOS-only inset; `TitleBar` draws the drag region and right-side
+  minimize/maximize/close buttons instead. The window commands are gated by the matching
+  `core:window:allow-*` capabilities in `src-tauri/capabilities/default.json`.
 
 - Fonts follow the display density: `lib/displayScale.ts` watches the window's scale factor, and the
   stylesheet only applies `-webkit-font-smoothing: antialiased` at 1.5dppx and above. On a 1x screen the

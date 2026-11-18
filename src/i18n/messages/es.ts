@@ -32,6 +32,10 @@ export const es: Messages = {
   'titlebar.projectAria': 'Proyecto {name}',
   'titlebar.welcomeTip': 'Bienvenida',
   'titlebar.newWindowTip': 'Nueva ventana (⇧⌘N)',
+  'titlebar.minimizeTip': 'Minimizar',
+  'titlebar.maximizeTip': 'Maximizar',
+  'titlebar.restoreTip': 'Restaurar',
+  'titlebar.closeTip': 'Cerrar',
 
   'sidebar.explorer': 'Explorador',
   'sidebar.search': 'Buscar',
@@ -618,6 +622,8 @@ export const es: Messages = {
   'error.git.spawnFailed': 'No se puede ejecutar git: {error} (comprueba que Git esté instalado)',
   'error.git.timeout':
     'Git agotó el tiempo de espera (180 s). Revisa la red o tus credenciales.',
+  'error.git.readTimeout':
+    'Git no respondió en 20 segundos. Revisa el repositorio e inténtalo de nuevo.',
   'error.git.emptyMessage': 'El mensaje del commit no puede estar vacío',
   'error.git.messagePipe': 'No se puede pasar el mensaje del commit a git',
   'error.git.messageWriteFailed': 'No se puede escribir el mensaje del commit: {error}',

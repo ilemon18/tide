@@ -40,6 +40,10 @@ export const en = {
   'titlebar.projectAria': 'Project {name}',
   'titlebar.welcomeTip': 'Welcome',
   'titlebar.newWindowTip': 'New window (⇧⌘N)',
+  'titlebar.minimizeTip': 'Minimize',
+  'titlebar.maximizeTip': 'Maximize',
+  'titlebar.restoreTip': 'Restore',
+  'titlebar.closeTip': 'Close',
 
   // ---------------------------------------------------------------- Sidebar titles
   'sidebar.explorer': 'Explorer',
@@ -652,6 +656,7 @@ export const en = {
   'error.search.invalidFilter': 'Invalid file filter: {error}',
   'error.git.spawnFailed': 'Cannot run git: {error} (check that Git is installed)',
   'error.git.timeout': 'Git timed out (180s). Check the network or your credentials.',
+  'error.git.readTimeout': 'Git did not respond within 20 seconds. Check the repository or try again.',
   'error.git.emptyMessage': 'The commit message cannot be empty',
   'error.git.messagePipe': 'Cannot pass the commit message to git',
   'error.git.messageWriteFailed': 'Cannot write the commit message: {error}',
