@@ -64,7 +64,7 @@ fn same_component(a: Component<'_>, b: Component<'_>) -> bool {
             (Prefix::Disk(a), Prefix::Disk(b))
             | (Prefix::Disk(a), Prefix::VerbatimDisk(b))
             | (Prefix::VerbatimDisk(a), Prefix::Disk(b))
-            | (Prefix::VerbatimDisk(a), Prefix::VerbatimDisk(b)) => same_os_str(a, b),
+            | (Prefix::VerbatimDisk(a), Prefix::VerbatimDisk(b)) => a.eq_ignore_ascii_case(&b),
             (Prefix::UNC(server_a, share_a), Prefix::UNC(server_b, share_b))
             | (Prefix::UNC(server_a, share_a), Prefix::VerbatimUNC(server_b, share_b))
             | (Prefix::VerbatimUNC(server_a, share_a), Prefix::UNC(server_b, share_b))
