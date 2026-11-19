@@ -6,8 +6,8 @@ import {
   useCommitHover,
   writeCommitDetail,
 } from '../store/commitHover'
-import { useUi } from '../store/ui'
 import { Icon } from './Icon'
+import { CopyButton } from './CopyButton'
 import { t } from '../i18n'
 
 const CARD_WIDTH = 360
@@ -17,62 +17,6 @@ const MAX_DIFF_LINES = 1
 
 /** File headers / mode lines say nothing about what changed on this line; keep only the hunk itself */
 const DIFF_META = /^(diff --git |index |--- |\+\+\+ |new file mode|deleted file mode|old mode|new mode|similarity index|rename (from|to) |Binary files)/
-
-/** navigator.clipboard is occasionally unavailable in WKWebView, fall back to execCommand */
-function legacyCopy(text: string): boolean {
-  const area = document.createElement('textarea')
-  area.value = text
-  area.style.position = 'fixed'
-  area.style.opacity = '0'
-  document.body.appendChild(area)
-  area.select()
-  let ok = false
-  try {
-    ok = document.execCommand('copy')
-  } catch {
-    ok = false
-  }
-  document.body.removeChild(area)
-  return ok
-}
-
-async function copyText(text: string, label: string) {
-  if (!text) return
-  try {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(text)
-    } else if (!legacyCopy(text)) {
-      throw new Error(t('copy.clipboardUnavailable'))
-    }
-    useUi.getState().toast(t('copy.copied', { label }), 'success')
-  } catch {
-    useUi.getState().toast(t('copy.failed', { label }), 'error')
-  }
-}
-
-function CopyButton({
-  tip,
-  text,
-  label,
-}: {
-  tip: string
-  text: string
-  label: string
-}) {
-  return (
-    <button
-      type="button"
-      data-tip={tip}
-      onClick={(e) => {
-        e.stopPropagation()
-        void copyText(text, label)
-      }}
-      className="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-[4px] text-muted hover:bg-hover hover:text-fg"
-    >
-      <Icon name="copy" size={11} />
-    </button>
-  )
-}
 
 function diffClass(line: string): string {
   if (line.startsWith('@@')) return 'text-accent'
@@ -223,6 +167,8 @@ export function CommitHoverCard() {
             tip={t('commit.copyShaTip')}
             text={fullSha}
             label={t('commit.copyShaLabel')}
+            iconOnly
+            className="h-[18px] w-[18px]"
           />
         </span>
       </div>

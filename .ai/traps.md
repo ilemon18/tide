@@ -38,14 +38,14 @@ state clears as soon as checkout succeeds; the transition keeps a short grace wi
 
 ## Editor & tabs
 
-- TabBar uses intrinsic tab widths capped at 220px (including icon and action slots). Measure every tab
-  on first mount; afterwards the ResizeObserver may only remeasure tabs whose own size changed and may
-  only update the viewport when the strip changes. The measurements drive absolute positioning, drag
-  centers and active-tab visibility; 140px is only an initial position estimate. Never write measured
-  widths back to the tabs. Horizontal-dominant wheel input must use native overflow scrolling; accumulate
-  vertical wheel deltas and write `scrollLeft` at most once per animation frame, without reading
-  `scrollWidth`/`clientWidth` in the wheel handler. The 36px bar gives 28px pills vertical shadow space;
-  active tabs stack above normal tabs, dragged tabs above both.
+- TabBar uses memoized tab items and intrinsic widths capped at 220px (including icon/action slots).
+  Read each intrinsic width once on mount with `offsetWidth`, then update resized tabs from
+  ResizeObserver `borderBoxSize`; never measure tabs with `getBoundingClientRect()` (only pointer drag
+  hit-testing may). Cache absolute positions and commit width, viewport and layout changes in one state
+  update. 140px is only an initial estimate; never write measured
+  widths back to tabs. Horizontal-dominant wheel input uses native overflow; accumulate vertical deltas
+  and write `scrollLeft` once per frame without reading `scrollWidth`/`clientWidth` in the handler. The
+  36px bar gives 28px pills shadow space; active tabs stack above normal tabs, dragged above both.
 - Tab kinds are `file | diff | image | welcome | settings | untitled | chat`. `diff` and `image` have no
   `EditorState`; `welcome` and `settings` are virtual tabs (`root` empty): they are not written to the
   layout session, do not enter `closedTabs`, and get no state. `untitled` does have a state but no file:
@@ -162,6 +162,10 @@ on `app:hidden`. Closing a chat tab stops its turn and keeps the file.
   and checkout's existence / branch-name preflights use a 20s deadline so a stuck index cannot leave the
   UI loading forever; network operations keep the 180s timeout. Do not add the short deadline to checkout
   itself, because killing it can leave the worktree half-switched.
+- Git file lists are fixed-28px virtualized with ±10-row overscan. Keep status repo-local and subscribe
+  only to the active id/path needed for highlighting; create row actions after hover/focus. Cache each
+  list's body offset and refresh it from a content ResizeObserver/layout version; scrolling must not call
+  `getBoundingClientRect()` (pointer drag hit-testing is the exception).
 - Large diffs are bounded twice: `memoryBudget.diffRows()` caps frontend rows/parsing (3k normal,
   1.5k light), and `git_diff_full` switches files over 1MB to `-U3`, then cuts the patch at 512KB.
   Do not raise these thresholds without profiling a generated-file diff.
@@ -169,6 +173,15 @@ on `app:hidden`. Closing a chat tab stops its turn and keeps the file.
   `scrollDOM.scrollTop/Left` and restores them with `view.requestMeasure`; never add
   `scrollIntoView: true` to a resolve transaction. Per-line accepts move the line above the block in
   click order and leave the remaining markers in place.
+
+## Terminal
+
+- Each `TerminalView` owns an output queue. Visible terminals write through rAF in chunks of at most
+  128KB per frame, with an 80ms fallback because occluded WKWebViews can stop rAF. Replay the queue when
+  the terminal becomes active/visible again.
+- Hidden tabs and hidden panels must not call `term.write`; retain only the newest bounded 128KB tail.
+  Never trim or chunk in the middle of a UTF-16 surrogate pair. A throttled/backgrounded page must pause
+  parsing and resume from the retained tail instead of growing an unbounded queue.
 
 ## Window & memory
 

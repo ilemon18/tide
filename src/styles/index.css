@@ -712,14 +712,24 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
+  gap: 5px;
+  min-width: 28px;
   height: 28px;
-  padding: 0;
+  padding: 0 7px;
   border: none;
   border-radius: var(--r-control);
   background: transparent;
   cursor: pointer;
   transition: color 100ms ease, background-color 100ms ease;
+}
+
+.token-summary-text {
+  max-width: 170px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
 }
 
 .token-summary:hover {
@@ -751,13 +761,14 @@
   position: absolute;
   bottom: calc(100% + 8px);
   right: -32px;
-  width: min(320px, 80vw);
+  width: min(340px, 80vw);
+  max-height: min(460px, 70vh);
   background: var(--c-panel);
   border: 1px solid var(--c-border);
   border-radius: 8px;
   box-shadow: 0 4px 12px var(--c-shadow);
   z-index: 1000;
-  overflow: hidden;
+  overflow-y: auto;
 }
 
 .token-details .details-header {
@@ -794,6 +805,30 @@
 .token-details .breakdown-list {
   max-height: 300px;
   overflow-y: auto;
+}
+
+.token-details .usage-section {
+  padding: 8px 0 2px;
+  border-bottom: 1px solid var(--c-border);
+}
+
+.token-details .usage-section:last-child,
+.token-details .token-estimate-section:last-child {
+  border-bottom: 0;
+}
+
+.token-details .usage-section-title {
+  padding: 0 12px;
+  color: var(--c-muted);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.token-details .token-estimate-section {
+  padding-top: 8px;
+  border-bottom: 1px solid var(--c-border);
 }
 
 .token-details .token-total {

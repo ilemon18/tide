@@ -1,6 +1,14 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import { createPortal } from 'react-dom'
-import { groupTabs, useTabs, type TabGroupId } from '../store/tabs'
+import { groupTabs, useTabs, type Tab, type TabGroupId } from '../store/tabs'
 import { isSvgPath } from '../lib/media'
 import { basename } from '../lib/paths'
 import { groupUnderPointer, highlightPane, insertionIndex } from '../lib/groupDrop'
@@ -25,6 +33,102 @@ type DragState = {
 }
 
 type MenuState = { x: number; y: number; tabId: string }
+
+type Measurements = {
+  widths: Record<string, number>
+  viewportWidth: number
+}
+
+type TabItemProps = {
+  tab: Tab
+  x: number
+  active: boolean
+  dragging: boolean
+  away: boolean
+  onPointerDown: (event: React.PointerEvent<HTMLDivElement>, id: string) => void
+  onContextMenu: (event: React.MouseEvent<HTMLDivElement>, id: string) => void
+  onDoubleClick: (event: React.MouseEvent<HTMLDivElement>, id: string) => void
+  onClose: (id: string) => void
+}
+
+const TabItem = memo(function TabItem({
+  tab,
+  x,
+  active,
+  dragging,
+  away,
+  onPointerDown,
+  onContextMenu,
+  onDoubleClick,
+  onClose,
+}: TabItemProps) {
+  const t = useT()
+  return (
+    <div
+      data-tab-id={tab.id}
+      onPointerDown={(event) => onPointerDown(event, tab.id)}
+      onContextMenu={(event) => onContextMenu(event, tab.id)}
+      onDoubleClick={(event) => onDoubleClick(event, tab.id)}
+      title={tabTooltip(tab)}
+      data-active={active}
+      data-dragging={dragging}
+      data-away={away}
+      data-pinned={tab.pinned}
+      data-temporary={tab.temporary}
+      className={`tab-pill group absolute left-0 top-[3px] flex h-[28px] cursor-default items-center gap-1.5 overflow-hidden pl-2.5 pr-1.5 text-sm ${
+        active ? 'text-fg' : 'text-muted hover:bg-hover hover:text-fg/90'
+      } ${dragging ? 'cursor-grabbing' : ''}`}
+      style={{ transform: `translateX(${x}px)` }}
+    >
+      {tab.kind === 'chat' ? (
+        <Icon name="agent" size={14} className="shrink-0 text-accent" />
+      ) : tab.kind === 'welcome' ? (
+        <Icon name="home" size={14} className="shrink-0 text-muted" />
+      ) : tab.kind === 'settings' ? (
+        <Icon name="settings" size={14} className="shrink-0 text-muted" />
+      ) : tab.kind === 'untitled' ? (
+        <Icon name="pen" size={14} className="shrink-0 text-muted" />
+      ) : (
+        // Use the real relative path so file and diff tabs resolve the same file icon.
+        <FileIcon
+          name={basename(tab.rel)}
+          size={14}
+          className={`shrink-0 ${tab.kind === 'diff' ? 'opacity-70' : ''}`}
+        />
+      )}
+      {/* Pinned tabs show the file name like normal ones; only the right slot becomes a pin
+         (no close button to avoid accidental closes; unpin via the context menu). Same look as VSCode. */}
+      <span className={`min-w-0 truncate ${tab.temporary ? 'italic' : ''}`}>{tabTitle(tab)}</span>
+      {tab.dirty ? (
+        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" data-tip={t('tabs.unsavedTip')} />
+      ) : null}
+      {tab.pinned ? (
+        <span
+          className="flex h-[16px] w-[16px] shrink-0 items-center justify-center text-muted/60"
+          data-tip={t('tabs.pinnedTip')}
+        >
+          <Icon name="pin" size={11} />
+        </span>
+      ) : (
+        /* The close button always hugs the tab's right edge (never follows a short name) */
+        <button
+          onClick={(event) => {
+            event.stopPropagation()
+            onClose(tab.id)
+          }}
+          className={`ml-auto flex h-[16px] w-[16px] shrink-0 items-center justify-center rounded-[var(--r-row)] transition-colors duration-fast hover:bg-hover-strong ${
+            active
+              ? 'opacity-60 hover:opacity-100'
+              : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'
+          }`}
+          data-tip={t('tabs.closeTip')}
+        >
+          <Icon name="close" size={11} strokeWidth={2} />
+        </button>
+      )}
+    </div>
+  )
+})
 
 export function TabBar({ groupId }: { groupId: TabGroupId }) {
   const t = useT()
@@ -51,7 +155,8 @@ export function TabBar({ groupId }: { groupId: TabGroupId }) {
 
   const trackRef = useRef<HTMLDivElement>(null)
   const stripRef = useRef<HTMLDivElement>(null)
-  const [widths, setWidths] = useState<Record<string, number>>({})
+  const [measurements, setMeasurements] = useState<Measurements>({ widths: {}, viewportWidth: 0 })
+  const measurementsRef = useRef(measurements)
   const [drag, setDrag] = useState<DragState | null>(null)
   const dragRef = useRef<DragState | null>(null)
   const [menu, setMenu] = useState<MenuState | null>(null)
@@ -60,11 +165,22 @@ export function TabBar({ groupId }: { groupId: TabGroupId }) {
 
   const tabOrder = JSON.stringify(tabs.map((tab) => tab.id))
   const hasTabs = tabs.length > 0
-  const [viewportWidth, setViewportWidth] = useState(0)
-  const widthsRef = useRef(widths)
   const measuredOnceRef = useRef(false)
   const wheelDeltaRef = useRef(0)
   const wheelFrameRef = useRef<number | null>(null)
+
+  const commitMeasurements = useCallback((next: Measurements) => {
+    const previous = measurementsRef.current
+    if (
+      previous.viewportWidth === next.viewportWidth &&
+      Object.keys(previous.widths).length === Object.keys(next.widths).length &&
+      Object.entries(next.widths).every(([id, width]) => previous.widths[id] === width)
+    ) {
+      return
+    }
+    measurementsRef.current = next
+    setMeasurements(next)
+  }, [])
 
   // Observe intrinsic sizes, including font/locale/title changes and pane/sidebar resizing.
   // Never feed these measurements back into the tab's own width.
@@ -73,43 +189,42 @@ export function TabBar({ groupId }: { groupId: TabGroupId }) {
     const strip = stripRef.current
     if (!track || !strip) {
       measuredOnceRef.current = false
-      widthsRef.current = {}
-      setWidths((previous) => Object.keys(previous).length === 0 ? previous : {})
-      setViewportWidth((previous) => (previous === 0 ? previous : 0))
+      commitMeasurements({ widths: {}, viewportWidth: 0 })
       return
     }
 
     // The first pass establishes every intrinsic width. Later observer callbacks only read tabs that
     // actually resized, while strip resizes update just the viewport used for active-tab visibility.
-    if (!measuredOnceRef.current) {
-      const next: Record<string, number> = {}
-      track.querySelectorAll<HTMLElement>('[data-tab-id]').forEach((el) => {
-        if (el.dataset.tabId) next[el.dataset.tabId] = el.getBoundingClientRect().width
-      })
-      measuredOnceRef.current = true
-      widthsRef.current = next
-      setWidths(next)
-    } else {
-      // A newly opened/reordered tab needs one measurement; existing widths are already current.
-      let next: Record<string, number> | null = null
-      track.querySelectorAll<HTMLElement>('[data-tab-id]').forEach((el) => {
-        const id = el.dataset.tabId
-        if (!id || widthsRef.current[id] !== undefined) return
-        next ??= { ...widthsRef.current }
-        next[id] = el.getBoundingClientRect().width
-      })
-      if (next) {
-        widthsRef.current = next
-        setWidths(next)
-      }
+    // Avoid getBoundingClientRect() here: it forces a layout read for every tab on mount.
+    let nextWidths = measurementsRef.current.widths
+    const currentIds = new Set<string>()
+    track.querySelectorAll<HTMLElement>('[data-tab-id]').forEach((el) => {
+      const id = el.dataset.tabId
+      if (!id) return
+      currentIds.add(id)
+      if (measuredOnceRef.current && nextWidths[id] !== undefined) return
+      const width = el.offsetWidth
+      if (width <= 0) return
+      if (nextWidths === measurementsRef.current.widths) nextWidths = { ...nextWidths }
+      nextWidths[id] = width
+    })
+    // Drop measurements for tabs that are no longer in this group.
+    for (const id of Object.keys(nextWidths)) {
+      if (currentIds.has(id)) continue
+      if (nextWidths === measurementsRef.current.widths) nextWidths = { ...nextWidths }
+      delete nextWidths[id]
     }
 
-    const viewport = strip.clientWidth
-    setViewportWidth((previous) => (previous === viewport ? previous : viewport))
+    measuredOnceRef.current = true
+    commitMeasurements({
+      widths: nextWidths,
+      viewportWidth: strip.clientWidth,
+    })
 
     const observer = new ResizeObserver((entries) => {
-      let nextWidths: Record<string, number> | null = null
-      let nextViewport: number | null = null
+      let nextWidths: Record<string, number> = measurementsRef.current.widths
+      let widthsChanged = false
+      let nextViewport = measurementsRef.current.viewportWidth
       for (const entry of entries) {
         if (entry.target === strip) {
           nextViewport = strip.clientWidth
@@ -118,24 +233,19 @@ export function TabBar({ groupId }: { groupId: TabGroupId }) {
         const tab = entry.target as HTMLElement
         const id = tab.dataset.tabId
         if (!id) continue
-        const width = tab.getBoundingClientRect().width
-        if (widthsRef.current[id] === width) continue
-        nextWidths ??= { ...widthsRef.current }
+        const width = entry.borderBoxSize?.[0]?.inlineSize ?? entry.contentRect.width
+        if (width <= 0 || measurementsRef.current.widths[id] === width) continue
+        if (nextWidths === measurementsRef.current.widths) nextWidths = { ...nextWidths }
         nextWidths[id] = width
+        widthsChanged = true
       }
-      if (nextWidths) {
-        widthsRef.current = nextWidths
-        setWidths(nextWidths)
-      }
-      const viewportWidth = nextViewport
-      if (viewportWidth !== null) {
-        setViewportWidth((previous) => (previous === viewportWidth ? previous : viewportWidth))
-      }
+      if (!widthsChanged && nextViewport === measurementsRef.current.viewportWidth) return
+      commitMeasurements({ widths: nextWidths, viewportWidth: nextViewport })
     })
     observer.observe(strip)
     track.querySelectorAll<HTMLElement>('[data-tab-id]').forEach((el) => observer.observe(el))
     return () => observer.disconnect()
-  }, [tabOrder])
+  }, [commitMeasurements, tabOrder])
 
   // Let the browser handle horizontal trackpad scrolling natively. Vertical mouse-wheel deltas are
   // accumulated and committed as one scrollLeft write per frame, with no layout reads in the handler.
@@ -164,36 +274,37 @@ export function TabBar({ groupId }: { groupId: TabGroupId }) {
     }
   }, [hasTabs])
 
+  // Cache absolute positions; drag/active updates can move a tab without rebuilding every layout.
+  const { layout, cursor } = useMemo(() => {
+    const positions = new Map<string, { x: number; w: number }>()
+    let nextCursor = 0
+    for (const tab of tabs) {
+      const width = measurements.widths[tab.id] ?? TAB_W
+      positions.set(tab.id, { x: nextCursor, w: width })
+      nextCursor += width + GAP
+    }
+    return { layout: positions, cursor: nextCursor }
+  }, [measurements.widths, tabOrder])
+
   // Scroll the active tab into view (the scrollbar is hidden once tabs overflow, so this is the only way).
   // Do it in the layout phase: a newly opened tab is already inside the viewport on the current frame,
   // instead of painting in place and then jumping.
   useLayoutEffect(() => {
     const strip = stripRef.current
     if (!strip || !groupActiveId || drag?.active) return
-    // Tabs are absolutely positioned at left:0 and moved with translateX, so `offsetLeft` is 0 for every one
-    // of them. Reading it made the strip scroll back to the first tab instead of revealing the active one;
-    // the position has to come from the measured widths, the same geometry the drag code uses.
-    let left = 0
-    let width = 0
-    for (const tab of tabs) {
-      const w = widths[tab.id] ?? TAB_W
-      if (tab.id === groupActiveId) {
-        width = w
-        break
-      }
-      left += w + GAP
-    }
-    // Not measured yet (first frame of a new tab): the width-aware pass runs once `widths` updates
-    if (!width) return
+    // Tabs are absolutely positioned at left:0 and moved with translateX, so `offsetLeft` is 0 for every
+    // one. Use the cached layout instead of reading geometry from each node.
+    const box = layout.get(groupActiveId)
+    if (!box || measurements.widths[groupActiveId] === undefined) return
+    const left = box.x
+    const width = box.w
     const right = left + width
     // Already visible: leave the strip exactly where the user scrolled it to
-    if (left >= strip.scrollLeft && right <= strip.scrollLeft + strip.clientWidth) return
+    if (left >= strip.scrollLeft && right <= strip.scrollLeft + measurements.viewportWidth) return
     // No smooth behavior: switching files should snap, not animate
     if (left < strip.scrollLeft) strip.scrollLeft = left
-    else strip.scrollLeft = right - strip.clientWidth
-    // `tabs` is rebuilt every render; the dependencies below are the ones that actually change the geometry
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [groupActiveId, tabOrder, widths, viewportWidth, drag?.active])
+    else strip.scrollLeft = right - measurements.viewportWidth
+  }, [drag?.active, groupActiveId, layout, measurements])
 
   if (tabs.length === 0) return null
 
@@ -242,16 +353,7 @@ export function TabBar({ groupId }: { groupId: TabGroupId }) {
       ]
     : []
 
-  // Layout positions: accumulate widths, 2px gap between tabs
-  const layout = new Map<string, { x: number; w: number }>()
-  let cursor = 0
-  for (const tab of tabs) {
-    const w = widths[tab.id] ?? TAB_W
-    layout.set(tab.id, { x: cursor, w })
-    cursor += w + GAP
-  }
-
-  const onPointerDown = (event: React.PointerEvent<HTMLDivElement>, id: string) => {
+  const onPointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>, id: string) => {
     if (event.button === 1) {
       event.preventDefault()
       void closeIn(id, groupId)
@@ -318,13 +420,13 @@ export function TabBar({ groupId }: { groupId: TabGroupId }) {
       )
       const self = order.findIndex((t) => t.id === current.id)
       if (self < 0) return
-      const draggedWidth = widthsRef.current[current.id] ?? TAB_W
+      const draggedWidth = measurementsRef.current.widths[current.id] ?? TAB_W
       const center = current.pointerX - current.grabX + draggedWidth / 2
 
       let target = self
       let offset = 0
       for (let i = 0; i < order.length; i += 1) {
-        const width = widthsRef.current[order[i].id] ?? TAB_W
+        const width = measurementsRef.current.widths[order[i].id] ?? TAB_W
         if (i !== self) {
           const mid = offset + width / 2
           if (i < self && center < mid) {
@@ -358,7 +460,23 @@ export function TabBar({ groupId }: { groupId: TabGroupId }) {
     window.addEventListener('pointermove', onMove)
     window.addEventListener('pointerup', onUp)
     window.addEventListener('pointercancel', onUp)
-  }
+  }, [activate, closeIn, groupId, moveTabToGroup, promoteTab])
+
+  const onContextMenu = useCallback((event: React.MouseEvent<HTMLDivElement>, id: string) => {
+    event.preventDefault()
+    activate(id, groupId)
+    setMenu({ x: event.clientX, y: event.clientY, tabId: id })
+  }, [activate, groupId])
+
+  const onDoubleClick = useCallback((event: React.MouseEvent<HTMLDivElement>, id: string) => {
+    // Double-clicking the close button is a double-close misclick, not a tab promotion
+    if ((event.target as HTMLElement).closest('button')) return
+    promoteTab(id)
+  }, [promoteTab])
+
+  const onClose = useCallback((id: string) => {
+    void closeIn(id, groupId)
+  }, [closeIn, groupId])
 
   const groupFocused = activeGroupId === groupId
   const groupActiveTab = tabs.find((t) => t.id === groupActiveId) ?? null
@@ -381,92 +499,25 @@ export function TabBar({ groupId }: { groupId: TabGroupId }) {
         >
           <div ref={trackRef} className="relative h-full" style={{ width: Math.max(cursor, 1) }}>
             {tabs.map((tab) => {
-              const active = tab.id === groupActiveId
-              const box = layout.get(tab.id)!
-              const dragging = drag?.active && drag.id === tab.id
+              const box = layout.get(tab.id)
+              if (!box) return null
+              const dragging = Boolean(drag?.active && drag.id === tab.id)
               // When dragged onto another pane, this one in the source strip yields to the ghost
               const away = dragging && ghost !== null
               const x = dragging ? drag!.pointerX - drag!.grabX : box.x
               return (
-                <div
+                <TabItem
                   key={tab.id}
-                  data-tab-id={tab.id}
-                  onPointerDown={(e) => onPointerDown(e, tab.id)}
-                  onContextMenu={(e) => {
-                    e.preventDefault()
-                    activate(tab.id, groupId)
-                    setMenu({ x: e.clientX, y: e.clientY, tabId: tab.id })
-                  }}
-                  onDoubleClick={(e) => {
-                    // Double-clicking the close button is a double-close misclick, not a tab promotion
-                    if ((e.target as HTMLElement).closest('button')) return
-                    promoteTab(tab.id)
-                  }}
-                  title={tabTooltip(tab)}
-                  data-active={active}
-                  data-dragging={dragging}
-                  data-away={away}
-                  data-pinned={tab.pinned}
-                  data-temporary={tab.temporary}
-                  className={`tab-pill group absolute left-0 top-[3px] flex h-[28px] cursor-default items-center gap-1.5 overflow-hidden pl-2.5 pr-1.5 text-sm ${
-                    active ? 'text-fg' : 'text-muted hover:bg-hover hover:text-fg/90'
-                  } ${dragging ? 'cursor-grabbing' : ''}`}
-                  style={{
-                    transform: `translateX(${x}px)`,
-                  }}
-                >
-                  {tab.kind === 'chat' ? (
-                    <Icon name="agent" size={14} className="shrink-0 text-accent" />
-                  ) : tab.kind === 'welcome' ? (
-                    <Icon name="home" size={14} className="shrink-0 text-muted" />
-                  ) : tab.kind === 'settings' ? (
-                    <Icon name="settings" size={14} className="shrink-0 text-muted" />
-                  ) : tab.kind === 'untitled' ? (
-                    <Icon name="pen" size={14} className="shrink-0 text-muted" />
-                  ) : (
-                    // Use the real relative path so file and diff tabs resolve the same file icon.
-                    <FileIcon
-                      name={basename(tab.rel)}
-                      size={14}
-                      className={`shrink-0 ${tab.kind === 'diff' ? 'opacity-70' : ''}`}
-                    />
-                  )}
-                  {/* Pinned tabs show the file name like normal ones; only the right slot becomes a pin
-                     (no close button to avoid accidental closes; unpin via the context menu). Same look as VSCode. */}
-                  <span className={`min-w-0 truncate ${tab.temporary ? 'italic' : ''}`}>
-                    {tabTitle(tab)}
-                  </span>
-                  {tab.dirty ? (
-                    <span
-                      className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent"
-                      data-tip={t('tabs.unsavedTip')}
-                    />
-                  ) : null}
-                  {tab.pinned ? (
-                    <span
-                      className="flex h-[16px] w-[16px] shrink-0 items-center justify-center text-muted/60"
-                      data-tip={t('tabs.pinnedTip')}
-                    >
-                      <Icon name="pin" size={11} />
-                    </span>
-                  ) : (
-                    /* The close button always hugs the tab's right edge (never follows a short name) */
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        void closeIn(tab.id, groupId)
-                      }}
-                      className={`ml-auto flex h-[16px] w-[16px] shrink-0 items-center justify-center rounded-[var(--r-row)] transition-colors duration-fast hover:bg-hover-strong ${
-                        active
-                          ? 'opacity-60 hover:opacity-100'
-                          : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'
-                      }`}
-                      data-tip={t('tabs.closeTip')}
-                    >
-                      <Icon name="close" size={11} strokeWidth={2} />
-                    </button>
-                  )}
-                </div>
+                  tab={tab}
+                  x={x}
+                  active={tab.id === groupActiveId}
+                  dragging={dragging}
+                  away={away}
+                  onPointerDown={onPointerDown}
+                  onContextMenu={onContextMenu}
+                  onDoubleClick={onDoubleClick}
+                  onClose={onClose}
+                />
               )
             })}
           </div>

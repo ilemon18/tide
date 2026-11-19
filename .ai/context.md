@@ -15,20 +15,20 @@ Low memory/startup are deliberate; see ceilings.
 
 | Changing | Where |
 |---|---|
-| Layout, shortcuts, session restore, drag & drop, startup | `src/App.tsx`, `src/main.tsx`, `src/lib/keys.ts` (IME-safe key normalisation), `fileDragState.ts` + `groupDrop.ts` |
+| Layout, shortcuts, session restore, drag & drop, startup | `src/App.tsx`, `src/main.tsx`, `src/lib/keys.ts` (IME-safe), `fileDragState.ts` + `groupDrop.ts` |
 | UI components, settings sections | `src/components/` (only `EditorView` is `EditorHost.tsx`), `lib/settingsSections.ts` |
 | Diff view, conflicts, syntax colours | `src/components/DiffView.tsx`, `diffHighlight.ts`, `lib/conflictFiles.ts`, `src/theme/syntax.ts` |
-| CodeMirror | `src/editor/`: `setup` `stateCache` `stateKeys` `viewRef` `openState` `mirror` `folding` `languages` `largeFile` `indentGuides` `blame` `conflicts` `highlight` `importLinks` `scrollMemory` `signals` `locale` `outline` |
-| State slices (14) | `src/store/`: `workspace` `tabs` `git` `search` `terminal` `settings` `ui` `blame` `watcher` `fileIndex` `commitHover` `folderChain` `update` `agent` |
+| CodeMirror | `src/editor/`: setup, stateCache, stateKeys, viewRef, openState, mirror, folding, languages, largeFile, indentGuides, blame, conflicts, highlight, importLinks, scrollMemory, signals, locale, outline |
+| State slices (14) | `src/store/`: workspace, tabs, git, search, terminal, settings, ui, blame, watcher, fileIndex, commitHover, folderChain, update, agent |
 | Folder chain compaction | `src/store/folderChain.ts`, `resolve_dir_chain` in `src-tauri/src/commands/fs.rs`, `buildRows` in `FileTree.tsx` |
-| Built-in agent | Chat UI in `src/components/Agent*.tsx`, state in `src/store/agent.ts`, Rust in `src-tauri/src/agent/` — [agent.md](./agent.md) |
+| Built-in agent | Chat UI `src/components/Agent*.tsx`, state `src/store/agent.ts`, Rust `src-tauri/src/agent/` — [agent.md](./agent.md) |
 | IPC + DTO types | `src/lib/ipc.ts` (**only** `invoke` wrapper) |
-| Flows, palette entries, tab titles, untitled buffers, memory | `src/lib/actions.ts`, `commands.ts`, `tabTitle.ts`, `untitledDrafts.ts`, `memory.ts`, `memoryBudget.ts`, `layoutBus.ts` |
+| Flows, palette, tab titles, untitled, memory | `src/lib/`: actions, commands, tabTitle, untitledDrafts, memory, memoryBudget, layoutBus |
 | Text format, session restore | `src/lib/textMeta.ts`, `editorSession.ts`, backend `save_open_tabs` |
 | Formatting | `src/lib/formatting.ts`, `src/lib/formatters.ts`, `src/lib/prettier.ts` + `src/vendor/prettier/`, `src-tauri/src/commands/format.rs` |
 | In-app update | `src-tauri/src/update.rs`, `src/lib/update.ts`, `updateView.ts`, `src/store/update.ts`, `UpdateBadge.tsx` |
-| Copy & locales | `src/i18n/` (English in the bundle, the other catalogs are fetched on demand), `src-tauri/src/i18n.rs` (Dock / tray) — [i18n.md](./i18n.md) |
-| Themes (21 + `system`), style tokens | `src/theme/` (`palettes` `apply` `cmTheme` `xtermTheme` `syntax`), `src/styles/index.css`, `public/theme-boot.js` |
+| Copy & locales | `src/i18n/` (English bundled, others on demand), `src-tauri/src/i18n.rs` (Dock / tray) — [i18n.md](./i18n.md) |
+| Themes (21 + `system`), style tokens | `src/theme/`: palettes, apply, cmTheme, xtermTheme, syntax; `src/styles/index.css`, `public/theme-boot.js` |
 | Rust entry, windows, single instance | `src-tauri/src/main.rs` |
 | Workspace grants, PTY / watcher tables | `src-tauri/src/state.rs` |
 | Commands, paths, subprocess, Dock, watcher, errors | `src-tauri/src/commands/{fs,format,git,blame,search,terminal,theme}.rs`, `paths.rs` `proc.rs` `dock_menu.rs` `watcher.rs` `error.rs` |
@@ -40,7 +40,7 @@ Low memory/startup are deliberate; see ceilings.
 ### Frontend
 - **IPC only through `api.*`** (`lib/ipc.ts`). No direct `invoke` in components or slices.
 - **Subscribe with a selector** (`useTabs(s => s.activeId)`), never `useTabs()` as a whole.
-- **One `EditorView` per panel** (1, or 2 after a split). Per-tab `EditorState` lives in `editor/stateCache.ts`, swapped with `view.setState`; a split file gets one state per pane (`editor/mirror.ts` forwards ChangeSets). **Never** hold `EditorState`/`EditorView` in zustand, **never** share one state between views.
+- **One `EditorView` per panel** (1, or 2 after split). Per-tab `EditorState` lives in `editor/stateCache.ts` and swaps via `view.setState`; `mirror.ts` forwards split-pane ChangeSets. **Never** hold views/states in zustand or share a state between views.
 - **Theme, font size, blame, word wrap use `Compartment.reconfigure`** (a rebuilt state drops undo history).
 - **No hex colours**: use the `--c-*` tokens (`bg-bg`, `text-fg`, `border-line`, `bg-panel`).
 - **UI copy only through `t()` / `tp()`**, no literals (`pnpm i18n:scan` enforces it); Chinese comments are fine.
@@ -57,7 +57,7 @@ Low memory/startup are deliberate; see ceilings.
 
 ### Updates & window scope
 - Updates check/download/install in Rust (`update.rs`); the webview only drives the state machine.
-- Only https GitHub URLs; byte count and `latest.json` SHA-256 must match; nothing runs before the user clicks. `latest.json` is generated by `scripts/make-latest-json.mjs` and **never enters the repo**.
+- Only HTTPS GitHub URLs; byte count and `latest.json` SHA-256 must match; nothing runs before a click. Generated `latest.json` never enters the repo.
 - macOS curl install (`install.sh`): latest stable manifest, DMG URL/size/SHA-256 and app version checks, then replace under `~/Applications`; no sudo. Windows remains `.exe` only.
 - One window owns **one** project; several projects means several windows (`main` + `win-<pid>-<seq>`, project via `?open=<path>`). Only the main window persists the session (`IS_PRIMARY_WINDOW`).
 
@@ -68,13 +68,13 @@ Implement in `commands/<domain>.rs`, register in `main.rs`, type it in `lib/ipc.
 consume through a store/action. Add palette entries in `lib/commands.ts` and errors to all catalogs.
 
 ### Add a setting
-Four places, always together: `Settings` in `src/lib/ipc.ts` → `DEFAULT_SETTINGS` in `src/store/settings.ts` (plus `SHARED_KEYS` if it syncs across windows) → `Settings` + migration in `src-tauri/src/commands/theme.rs` → `SettingsView.tsx`. `schemaVersion` is 9.
+Four places: `Settings` in `src/lib/ipc.ts`; `DEFAULT_SETTINGS` + `SHARED_KEYS` in `src/store/settings.ts`; `Settings` + migration in `src-tauri/src/commands/theme.rs`; `SettingsView.tsx`. `schemaVersion` is 9.
 
 ### Add an editor extension
 Implement in `src/editor/`; always-on ones go into `setup.ts`, toggleable ones become a `Compartment` in `stateCache.ts` so switching only reconfigures.
 
 ### Add a theme
-Five places: `palettes.ts` (`ui` / `syntax` / `terminal` + `CYCLE_ORDER`), `apply.ts`, `cmTheme.ts`, `xtermTheme.ts`, `ThemeMenu.tsx`. Syntax colours live only in `syntax`, so `theme/syntax.ts` and the diff view follow automatically.
+Five places: `palettes.ts` (`ui` / `syntax` / `terminal` + `CYCLE_ORDER`), `apply.ts`, `cmTheme.ts`, `xtermTheme.ts`, `ThemeMenu.tsx`; syntax colours live only in `syntax`.
 
 ### Generated, do not hand-edit
 - `src/assets/fileIcons.generated.ts` ← `scripts/build-file-icons.mjs`
@@ -85,15 +85,16 @@ Five places: `palettes.ts` (`ui` / `syntax` / `terminal` + `CYCLE_ORDER`), `appl
 
 | Area | Limit |
 |---|---|
-| Memory profile | `src/lib/memoryBudget.ts` owns every memory limit; lightweight mode (`settings.lightweightMode`, off by default) sets it to `light`. Read `budget.*` / `feature.*` at use time, never a copied number |
+| Memory profile | `src/lib/memoryBudget.ts` owns every memory limit; lightweight mode (`settings.lightweightMode`, off by default) sets it to `light`. Read `budget.*` / `feature.*` at use time, never copy numbers |
 | EditorState / large files | LRU ≤8 states (≤2 heavy), ≤2M chars resident, eviction skips active/dirty tabs; >1MB no wrapping, >5MB read-only, >20MB refused. Light: 3 / 1 / 600k, 512KB / 2MB |
 | File tree | 200 entries per page, 20k scanned per directory, 30 cached dirs per root, ±10 row overscan; chain resolve for visible rows only, depth 16, concurrency 4 |
-| Quick open / search | index is one sorted `string[]` (no objects, no Set; lookup = binary search), built on the first ⌘P rather than on project open; ≤50k entries (10k light), 5 min TTL; search ≤2MB per file, ≤500 hits (200 light), 250ms debounce |
+| Quick open / search | one sorted `string[]` (binary search), built on first ⌘P; ≤50k entries (10k light), 5 min TTL; ≤2MB/file, ≤500 hits (200 light), 250ms debounce |
 | Blame / formatting | blame: current file only, 200ms debounce, 2MB / 5000 lines, 24-entry cache (off in light). Formatting: nothing above 500k chars, bundled Prettier on demand |
 | Text meta / restore | format probe ≤400 lines (first 200 chars each); restore ≤12 files (4 light), ≤2MB each, active file last so the LRU keeps it (session ≤20 tabs, 20 closed) |
-| Terminal | rAF-batched writes, 128KB backlog per frame; scrollback 2000 (1000 light); WebGL off by default; xterm instances stay alive (switching must keep the screen) |
-| Agent chats | one CLI per turn (max 4 running), transcript trimmed to 300 messages / 2MB before the atomic write, tool output 8KB, stderr 200 lines; only chats with an open tab stay in memory |
-| Git / memory | one `status --porcelain=v2 -z`, 350ms debounce, branch TTL 30s, no setState when the signature is unchanged; caches dropped after 30s unfocused (5s light); `app:hidden` also drops inactive EditorStates, search results, the ⌘P index |
+| Tabs | Memoized tab items; cached layout from ResizeObserver box sizes; width/viewport/layout changes commit once; no per-node layout reads |
+| Terminal | Per-terminal queues; rAF ≤128KB/frame; hidden/occluded views pause `term.write` and keep a 128KB tail, replaying on show; 80ms fallback; scrollback 2000 (1000 light); WebGL off by default; xterm instances stay alive |
+| Agent chats | one CLI/turn (max 4), transcript ≤300 messages / 2MB before atomic write, tool output 8KB, stderr 200 lines; only open chats stay in memory |
+| Git / memory | Fixed 28px rows, ±10 overscan, repo-local status and active path/id subscriptions; actions after hover/focus; one `status --porcelain=v2 -z`, 350ms debounce, branch TTL 30s, no setState when unchanged; caches drop after 30s unfocused (5s light); `app:hidden` drops inactive EditorStates, search results and the ⌘P index |
 
 ## Data & config
 

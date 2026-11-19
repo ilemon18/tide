@@ -6,6 +6,7 @@ import {
   type AgentEventPayload,
   type AgentMention,
   type AgentProviderInfo,
+  type AgentUsage,
   type TokenEstimate,
 } from '../lib/ipc'
 import {
@@ -20,6 +21,7 @@ import { t } from '../i18n'
 import { useSettings } from './settings'
 import { useTabs } from './tabs'
 import { activeRoot } from './workspace'
+import { normalizeAgentUsage } from '../lib/agentUsage'
 
 /**
  * One chat tab = one local CLI conversation.
@@ -54,6 +56,8 @@ export type AgentMessage = {
   command?: AgentDraft['command']
   skills?: AgentDraft['skills']
   items?: AgentItem[]
+  /** Provider-reported usage snapshot for this assistant turn */
+  usage?: AgentUsage
 }
 
 export type AgentChatStatus = 'idle' | 'running' | 'error' | 'cancelled'
@@ -250,7 +254,10 @@ function normalizeChat(raw: unknown): AgentChat | null {
   const messages = value.messages
     .filter((message) => message && (message.role === 'user' || message.role === 'assistant'))
     .map((message) => {
-      if (message.role !== 'user') return message
+      if (message.role !== 'user') {
+        const usage = normalizeAgentUsage(message.usage)
+        return usage ? { ...message, usage } : { ...message, usage: undefined }
+      }
       const command = isAgentCommandId(message.command) ? message.command : undefined
       const rawSkills = Array.isArray(message.skills) ? message.skills : []
       const skills = rawSkills.filter(isAgentSkillRef)
@@ -258,7 +265,9 @@ function normalizeChat(raw: unknown): AgentChat | null {
     })
   // A turn interrupted by a restart leaves an empty assistant bubble; the user message is enough
   const last = messages[messages.length - 1]
-  if (last && last.role === 'assistant' && (last.items?.length ?? 0) === 0) messages.pop()
+  if (last && last.role === 'assistant' && (last.items?.length ?? 0) === 0 && !last.usage) {
+    messages.pop()
+  }
   return {
     v: 1,
     id: value.id,
@@ -416,6 +425,14 @@ export const useAgent = create<AgentStore>((set, get) => {
     const last = messages[messages.length - 1]
     if (!last || last.role !== 'assistant') return chat
     messages[messages.length - 1] = { ...last, items: fn(last) }
+    return { ...chat, messages, updatedAt: Date.now() }
+  }
+
+  const patchLastAssistantUsage = (chat: AgentChat, usage: AgentUsage): AgentChat => {
+    const messages = chat.messages.slice()
+    const last = messages[messages.length - 1]
+    if (!last || last.role !== 'assistant') return chat
+    messages[messages.length - 1] = { ...last, usage }
     return { ...chat, messages, updatedAt: Date.now() }
   }
 
@@ -664,6 +681,16 @@ export const useAgent = create<AgentStore>((set, get) => {
         return
       }
 
+      if (event.kind === 'usage') {
+        const usage = normalizeAgentUsage(event.usage)
+        if (!usage) return
+        const next = patchLastAssistantUsage(chat, usage)
+        if (next === chat) return
+        set({ chats: { ...get().chats, [chatId]: next } })
+        schedulePersist(chatId)
+        return
+      }
+
       if (event.kind === 'done') {
         const running = { ...get().running }
         delete running[chatId]
@@ -714,6 +741,7 @@ export const useAgent = create<AgentStore>((set, get) => {
           !event.cancelled &&
           chat.sessionId &&
           last?.role === 'assistant' &&
+          !last.usage &&
           (last.items ?? []).every((item) => item.type !== 'text' && item.type !== 'tool') &&
           !retried.has(chatId)
         ) {

@@ -54,6 +54,20 @@ pub struct AgentEventPayload {
     pub event: AgentEvent,
 }
 
+/// Provider-reported usage for one assistant turn. `cost_usd` stays optional because some CLIs
+/// do not return a price at all; an explicit provider zero is `Some(0.0)` and must stay distinct.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentUsage {
+    pub input_tokens: u64,
+    pub cached_input_tokens: u64,
+    pub cache_write_input_tokens: u64,
+    pub output_tokens: u64,
+    pub reasoning_output_tokens: u64,
+    pub total_tokens: u64,
+    pub cost_usd: Option<f64>,
+}
+
 /// One provider-neutral stream event. The frontend reducer appends text to an item id,
 /// upserts tool cards by id, and closes the turn on `done`.
 #[derive(Clone, Debug, Serialize)]
@@ -94,6 +108,9 @@ pub enum AgentEvent {
     },
     Stderr {
         text: String,
+    },
+    Usage {
+        usage: AgentUsage,
     },
     Done {
         ok: bool,

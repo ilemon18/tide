@@ -71,6 +71,16 @@ function pushBacklog(ptyId: string, data: string) {
     if (!head) break
     entry.size -= head.length
   }
+  if (entry.size <= MAX_BACKLOG || entry.chunks.length === 0) return
+  const head = entry.chunks[0]
+  let keep = head.length - (entry.size - MAX_BACKLOG)
+  // Keep the retained tail on a complete UTF-16 surrogate pair.
+  if (keep > 0 && keep < head.length) {
+    const code = head.charCodeAt(keep)
+    if (code >= 0xdc00 && code <= 0xdfff) keep -= 1
+  }
+  entry.chunks[0] = head.slice(Math.max(0, keep))
+  entry.size = entry.chunks[0].length
 }
 
 /** Register an output handler and take back what accumulated while unmounted (caller writes backlog first) */

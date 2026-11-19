@@ -7,6 +7,7 @@ import { basename } from '../lib/paths'
 import { useT } from '../i18n'
 import { AgentMarkdown } from './AgentMarkdown'
 import { CommandChip, SkillChip } from './AgentTags'
+import { CopyButton } from './CopyButton'
 import { FileIcon } from './FileIcon'
 import { Icon } from './Icon'
 
@@ -34,6 +35,31 @@ function MentionRow({ root, mentions }: { root: string; mentions: AgentMention[]
   )
 }
 
+/** Plain-text user turn, including the command, skills, mentions and prompt. */
+export function serializeUserMessage(message: Message): string {
+  const parts: string[] = []
+  if (message.command) parts.push(`/${message.command}`)
+  for (const skill of message.skills ?? []) parts.push(`$${skill.name} (${skill.path})`)
+  for (const mention of message.mentions ?? []) parts.push(`@${mention.rel}`)
+  if (message.text) parts.push(message.text)
+  return parts.join('\n')
+}
+
+/** Plain-text assistant turn with every content block, tool title/input/output and diagnostic item. */
+export function serializeAssistantMessage(message: Message): string {
+  const parts: string[] = []
+  for (const item of message.items ?? []) {
+    if (item.type === 'tool') {
+      if (item.title) parts.push(item.title)
+      if (item.detail) parts.push(item.detail)
+      if (item.output) parts.push(item.output)
+    } else if (item.text) {
+      parts.push(item.text)
+    }
+  }
+  return parts.join('\n\n')
+}
+
 function ToolStatus({ status }: { status?: AgentItem['status'] }) {
   if (status === 'running') {
     return <Icon name="spinner" size={12} className="shrink-0 animate-spin text-muted" />
@@ -44,15 +70,24 @@ function ToolStatus({ status }: { status?: AgentItem['status'] }) {
   return <Icon name="check" size={12} className="shrink-0 text-success" />
 }
 
+const itemControlClass =
+  'h-5 w-5 opacity-0 transition-opacity duration-fast group-hover/item:opacity-100 group-focus-within/item:opacity-100'
+
 function ToolCard({ item }: { item: AgentItem }) {
   const t = useT()
+  const title = item.title ?? t('agent.tool')
   return (
-    <details className="group overflow-hidden rounded-[var(--r-popup)] border border-line-soft bg-panel">
+    <details className="group group/item overflow-hidden rounded-[var(--r-popup)] border border-line-soft bg-panel">
       <summary className="flex h-7 cursor-pointer list-none items-center gap-2 px-2.5 text-xs text-fg/80 hover:bg-hover">
         <ToolStatus status={item.status} />
-        <span className="min-w-0 flex-1 truncate font-mono text-[11px]">
-          {item.title ?? t('agent.tool')}
-        </span>
+        <span className="min-w-0 flex-1 truncate font-mono text-[11px]">{title}</span>
+        <CopyButton
+          text={title}
+          label={t('agent.copy.toolTitle')}
+          tip={t('agent.copy.toolTitle')}
+          iconOnly
+          className={itemControlClass}
+        />
         <Icon
           name="chevron-right"
           size={11}
@@ -61,16 +96,34 @@ function ToolCard({ item }: { item: AgentItem }) {
       </summary>
       <div className="flex flex-col gap-2 border-t border-line-soft px-2.5 py-2">
         {item.detail ? (
-          <div>
-            <div className="mb-0.5 text-2xs text-muted">{t('agent.toolInput')}</div>
+          <div className="group/item">
+            <div className="mb-0.5 flex min-h-5 items-center gap-1 text-2xs text-muted">
+              <span className="flex-1">{t('agent.toolInput')}</span>
+              <CopyButton
+                text={item.detail}
+                label={t('agent.copy.toolInput')}
+                tip={t('agent.copy.toolInput')}
+                iconOnly
+                className={itemControlClass}
+              />
+            </div>
             <pre className="max-h-[220px] overflow-auto whitespace-pre-wrap break-words rounded-[3px] bg-bg px-2 py-1 font-mono text-[11px] leading-relaxed text-fg/80">
               {item.detail}
             </pre>
           </div>
         ) : null}
         {item.output ? (
-          <div>
-            <div className="mb-0.5 text-2xs text-muted">{t('agent.toolOutput')}</div>
+          <div className="group/item">
+            <div className="mb-0.5 flex min-h-5 items-center gap-1 text-2xs text-muted">
+              <span className="flex-1">{t('agent.toolOutput')}</span>
+              <CopyButton
+                text={item.output}
+                label={t('agent.copy.toolOutput')}
+                tip={t('agent.copy.toolOutput')}
+                iconOnly
+                className={itemControlClass}
+              />
+            </div>
             <pre className="max-h-[320px] overflow-auto whitespace-pre-wrap break-words rounded-[3px] bg-bg px-2 py-1 font-mono text-[11px] leading-relaxed text-fg/80">
               {item.output}
             </pre>
@@ -85,13 +138,33 @@ function Item({ item }: { item: AgentItem }) {
   const t = useT()
   switch (item.type) {
     case 'text':
-      return <AgentMarkdown text={item.text} />
+      return (
+        <div className="group/item relative pr-6">
+          <div className="absolute right-0 top-0 z-10">
+            <CopyButton
+              text={item.text}
+              label={t('agent.copy.text')}
+              tip={t('agent.copy.text')}
+              iconOnly
+              className={itemControlClass}
+            />
+          </div>
+          <AgentMarkdown text={item.text} />
+        </div>
+      )
     case 'thinking':
       return (
-        <details className="text-xs text-muted">
+        <details className="group/item text-xs text-muted">
           <summary className="flex cursor-pointer list-none items-center gap-1 hover:text-fg/80">
             <Icon name="info" size={11} />
-            {t('agent.thinking')}
+            <span className="flex-1">{t('agent.thinking')}</span>
+            <CopyButton
+              text={item.text}
+              label={t('agent.copy.reasoning')}
+              tip={t('agent.copy.reasoning')}
+              iconOnly
+              className={itemControlClass}
+            />
           </summary>
           <div className="mt-1 whitespace-pre-wrap break-words border-l-2 border-line pl-2 text-[12px] leading-relaxed">
             {item.text}
@@ -102,17 +175,31 @@ function Item({ item }: { item: AgentItem }) {
       return <ToolCard item={item} />
     case 'error':
       return (
-        <div className="flex items-start gap-2 rounded-[var(--r-popup)] border border-danger/30 bg-danger/10 px-2.5 py-2 text-xs text-danger">
+        <div className="group/item flex items-start gap-2 rounded-[var(--r-popup)] border border-danger/30 bg-danger/10 px-2.5 py-2 text-xs text-danger">
           <Icon name="alert-circle" size={13} className="mt-0.5 shrink-0" />
-          <div className="min-w-0 whitespace-pre-wrap break-words">{item.text}</div>
+          <div className="min-w-0 flex-1 whitespace-pre-wrap break-words">{item.text}</div>
+          <CopyButton
+            text={item.text}
+            label={t('agent.copy.error')}
+            tip={t('agent.copy.error')}
+            iconOnly
+            className={itemControlClass}
+          />
         </div>
       )
     case 'log':
       return (
-        <details className="text-xs text-muted">
+        <details className="group/item text-xs text-muted">
           <summary className="flex cursor-pointer list-none items-center gap-1 hover:text-fg/80">
             <Icon name="terminal" size={11} />
-            {t('agent.logs')}
+            <span className="flex-1">{t('agent.logs')}</span>
+            <CopyButton
+              text={item.text}
+              label={t('agent.copy.logs')}
+              tip={t('agent.copy.logs')}
+              iconOnly
+              className={itemControlClass}
+            />
           </summary>
           <pre className="mt-1 max-h-[220px] overflow-auto whitespace-pre-wrap break-words rounded-[3px] bg-panel px-2 py-1 font-mono text-[11px] leading-relaxed">
             {item.text}
@@ -121,9 +208,16 @@ function Item({ item }: { item: AgentItem }) {
       )
     case 'notice':
       return (
-        <div className="flex min-h-[22px] items-center gap-1.5 text-xs text-muted">
+        <div className="group/item flex min-h-[22px] items-center gap-1.5 text-xs text-muted">
           <Icon name="info" size={11} className="shrink-0" />
-          <span className="min-w-0 whitespace-pre-wrap break-words">{item.text}</span>
+          <span className="min-w-0 flex-1 whitespace-pre-wrap break-words">{item.text}</span>
+          <CopyButton
+            text={item.text}
+            label={t('agent.copy.notice')}
+            tip={t('agent.copy.notice')}
+            iconOnly
+            className={itemControlClass}
+          />
         </div>
       )
     default:
@@ -138,24 +232,37 @@ export const UserMessage = memo(function UserMessage({
   root: string
   message: Message
 }) {
+  const t = useT()
+  const copyValue = serializeUserMessage(message)
   return (
-    <div className="flex max-w-[85%] flex-col gap-1.5 self-end rounded-[var(--r-popup)] border border-line-soft bg-panel px-3 py-2">
-      {message.command || (message.skills && message.skills.length > 0) ? (
-        <div className="flex flex-wrap gap-1">
-          {message.command ? <CommandChip id={message.command} /> : null}
-          {(message.skills ?? []).map((skill) => (
-            <SkillChip key={skill.path} skill={skill} />
-          ))}
+    <div className="group/reply group/item flex max-w-[85%] flex-col gap-1.5 self-end rounded-[var(--r-popup)] border border-line-soft bg-panel px-3 py-2">
+      <div className="flex items-start gap-2">
+        <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+          {message.command || (message.skills && message.skills.length > 0) ? (
+            <div className="flex flex-wrap gap-1">
+              {message.command ? <CommandChip id={message.command} /> : null}
+              {(message.skills ?? []).map((skill) => (
+                <SkillChip key={skill.path} skill={skill} />
+              ))}
+            </div>
+          ) : null}
+          {message.mentions && message.mentions.length > 0 ? (
+            <MentionRow root={root} mentions={message.mentions} />
+          ) : null}
+          {message.text ? (
+            <div className="whitespace-pre-wrap break-words text-sm leading-relaxed text-fg/90">
+              {message.text}
+            </div>
+          ) : null}
         </div>
-      ) : null}
-      {message.mentions && message.mentions.length > 0 ? (
-        <MentionRow root={root} mentions={message.mentions} />
-      ) : null}
-      {message.text ? (
-        <div className="whitespace-pre-wrap break-words text-sm leading-relaxed text-fg/90">
-          {message.text}
-        </div>
-      ) : null}
+        <CopyButton
+          text={copyValue}
+          label={t('agent.copy.userTurn')}
+          tip={t('agent.copy.userTurn')}
+          iconOnly
+          className={itemControlClass}
+        />
+      </div>
     </div>
   )
 })
@@ -169,13 +276,23 @@ export const AssistantMessage = memo(function AssistantMessage({
 }) {
   const t = useT()
   const items = message.items ?? []
+  const copyValue = serializeAssistantMessage(message)
   return (
-    <div className="flex gap-2">
+    <div className="group/reply group/item flex gap-2">
       {/* 22px box = one 22px reply line: the avatar centre and the first line centre coincide */}
       <div className="flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-[5px] bg-accent/15 text-accent">
         <Icon name="agent" size={13} />
       </div>
-      <div className="flex min-w-0 flex-1 flex-col gap-2">
+      <div className="relative flex min-w-0 flex-1 flex-col gap-2 pr-5">
+        <div className="absolute right-0 top-0 z-10">
+          <CopyButton
+            text={copyValue}
+            label={t('agent.copy.assistantReply')}
+            tip={t('agent.copy.assistantReply')}
+            iconOnly
+            className={itemControlClass}
+          />
+        </div>
         {items.length === 0 && running ? (
           <div className="flex min-h-[22px] items-center gap-1.5 text-xs text-muted">
             <Icon name="spinner" size={12} className="animate-spin" />

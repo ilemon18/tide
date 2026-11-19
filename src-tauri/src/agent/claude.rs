@@ -5,7 +5,7 @@ use std::path::Path;
 
 use serde_json::Value;
 
-use super::{uuid_v4, workspace_note, AgentEvent, AgentTurnRequest, Launch};
+use super::{uuid_v4, workspace_note, AgentEvent, AgentTurnRequest, AgentUsage, Launch};
 
 /// One process per user turn. The first turn names its own session so a follow-up can resume
 /// it; a restore keeps the id in the transcript.
@@ -81,6 +81,52 @@ fn content_text(content: Option<&Value>) -> String {
         Some(other) => other.to_string(),
         None => String::new(),
     }
+}
+
+fn token_count(usage: &Value, key: &str) -> u64 {
+    usage.get(key).and_then(Value::as_u64).unwrap_or(0)
+}
+
+fn has_token_count(usage: &Value) -> bool {
+    [
+        "input_tokens",
+        "cache_read_input_tokens",
+        "cache_creation_input_tokens",
+        "output_tokens",
+    ]
+    .iter()
+    .any(|key| usage.get(*key).and_then(Value::as_u64).is_some())
+}
+
+fn result_usage(value: &Value) -> Option<AgentUsage> {
+    let usage = value.get("usage").filter(|usage| usage.is_object());
+    let cost_usd = value
+        .get("total_cost_usd")
+        .and_then(Value::as_f64)
+        .filter(|cost| cost.is_finite() && *cost >= 0.0);
+    if !usage.is_some_and(has_token_count) && cost_usd.is_none() {
+        return None;
+    }
+    let usage = usage.unwrap_or(&Value::Null);
+    let input_tokens = token_count(usage, "input_tokens");
+    let cached_input_tokens = token_count(usage, "cache_read_input_tokens");
+    let cache_write_input_tokens = token_count(usage, "cache_creation_input_tokens");
+    let output_tokens = token_count(usage, "output_tokens");
+    // Claude reports reasoning as part of the output token stream, not as a separate field.
+    let reasoning_output_tokens = 0;
+    let total_tokens = input_tokens
+        .saturating_add(cached_input_tokens)
+        .saturating_add(cache_write_input_tokens)
+        .saturating_add(output_tokens);
+    Some(AgentUsage {
+        input_tokens,
+        cached_input_tokens,
+        cache_write_input_tokens,
+        output_tokens,
+        reasoning_output_tokens,
+        total_tokens,
+        cost_usd,
+    })
 }
 
 pub fn translate(line: &str, state: &mut State) -> Vec<AgentEvent> {
@@ -240,6 +286,9 @@ pub fn translate(line: &str, state: &mut State) -> Vec<AgentEvent> {
             }
         }
         "result" => {
+            if let Some(usage) = result_usage(&value) {
+                out.push(AgentEvent::Usage { usage });
+            }
             let failed = value.get("is_error").and_then(Value::as_bool).unwrap_or(false)
                 || value
                     .get("subtype")
@@ -319,5 +368,70 @@ mod tests {
         let mut state = State::default();
         let events = translate("warning: something", &mut state);
         assert!(matches!(&events[0], AgentEvent::Stderr { .. }));
+    }
+
+    #[test]
+    fn result_reports_cache_usage_and_cost() {
+        let mut state = State::default();
+        let events = translate(
+            r#"{"type":"result","subtype":"success","is_error":false,"total_cost_usd":0.0125,"usage":{"input_tokens":120,"cache_read_input_tokens":300,"cache_creation_input_tokens":40,"output_tokens":80}}"#,
+            &mut state,
+        );
+        let usage = events
+            .iter()
+            .find_map(|event| match event {
+                AgentEvent::Usage { usage } => Some(usage),
+                _ => None,
+            })
+            .expect("result should include usage");
+        assert_eq!(usage.input_tokens, 120);
+        assert_eq!(usage.cached_input_tokens, 300);
+        assert_eq!(usage.cache_write_input_tokens, 40);
+        assert_eq!(usage.output_tokens, 80);
+        assert_eq!(usage.reasoning_output_tokens, 0);
+        assert_eq!(usage.total_tokens, 540);
+        assert_eq!(usage.cost_usd, Some(0.0125));
+    }
+
+    #[test]
+    fn result_keeps_an_explicit_zero_cost() {
+        let mut state = State::default();
+        let events = translate(
+            r#"{"type":"result","subtype":"success","total_cost_usd":0,"usage":{}}"#,
+            &mut state,
+        );
+        let usage = events
+            .iter()
+            .find_map(|event| match event {
+                AgentEvent::Usage { usage } => Some(usage),
+                _ => None,
+            })
+            .expect("result should include usage");
+        assert_eq!(usage.cost_usd, Some(0.0));
+        assert_eq!(usage.total_tokens, 0);
+    }
+
+    #[test]
+    fn result_without_usage_or_cost_emits_no_usage_event() {
+        let mut state = State::default();
+        let events = translate(
+            r#"{"type":"result","subtype":"success","is_error":false}"#,
+            &mut state,
+        );
+        assert!(!events
+            .iter()
+            .any(|event| matches!(event, AgentEvent::Usage { .. })));
+    }
+
+    #[test]
+    fn empty_usage_without_cost_emits_no_usage_event() {
+        let mut state = State::default();
+        let events = translate(
+            r#"{"type":"result","subtype":"success","is_error":false,"usage":{}}"#,
+            &mut state,
+        );
+        assert!(!events
+            .iter()
+            .any(|event| matches!(event, AgentEvent::Usage { .. })));
     }
 }

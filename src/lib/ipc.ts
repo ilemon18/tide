@@ -356,6 +356,17 @@ export type AgentTurnRequest = {
   mentions: AgentMention[]
 }
 
+/** Provider-reported usage for one assistant turn. `null` cost means the provider omitted it. */
+export type AgentUsage = {
+  inputTokens: number
+  cachedInputTokens: number
+  cacheWriteInputTokens: number
+  outputTokens: number
+  reasoningOutputTokens: number
+  totalTokens: number
+  costUsd: number | null
+}
+
 /** One provider-neutral stream event; text and tool items are keyed by id */
 export type AgentEvent =
   | { kind: 'session'; sessionId: string }
@@ -366,6 +377,7 @@ export type AgentEvent =
   | { kind: 'toolEnd'; itemId: string; ok: boolean; output: string | null }
   | { kind: 'notice'; text: string }
   | { kind: 'stderr'; text: string }
+  | { kind: 'usage'; usage: AgentUsage }
   | { kind: 'done'; ok: boolean; cancelled: boolean; code: number | null }
 
 export type AgentEventPayload = { chatId: string; event: AgentEvent }

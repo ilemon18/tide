@@ -1,16 +1,13 @@
 # Built-in agent
 
-The agent layer runs local CLI agents (Claude Code, Codex) against the open workspace. It is
-not a protocol implementation: one user turn = one headless CLI process, resumed by session id
-on the next turn. That survives restarts and leaves auth, models and tool loops to the CLIs.
+The agent layer runs local Claude/Codex CLIs; one user turn = one headless process, resumed by
+session id. Auth, model selection and tool loops stay in the CLIs.
 
 ## Entry points
 
-Every entry opens a new chat tab (`kind: 'chat'`, id `chat:<chatId>`) in the right
-pane; there is no separate popover. The first new chat creates a row split with
-the existing editor content untouched in primary and a 60/40 primary/chat width.
-An existing split keeps its current ratio, moves the new chat into secondary and
-switches a column split to row.
+Every entry opens a chat tab (`kind: 'chat'`, id `chat:<chatId>`) in the right pane. The first chat
+creates a 60/40 row split; an existing split keeps its ratio, moves chat to secondary and converts
+a column split to row.
 
 - Title bar sparkle button → new chat for the active workspace (hidden when `agentEnabled` is off).
 - Explorer row double-click (file or folder) → new chat whose composer already holds the
@@ -30,10 +27,8 @@ composer) and starts the next turn when `done` arrives, reusing the same CLI ses
 Stop ends the current turn and drains the queue immediately; the transcript keeps the queue out
 until it is actually sent.
 
-The provider scan is warmed shortly after first paint (and again when the setting is turned back
-on), then cached for the session; the settings page can rescan on demand. While any scan is active,
-`loadProviders` ignores new requests (including forced rescans), the button shows the existing
-scanning label and stays disabled, and a failed refresh keeps the last provider list visible.
+Provider scan warms after first paint and is cached per session; Settings can rescan. While scanning,
+`loadProviders` ignores new/forced requests and a failed refresh keeps the old provider list.
 
 ## Code map
 
@@ -44,6 +39,9 @@ scanning label and stays disabled, and a failed refresh keeps the last provider 
 - `src/lib/agentBridge.ts`: one-way tab-close callback (avoids a tabs ↔ agent import cycle).
 - `src/components/AgentChat.tsx`, `AgentComposer.tsx`,
   `AgentMessage.tsx`, `AgentMarkdown.tsx`, `AgentPickers.tsx`, `AgentTags.tsx`.
+- `src/lib/agentDuration.ts`, `agentUsage.ts`, `clipboard.ts` and
+  `src/components/CopyButton.tsx`: duration formatting, usage normalization/cumulative cost,
+  shared clipboard fallback and copy affordance.
 - `src/lib/agentCommand.ts`: command catalog, `/` `$` trigger detection, skill ranking and
   prompt assembly.
 - `src-tauri/src/commands/agent.rs`: spawn/cancel turns, skill scan, chat and tab persistence.
@@ -52,15 +50,15 @@ scanning label and stays disabled, and a failed refresh keeps the last provider 
 
 ## Turn lifecycle
 
-1. `agent_send` authorizes the workspace root, resolves the provider binary, builds the args,
-   spawns the CLI with cwd = root, writes the prompt to **stdin** (never argv), then returns.
+1. `agent_send` authorizes the root, resolves the binary, builds args, spawns with cwd = root, writes
+   the prompt to **stdin** (never argv), then returns.
 2. A reader thread parses stdout JSONL into `session | textDelta | thinking | toolStart |
-   toolDetail | toolEnd | notice | stderr | done`; a merge thread coalesces text deltas (24ms)
+   toolDetail | toolEnd | usage | notice | stderr | done`; a merge thread coalesces text deltas (24ms)
    before emitting `agent:event` to the window.
-3. The frontend reducer appends text to an item id, upserts tool cards, stores the CLI session id
-   and closes the turn on `done`.
-4. Stop / window close / app exit / disabling the agent kill the process group (setsid on Unix,
-   `taskkill /T` on Windows). At most 4 turns run at once; one turn per chat.
+3. The frontend reducer appends text to an item id, upserts tool cards, stores the CLI session id,
+   attaches usage to the latest assistant message and closes the turn on `done`.
+4. Stop / close / exit / disable kills the process group (setsid on Unix, `taskkill /T` on Windows).
+   At most 4 turns run; one per chat.
 
 ## Composer commands and skills
 
@@ -85,15 +83,29 @@ scanning label and stays disabled, and a failed refresh keeps the last provider 
 - Codex: `codex exec [resume <thread>] --json --skip-git-repo-check` (with `-C <root>` on the
   first turn), plus
   `-c sandbox_mode="workspace-write" -c approval_policy="never"`; the prompt is `-` (stdin).
-- Empty `model` / `effort` means **no flag**: Codex and Claude keep the model
-  their own config selects (custom providers included). Tide never edits those config files and must
-  not auto-fill a catalog model; only an explicit pick in Settings or the chat picker is passed.
+- Empty `model` / `effort` means **no flag**: providers keep their configured model, including custom
+  providers. Tide never edits those configs or auto-fills a catalog model.
 - A resumed session that no longer exists is retried once without the id, with a visible notice.
+
+## Duration, copy and usage
+
+- Duration is compact/locale-independent: `3s`, `12m 03s`, `1h 02m 03s` (floored). Only
+  `RunningStatus` ticks each second; never rerender the transcript for the timer.
+- Chat content remains selectable. `CopyButton` is shown on hover/focus for complete user turns,
+  assistant replies, text/thinking blocks, tools (title/input/output), errors, notices, logs and
+  queued messages. User turns include command/skills/mentions/prompt; queue entries include command,
+  skills, mentions and text. Fenced code uses the same shared clipboard helper and failure toast.
+- `AgentUsage` is optional per assistant message. Repeated token events in one turn replace the
+  snapshot, not double-count. Transcript `v: 1` is unchanged; malformed usage is ignored/normalized.
+- Claude reports token/cache fields and `total_cost_usd`; an explicit zero displays `$0.00`. Codex
+  reports tokens but no price, so `costUsd` is `null` and the UI shows localized cost-unavailable.
+  A cumulative total containing any priced and unpriced history is unavailable, never partial.
 
 ## Persistence
 
 - `<appConfig>/agent/chats/<id>.json`: opaque frontend-owned transcript JSON, atomic write,
-  8MB hard cap. Trimmed to 300 messages / 2MB before saving.
+  8MB hard cap. Trimmed to 300 messages / 2MB before saving. Keep `v: 1`; old transcripts without
+  usage must load normally.
 - `<appConfig>/agent/tabs.json`: open chat tabs (max 8) + active chat; primary window only.
 - Both are flushed on `app:hidden` / `beforeunload`.
 
@@ -103,16 +115,16 @@ Add a `ProviderSpec` row in `agent/providers.rs`, an argument builder + JSONL tr
 `claude.rs`, its model catalog (or a curated one), and map its events to the same
 `AgentEvent`. Detected-but-unsupported CLIs stay in the settings list with a hint.
 
-## Draft token estimates
+## Token budget
 
-- `src/components/AgentTokenBudget.tsx` renders a compact status ring immediately left of the
-  composer's send button, including while a turn is running. No count is shown in the toolbar;
-  hover exposes the estimate and clicking opens the total and per-source breakdown.
-  Escape, an outside click or the close button dismisses the breakdown.
+- `src/components/AgentTokenBudget.tsx` renders a compact ring left of Send, including while running.
+  Hover shows the draft estimate; click opens cumulative/latest details; Escape/outside/close dismiss.
 - Ring color indicates estimate size: neutral at zero, accent through 100k, warning above 100k,
   danger above 150k. A center dot also distinguishes the warning states. This is a size
   indicator, not a model context-window percentage.
-- Draft changes are debounced by 300ms. `agent_estimate_tokens` includes command/skill prompt
-  wrappers and disk file sizes without loading file contents. It excludes session history,
-  directory contents and CLI overhead. Stale responses are discarded; chat close clears estimates.
+- Compact text shows cumulative tokens/cost; details show cumulative and latest-turn input,
+  cached input, cache write, output, reasoning, total and cost.
+- Drafts debounce 300ms. `agent_estimate_tokens` includes command/skill wrappers and file sizes
+  without contents; it excludes history, directory contents and CLI overhead. Stale responses are
+  discarded and chat close clears estimates.
 - File references are selected explicitly through the `@` picker or explorer entry points.

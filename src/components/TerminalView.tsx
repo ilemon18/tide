@@ -46,6 +46,14 @@ export function TerminalView({ tab, active }: Props) {
   const termRef = useRef<Terminal | null>(null)
   const fitRef = useRef<FitAddon | null>(null)
   const ptyRef = useRef<string | null>(null)
+  const activeRef = useRef(active)
+  const panelOpenRef = useRef(useTerminal.getState().visible)
+  const documentVisibleRef = useRef(
+    typeof document === 'undefined' || document.visibilityState === 'visible',
+  )
+  const flushOutputRef = useRef<() => void>(() => {})
+
+  const panelOpen = useTerminal((s) => s.visible)
 
   const palette = useSettings((s) => s.palette)
   const fontSize = useSettings((s) => s.terminalFontSize)
@@ -134,15 +142,109 @@ export function TerminalView({ tab, active }: Props) {
 
     safeFit()
 
-    // Hand data straight to xterm (it batches per frame). Do not wrap in requestAnimationFrame:
-    // rAF is throttled while the window is occluded, so output looks stuck until the user clicks.
-    const enqueue = (data: string) => {
-      if (disposed) return
-      try {
-        term.write(data)
-      } catch {
-        /* already disposed */
+    const MAX_WRITE = 128 * 1024
+    const MAX_HIDDEN_QUEUE = 128 * 1024
+    let outputQueue: string[] = []
+    let outputSize = 0
+    let flushRaf = 0
+    let flushTimer: ReturnType<typeof setTimeout> | null = null
+    let writing = false
+
+    const canWrite = () =>
+      !disposed && activeRef.current && panelOpenRef.current && documentVisibleRef.current
+
+    const trimOutputQueue = () => {
+      while (outputSize > MAX_HIDDEN_QUEUE && outputQueue.length > 1) {
+        const head = outputQueue.shift()
+        if (!head) break
+        outputSize -= head.length
       }
+      if (outputSize <= MAX_HIDDEN_QUEUE || outputQueue.length === 0) return
+      const head = outputQueue[0]
+      let keep = head.length - (outputSize - MAX_HIDDEN_QUEUE)
+      // Do not start a retained tail in the middle of a UTF-16 surrogate pair.
+      if (keep > 0 && keep < head.length) {
+        const code = head.charCodeAt(keep)
+        if (code >= 0xdc00 && code <= 0xdfff) keep -= 1
+      }
+      outputQueue[0] = head.slice(Math.max(0, keep))
+      outputSize = outputQueue[0].length
+    }
+
+    const clearFlushSchedule = () => {
+      if (flushRaf) cancelAnimationFrame(flushRaf)
+      if (flushTimer) clearTimeout(flushTimer)
+      flushRaf = 0
+      flushTimer = null
+    }
+
+    const scheduleFlush = () => {
+      if (disposed || writing || outputSize === 0 || !canWrite()) return
+      if (flushRaf || flushTimer) return
+      // rAF is normally the right cadence, but an occluded WKWebView can throttle it for seconds.
+      flushTimer = setTimeout(flush, 80)
+      flushRaf = requestAnimationFrame(flush)
+    }
+
+    const takeChunk = (): string => {
+      let remaining = MAX_WRITE
+      const pieces: string[] = []
+      while (remaining > 0 && outputQueue.length > 0) {
+        const head = outputQueue[0]
+        if (head.length <= remaining) {
+          outputQueue.shift()
+          outputSize -= head.length
+          pieces.push(head)
+          remaining -= head.length
+          continue
+        }
+        let split = remaining
+        // Never leave half of a surrogate pair on either side of a frame boundary.
+        if (split > 0 && split < head.length) {
+          const next = head.charCodeAt(split)
+          const previous = head.charCodeAt(split - 1)
+          if (next >= 0xdc00 && next <= 0xdfff && previous >= 0xd800 && previous <= 0xdbff) {
+            split -= 1
+            // At the one-unit edge, take the pair together rather than making no progress.
+            if (split === 0) split = Math.min(head.length, remaining + 1)
+          }
+        }
+        pieces.push(head.slice(0, split))
+        outputQueue[0] = head.slice(split)
+        outputSize -= split
+        remaining = 0
+      }
+      return pieces.join('')
+    }
+
+    function flush() {
+      clearFlushSchedule()
+      if (disposed || writing || outputSize === 0 || !canWrite()) return
+      writing = true
+      const chunk = takeChunk()
+      try {
+        term.write(chunk, () => {
+          writing = false
+          scheduleFlush()
+        })
+      } catch {
+        writing = false
+      }
+    }
+
+    /** Queue output locally. Hidden terminals keep only the newest 128 KiB tail. */
+    const enqueue = (data: string) => {
+      if (disposed || !data) return
+      outputQueue.push(data)
+      outputSize += data.length
+      if (!canWrite()) trimOutputQueue()
+      scheduleFlush()
+    }
+
+    flushOutputRef.current = () => {
+      if (!canWrite()) trimOutputQueue()
+      flush()
+      scheduleFlush()
     }
 
     /** Take over an existing PTY and replay output buffered while unmounted */
@@ -406,6 +508,10 @@ export function TerminalView({ tab, active }: Props) {
       offDrag()
       if (fitRaf) cancelAnimationFrame(fitRaf)
       fitRaf = 0
+      clearFlushSchedule()
+      outputQueue = []
+      outputSize = 0
+      flushOutputRef.current = () => {}
       try {
         dataSub.dispose()
       } catch {
@@ -434,6 +540,34 @@ export function TerminalView({ tab, active }: Props) {
     }
     // Create only on mount
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => {
+    activeRef.current = active
+    flushOutputRef.current()
+  }, [active])
+
+  useEffect(() => {
+    panelOpenRef.current = panelOpen
+    flushOutputRef.current()
+  }, [panelOpen])
+
+  // Visibility changes can stop rAF entirely; resume the per-terminal queue as soon as it runs again.
+  useEffect(() => {
+    const onVisibility = () => {
+      documentVisibleRef.current = document.visibilityState === 'visible'
+      flushOutputRef.current()
+    }
+    const onFocus = () => {
+      documentVisibleRef.current = true
+      flushOutputRef.current()
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+    window.addEventListener('focus', onFocus)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility)
+      window.removeEventListener('focus', onFocus)
+    }
   }, [])
 
   // Back from another app / minimized: WKWebView paused rendering, so xterm's glyph cache may be

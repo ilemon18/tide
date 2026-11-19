@@ -1,4 +1,14 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import {
+  createContext,
+  memo,
+  useCallback,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import { useWorkspace } from '../store/workspace'
 import { useGit } from '../store/git'
 import { useTabs } from '../store/tabs'
@@ -6,7 +16,7 @@ import { useBlame } from '../store/blame'
 import { Icon, type IconName } from './Icon'
 import { FileIcon } from './FileIcon'
 import { ContextMenu, type MenuItem } from './ContextMenu'
-import type { GitFile, GitStatus } from '../lib/ipc'
+import type { GitFile } from '../lib/ipc'
 import { basename, dirname } from '../lib/paths'
 import { beginFilePointerDrag, wasFileDragJustFinished } from '../lib/fileDragState'
 import { useT, type MessageKey } from '../i18n'
@@ -37,6 +47,20 @@ const OP_SUBMIT_LABEL: Record<string, MessageKey> = {
 }
 
 const COMMIT_MAX_H = 120
+const FILE_ROW_H = 28
+const FILE_ROW_OVERSCAN = 10
+
+type RowAction = { icon: IconName; title: string; run: () => void }
+type RowActionFactory = (file: GitFile) => RowAction[]
+type ClickFile = (file: GitFile) => void
+type GitScrollState = {
+  scrollTop: number
+  viewportHeight: number
+  layoutVersion: number
+  scrollerRef: React.RefObject<HTMLDivElement | null>
+}
+
+const GitScrollContext = createContext<GitScrollState | null>(null)
 
 /** Commit message starts at one line, grows with content, scrolls internally past the cap */
 function resizeCommitBox(el: HTMLTextAreaElement) {
@@ -84,8 +108,201 @@ function ActionButton({
   )
 }
 
-function RepoSection({ root, status }: { root: { id: string; name: string }; status: GitStatus | undefined }) {
+type GitFileRowProps = {
+  index: number
+  file: GitFile
+  active: boolean
+  busy: boolean
+  conflictGroup: boolean
+  rootId: string
+  rowActions: RowActionFactory
+  onClickFile: ClickFile
+}
+
+/** A fixed-height row so only the visible slice needs to exist. Actions are created after hover/focus. */
+const GitFileRow = memo(function GitFileRow({
+  index,
+  file,
+  active,
+  busy,
+  conflictGroup,
+  rootId,
+  rowActions,
+  onClickFile,
+}: GitFileRowProps) {
+  const [actionsVisible, setActionsVisible] = useState(false)
+  const hovered = useRef(false)
+  const focused = useRef(false)
+
+  const updateActions = () => setActionsVisible(hovered.current || focused.current)
+  const openFile = () => {
+    if (wasFileDragJustFinished()) return
+    onClickFile(file)
+  }
+
+  return (
+    <div
+      onPointerDown={(event) => {
+        if ((event.target as HTMLElement).closest('button')) return
+        beginFilePointerDrag(event, { root: rootId, rel: file.path })
+      }}
+      onClick={openFile}
+      onPointerEnter={() => {
+        hovered.current = true
+        updateActions()
+      }}
+      onPointerLeave={() => {
+        hovered.current = false
+        updateActions()
+      }}
+      onFocusCapture={() => {
+        focused.current = true
+        updateActions()
+      }}
+      onBlurCapture={(event) => {
+        focused.current = event.currentTarget.contains(event.relatedTarget)
+        updateActions()
+      }}
+      onKeyDown={(event) => {
+        if (event.target !== event.currentTarget || (event.key !== 'Enter' && event.key !== ' ')) return
+        event.preventDefault()
+        openFile()
+      }}
+      tabIndex={0}
+      data-active={active}
+      className={`group absolute left-0 right-0 top-0 flex h-7 cursor-default items-center gap-1.5 overflow-hidden pl-7 pr-2 text-sm text-fg/90 row-hover ${
+        active ? 'git-file-row-active' : ''
+      }`}
+      style={{ transform: `translateY(${index * FILE_ROW_H}px)` }}
+      title={file.path}
+    >
+      <FileIcon name={basename(file.path)} size={14} className="shrink-0" />
+      {/* The name comes first and keeps priority: the directory only gets leftover room,
+          shrinks away far sooner, and what stays visible is its closest segments */}
+      <span className="min-w-0 shrink truncate">{basename(file.path)}</span>
+      {dirname(file.path) ? (
+        <span className="git-file-dir min-w-0 max-w-[60%] shrink-[999] text-2xs text-muted/70">
+          <span>{dirname(file.path)}</span>
+        </span>
+      ) : null}
+      {/* The status letter keeps its slot at the row end but fades on hover: action buttons cover it */}
+      <span className="ml-auto shrink-0 transition-opacity group-hover:opacity-0">
+        <StatusBadge status={file.status} conflict={conflictGroup} />
+      </span>
+      {actionsVisible ? (
+        <span className="row-actions-float absolute inset-y-0 right-1.5 flex items-center gap-0.5 pl-5">
+          {rowActions(file).map((action) => (
+            <button
+              key={action.title}
+              disabled={busy}
+              data-tip={action.title}
+              aria-label={action.title}
+              onClick={(event) => {
+                event.stopPropagation()
+                action.run()
+              }}
+              className="flex h-[18px] w-[18px] items-center justify-center rounded-[4px] text-muted hover:bg-hover-strong hover:text-fg"
+            >
+              <Icon name={action.icon} size={12} />
+            </button>
+          ))}
+        </span>
+      ) : null}
+    </div>
+  )
+})
+
+type VirtualFileRowsProps = {
+  rootId: string
+  files: GitFile[]
+  busy: boolean
+  conflictGroup: boolean
+  rowActions: RowActionFactory
+  onClickFile: ClickFile
+}
+
+function VirtualFileRows({
+  rootId,
+  files,
+  busy,
+  conflictGroup,
+  rowActions,
+  onClickFile,
+}: VirtualFileRowsProps) {
+  const scroll = useContext(GitScrollContext)
+  const activeRel = useTabs((state) => {
+    const active = state.tabs.find((tab) => tab.id === state.activeId)
+    return active &&
+      active.root === rootId &&
+      (active.kind === 'file' || active.kind === 'diff')
+      ? active.rel
+      : null
+  })
+  const bodyRef = useRef<HTMLDivElement>(null)
+  const bodyTop = useRef(0)
+  const [range, setRange] = useState(() => ({
+    start: 0,
+    end: Math.min(files.length, FILE_ROW_OVERSCAN * 2),
+  }))
+  const scrollTop = scroll?.scrollTop ?? 0
+  const viewportHeight = scroll?.viewportHeight ?? 0
+  const layoutVersion = scroll?.layoutVersion ?? 0
+
+  // The repository section above this list can grow/shrink (commit box, operation card). Cache the
+  // body offset when that layout changes; scrolling then only needs the cheap slice arithmetic.
+  useLayoutEffect(() => {
+    const scroller = scroll?.scrollerRef.current
+    const body = bodyRef.current
+    if (!scroller || !body) return
+    bodyTop.current =
+      body.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop
+  }, [files, layoutVersion, scroll?.scrollerRef, rootId])
+
+  useLayoutEffect(() => {
+    const viewTop = scrollTop
+    const viewBottom = viewTop + viewportHeight
+    const start = Math.max(
+      0,
+      Math.floor((viewTop - bodyTop.current) / FILE_ROW_H) - FILE_ROW_OVERSCAN,
+    )
+    const end = Math.min(
+      files.length,
+      Math.max(start, Math.ceil((viewBottom - bodyTop.current) / FILE_ROW_H) + FILE_ROW_OVERSCAN),
+    )
+    setRange((previous) =>
+      previous.start === start && previous.end === end ? previous : { start, end },
+    )
+  }, [files.length, layoutVersion, scrollTop, viewportHeight])
+
+  return (
+    <div ref={bodyRef} className="relative" style={{ height: files.length * FILE_ROW_H }}>
+      {files.slice(range.start, range.end).map((file, offset) => {
+        const index = range.start + offset
+        return (
+          <GitFileRow
+            key={file.path}
+            index={index}
+            file={file}
+            active={activeRel === file.path}
+            busy={busy}
+            conflictGroup={conflictGroup}
+            rootId={rootId}
+            rowActions={rowActions}
+            onClickFile={onClickFile}
+          />
+        )
+      })}
+    </div>
+  )
+}
+
+const RepoSection = memo(function RepoSection({
+  root,
+}: {
+  root: { id: string; name: string }
+}) {
   const t = useT()
+  const status = useGit((s) => s.statuses[root.id])
   const busy = useGit((s) => s.busy)
   const refresh = useGit((s) => s.refresh)
   const stage = useGit((s) => s.stage)
@@ -112,15 +329,6 @@ function RepoSection({ root, status }: { root: { id: string; name: string }; sta
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-
-  // The file open in the editor stays marked in the Git list too (VSCode does this in Source Control).
-  // A diff tab points at the same rel, so both file and diff tabs highlight the row.
-  const activeRel = useTabs((s) => {
-    const tab = s.tabs.find((t) => t.id === s.activeId)
-    return tab && tab.root === root.id && (tab.kind === 'file' || tab.kind === 'diff')
-      ? tab.rel
-      : null
-  })
 
   const operation = status?.operation ?? null
   const opKey = operation ? `${operation.kind}\u0000${status?.pendingMessage ?? ''}` : ''
@@ -212,24 +420,71 @@ function RepoSection({ root, status }: { root: { id: string; name: string }; sta
    * Row shortcut on the left of the stage / discard buttons: jump straight into the worktree file when the
    * diff is not what is needed. A file deleted from the worktree has nothing to open, so it gets none.
    */
-  const openFileAction = (file: GitFile) =>
-    file.status.includes('D')
-      ? []
-      : [
-          {
-            title: t('diff.openFile'),
-            icon: 'pen' as IconName,
-            run: () => void openFile(root.id, file.path),
-          },
-        ]
+  const openFileAction = useCallback(
+    (file: GitFile): RowAction[] =>
+      file.status.includes('D')
+        ? []
+        : [
+            {
+              title: t('diff.openFile'),
+              icon: 'pen',
+              run: () => void openFile(root.id, file.path),
+            },
+          ],
+    [openFile, root.id, t],
+  )
+
+  const onClickConflictFile = useCallback(
+    (file: GitFile) => void openFile(root.id, file.path),
+    [openFile, root.id],
+  )
+  const onClickStagedFile = useCallback(
+    (file: GitFile) => void openDiff(root.id, file.path, true),
+    [openDiff, root.id],
+  )
+  const onClickChangedFile = useCallback(
+    (file: GitFile) => void openDiff(root.id, file.path, false),
+    [openDiff, root.id],
+  )
+
+  const conflictRowActions = useCallback(
+    (file: GitFile): RowAction[] => [
+      { title: t('git.markResolved'), icon: 'check', run: () => void stage(root.id, [file.path]) },
+      {
+        title: t('git.regenerateMarkers'),
+        icon: 'undo',
+        run: () => void resetConflict(root.id, file.path),
+      },
+    ],
+    [resetConflict, root.id, stage, t],
+  )
+  const stagedRowActions = useCallback(
+    (file: GitFile): RowAction[] => [
+      ...openFileAction(file),
+      { title: t('git.unstage'), icon: 'minus', run: () => void unstage(root.id, [file.path]) },
+    ],
+    [openFileAction, root.id, t, unstage],
+  )
+  const changedRowActions = useCallback(
+    (file: GitFile): RowAction[] => [
+      ...openFileAction(file),
+      { title: t('git.stage'), icon: 'plus', run: () => void stage(root.id, [file.path]) },
+      {
+        title: file.status === '?' ? t('git.deleteFile') : t('git.discardChanges'),
+        icon: file.status === '?' ? 'trash' : 'undo',
+        run: () => void discard(root.id, [file.path]),
+      },
+    ],
+    [discard, openFileAction, root.id, stage, t],
+  )
 
   const renderGroup = (
     key: string,
     title: string,
     files: GitFile[],
     actions: { label: string; icon: IconName; run: () => void; disabled?: boolean }[],
-    onClickFile: (file: GitFile) => void,
-    rowActions: (file: GitFile) => { icon: IconName; title: string; run: () => void }[],
+    onClickFile: ClickFile,
+    rowActions: RowActionFactory,
     conflictGroup = false,
   ) => {
     if (files.length === 0) return null
@@ -262,57 +517,16 @@ function RepoSection({ root, status }: { root: { id: string; name: string }; sta
           </div>
         </div>
 
-        {!isCollapsed
-          ? files.map((file) => (
-              <div
-                key={`${key}:${file.path}`}
-                onPointerDown={(e) => {
-                  if ((e.target as HTMLElement).closest('button')) return
-                  beginFilePointerDrag(e, { root: root.id, rel: file.path })
-                }}
-                onClick={() => {
-                  if (wasFileDragJustFinished()) return
-                  onClickFile(file)
-                }}
-                data-active={activeRel === file.path}
-                className={`group relative flex cursor-default items-center gap-1.5 py-[4px] pl-7 pr-2 text-sm text-fg/90 row-hover ${
-                  activeRel === file.path ? 'git-file-row-active' : ''
-                }`}
-                title={file.path}
-              >
-                <FileIcon name={basename(file.path)} size={14} className="shrink-0" />
-                {/* The name comes first and keeps priority: the directory only gets leftover room,
-                    shrinks away far sooner, and what stays visible is its closest segments */}
-                <span className="min-w-0 shrink truncate">{basename(file.path)}</span>
-                {dirname(file.path) ? (
-                  <span className="git-file-dir min-w-0 max-w-[60%] shrink-[999] text-2xs text-muted/70">
-                    <span>{dirname(file.path)}</span>
-                  </span>
-                ) : null}
-                {/* The status letter keeps its slot at the row end but fades on hover: action buttons cover it */}
-                <span className="ml-auto shrink-0 transition-opacity group-hover:opacity-0">
-                  <StatusBadge status={file.status} conflict={conflictGroup} />
-                </span>
-                {/* Actions float above the file name: no row width taken, long names can run to the edge */}
-                <span className="row-actions-float invisible absolute inset-y-0 right-1.5 flex items-center gap-0.5 pl-5 group-hover:visible">
-                  {rowActions(file).map((action) => (
-                    <button
-                      key={action.title}
-                      disabled={busy !== null}
-                      data-tip={action.title}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        action.run()
-                      }}
-                      className="flex h-[18px] w-[18px] items-center justify-center rounded-[4px] text-muted hover:bg-hover-strong hover:text-fg"
-                    >
-                      <Icon name={action.icon} size={12} />
-                    </button>
-                  ))}
-                </span>
-              </div>
-            ))
-          : null}
+        {!isCollapsed ? (
+          <VirtualFileRows
+            rootId={root.id}
+            files={files}
+            busy={busy !== null}
+            conflictGroup={conflictGroup}
+            rowActions={rowActions}
+            onClickFile={onClickFile}
+          />
+        ) : null}
       </div>
     )
   }
@@ -496,15 +710,8 @@ function RepoSection({ root, status }: { root: { id: string; name: string }; sta
         [],
         // Conflict files open the worktree file directly: the user's own edits stay visible and the
         // editor's "accept current / accept incoming / accept both" buttons keep working
-        (file) => void openFile(root.id, file.path),
-        (file) => [
-          { title: t('git.markResolved'), icon: 'check', run: () => void stage(root.id, [file.path]) },
-          {
-            title: t('git.regenerateMarkers'),
-            icon: 'undo',
-            run: () => void resetConflict(root.id, file.path),
-          },
-        ],
+        onClickConflictFile,
+        conflictRowActions,
         true,
       )}
 
@@ -513,11 +720,8 @@ function RepoSection({ root, status }: { root: { id: string; name: string }; sta
         t('git.section.staged'),
         status.staged,
         [{ label: t('git.unstageAll'), icon: 'minus', run: () => void unstage(root.id, status.staged.map((f) => f.path)) }],
-        (file) => void openDiff(root.id, file.path, true),
-        (file) => [
-          ...openFileAction(file),
-          { title: t('git.unstage'), icon: 'minus', run: () => void unstage(root.id, [file.path]) },
-        ],
+        onClickStagedFile,
+        stagedRowActions,
       )}
 
       {renderGroup(
@@ -533,27 +737,80 @@ function RepoSection({ root, status }: { root: { id: string; name: string }; sta
             run: () => void discardAllChanges(root.id),
           },
         ],
-        (file) => void openDiff(root.id, file.path, false),
-        (file) => [
-          ...openFileAction(file),
-          { title: t('git.stage'), icon: 'plus', run: () => void stage(root.id, [file.path]) },
-          { title: file.status === '?' ? t('git.deleteFile') : t('git.discardChanges'), icon: file.status === '?' ? 'trash' : 'undo', run: () => void discard(root.id, [file.path]) },
-        ],
+        onClickChangedFile,
+        changedRowActions,
       )}
     </div>
   )
-}
+})
 
 export function GitPanel() {
   const t = useT()
   const roots = useWorkspace((s) => s.roots)
-  const statuses = useGit((s) => s.statuses)
   const refresh = useGit((s) => s.refresh)
+  const scrollerRef = useRef<HTMLDivElement>(null)
+  const contentRef = useRef<HTMLDivElement>(null)
+  const [scroll, setScroll] = useState({ scrollTop: 0, viewportHeight: 0 })
+  const [layoutVersion, setLayoutVersion] = useState(0)
 
   const gitRoots = roots.filter((r) => r.isGitRepo)
   // Probe non-repo projects too: after a git init in the terminal this must discover it by itself
   // (the watcher is the main path; the 10s poll below only covers missed events)
   const probeKey = roots.map((r) => `${r.id}:${r.isGitRepo}`).join('|')
+
+  useLayoutEffect(() => {
+    const scroller = scrollerRef.current
+    if (!scroller) {
+      setScroll((previous) =>
+        previous.scrollTop === 0 && previous.viewportHeight === 0
+          ? previous
+          : { scrollTop: 0, viewportHeight: 0 },
+      )
+      return
+    }
+    let frame = 0
+    let contentHeight = contentRef.current?.clientHeight ?? 0
+    const update = () => {
+      frame = 0
+      const next = { scrollTop: scroller.scrollTop, viewportHeight: scroller.clientHeight }
+      setScroll((previous) =>
+        previous.scrollTop === next.scrollTop && previous.viewportHeight === next.viewportHeight
+          ? previous
+          : next,
+      )
+    }
+    const measureContent = () => {
+      const content = contentRef.current
+      if (!content) return
+      const height = content.clientHeight
+      if (height === contentHeight) return
+      contentHeight = height
+      setLayoutVersion((version) => version + 1)
+    }
+    const schedule = () => {
+      if (!frame) {
+        frame = requestAnimationFrame(() => {
+          measureContent()
+          update()
+        })
+      }
+    }
+    const observer = new ResizeObserver(schedule)
+    observer.observe(scroller)
+    if (contentRef.current) observer.observe(contentRef.current)
+    scroller.addEventListener('scroll', schedule, { passive: true })
+    update()
+    return () => {
+      observer.disconnect()
+      scroller.removeEventListener('scroll', schedule)
+      if (frame) cancelAnimationFrame(frame)
+    }
+  }, [gitRoots.length])
+
+  const scrollValue = useMemo<GitScrollState>(
+    () => ({ ...scroll, layoutVersion, scrollerRef }),
+    [layoutVersion, scroll],
+  )
 
   useEffect(() => {
     if (!probeKey) return
@@ -586,12 +843,16 @@ export function GitPanel() {
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        {gitRoots.map((root) => (
-          <RepoSection key={root.id} root={root} status={statuses[root.id]} />
-        ))}
+    <GitScrollContext.Provider value={scrollValue}>
+      <div className="flex h-full min-h-0 flex-col">
+        <div ref={scrollerRef} className="min-h-0 flex-1 overflow-y-auto">
+          <div ref={contentRef}>
+            {gitRoots.map((root) => (
+              <RepoSection key={root.id} root={root} />
+            ))}
+          </div>
+        </div>
       </div>
-    </div>
+    </GitScrollContext.Provider>
   )
 }

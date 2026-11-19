@@ -18,6 +18,7 @@ import { beginFilePointerDrag, wasFileDragJustFinished } from '../lib/fileDragSt
 import { dirname, parentChain, basename, isUnder } from '../lib/paths'
 import { shortcutKey } from '../lib/keys'
 import { t as translate, useLocale, useT } from '../i18n'
+import { copyText } from '../lib/clipboard'
 
 const ROW_H = 24
 const OVERSCAN = 10
@@ -835,15 +836,15 @@ export function FileTree() {
                   { label: t('explorer.revealInFinder'), onClick: () => void revealEntry(menu.root, menu.rel) },
                   {
                     label: t('explorer.copyRelativePath'),
-                    onClick: () => void navigator.clipboard?.writeText(menu.rel),
+                    onClick: () => void copyText(menu.rel, t('explorer.copyRelativePath')),
                   },
                   {
                     label: t('explorer.copyAbsolutePath'),
-                    onClick: () => void navigator.clipboard?.writeText(`${menu.root}/${menu.rel}`),
+                    onClick: () => void copyText(`${menu.root}/${menu.rel}`, t('explorer.copyAbsolutePath')),
                   },
                   {
                     label: t('explorer.copyName'),
-                    onClick: () => void navigator.clipboard?.writeText(basename(menu.rel)),
+                    onClick: () => void copyText(basename(menu.rel), t('explorer.copyName')),
                   },
                 ] as MenuItem[]
           }

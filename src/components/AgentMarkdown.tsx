@@ -1,6 +1,6 @@
-import { Fragment, useMemo, useState } from 'react'
+import { Fragment, useMemo } from 'react'
 import { useT } from '../i18n'
-import { Icon } from './Icon'
+import { CopyButton } from './CopyButton'
 
 /**
  * Just enough Markdown for agent replies: fenced code, headings, lists, quotes, inline code,
@@ -136,27 +136,16 @@ function inline(text: string, keyPrefix: string) {
 
 function CodeBlock({ lang, code }: { lang: string; code: string }) {
   const t = useT()
-  const [copied, setCopied] = useState(false)
   return (
     <div className="group/code overflow-hidden rounded-[var(--r-popup)] border border-line-soft bg-panel">
       <div className="flex h-7 items-center justify-between gap-2 border-b border-line-soft px-2.5">
         <span className="truncate font-mono text-2xs text-muted">{lang || t('agent.code')}</span>
-        <button
-          type="button"
-          onClick={() => {
-            void navigator.clipboard
-              ?.writeText(code)
-              .then(() => {
-                setCopied(true)
-                setTimeout(() => setCopied(false), 1200)
-              })
-              .catch(() => {})
-          }}
-          className="flex items-center gap-1 text-2xs text-muted transition-colors duration-fast hover:text-fg"
-        >
-          <Icon name={copied ? 'check' : 'copy'} size={11} />
-          {copied ? t('agent.copied') : t('agent.copy')}
-        </button>
+        <CopyButton
+          text={code}
+          label={t('agent.code')}
+          tip={t('agent.copy')}
+          className="gap-1 text-2xs transition-colors duration-fast hover:text-fg"
+        />
       </div>
       <pre className="max-h-[420px] overflow-auto px-3 py-2 font-mono text-xs leading-relaxed text-fg/90">
         <code>{code}</code>

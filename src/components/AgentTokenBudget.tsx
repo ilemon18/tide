@@ -1,6 +1,13 @@
-import { useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useAgent } from '../store/agent'
 import { useT } from '../i18n'
+import type { AgentUsage } from '../lib/ipc'
+import {
+  cumulativeAgentUsage,
+  formatAgentTokens,
+  formatAgentUsd,
+  latestAgentUsage,
+} from '../lib/agentUsage'
 import { Icon } from './Icon'
 
 type Props = {
@@ -12,10 +19,13 @@ export function AgentTokenBudget({ chatId }: Props) {
   const draft = useAgent(s => s.chatDrafts[chatId])
   const root = useAgent(s => s.chats[chatId]?.root)
   const estimate = useAgent(s => s.tokenEstimates[chatId])
+  const messages = useAgent(s => s.chats[chatId]?.messages)
   const [showDetails, setShowDetails] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
   const buttonRef = useRef<HTMLButtonElement>(null)
   const detailsId = useId()
+  const cumulative = useMemo(() => (messages ? cumulativeAgentUsage(messages) : undefined), [messages])
+  const latest = useMemo(() => (messages ? latestAgentUsage(messages) : undefined), [messages])
 
   useEffect(() => {
     if (!root) return
@@ -45,14 +55,19 @@ export function AgentTokenBudget({ chatId }: Props) {
     }
   }, [showDetails])
 
-  if (!estimate) return null
+  if (!estimate && !cumulative) return null
 
-  const { total, breakdown } = estimate
+  const total = estimate?.total ?? 0
   const isLarge = total > 100_000
   const isHuge = total > 150_000
 
   const statusClass = isHuge ? 'danger' : isLarge ? 'warning' : total > 0 ? 'ok' : 'empty'
-  const summary = t('agent.context.estimate', { count: formatTokens(total) })
+  const summary = cumulative
+    ? t('agent.usage.summary', {
+        tokens: formatAgentTokens(cumulative.totalTokens),
+        cost: usageCost(cumulative, t('agent.usage.costUnavailable')),
+      })
+    : t('agent.context.estimate', { count: formatAgentTokens(total) })
 
   return (
     <div ref={containerRef} className="token-budget">
@@ -71,12 +86,13 @@ export function AgentTokenBudget({ chatId }: Props) {
           <circle cx="10" cy="10" r="7" stroke="currentColor" strokeWidth="2.5" />
           {isLarge && <circle cx="10" cy="10" r={isHuge ? 3 : 1.5} fill="currentColor" />}
         </svg>
+        {cumulative ? <span className="token-summary-text">{summary}</span> : null}
       </button>
 
       {showDetails && (
         <div id={detailsId} className="token-details">
           <div className="details-header">
-            <span>{t('agent.context.tokenBreakdown')}</span>
+            <span>{cumulative ? t('agent.usage.title') : t('agent.context.tokenBreakdown')}</span>
             <button
               type="button"
               aria-label={t('tabs.close')}
@@ -89,26 +105,58 @@ export function AgentTokenBudget({ chatId }: Props) {
               <Icon name="close" size={12} />
             </button>
           </div>
-          <div className="token-total">{summary}</div>
-          <div className="breakdown-list">
-            {breakdown.map((item, index) => (
-              <div key={index} className="breakdown-item">
-                <span className="label">
-                  {item.kind === 'prompt' ? t('agent.context.prompt') : item.label}
-                </span>
-                <span className="tokens">{formatTokens(item.tokens)}</span>
+          {cumulative ? <UsageSection title={t('agent.usage.cumulative')} usage={cumulative} /> : null}
+          {latest ? <UsageSection title={t('agent.usage.latest')} usage={latest} /> : null}
+          {estimate ? (
+            <div className="token-estimate-section">
+              <div className="usage-section-title">{t('agent.context.tokenBreakdown')}</div>
+              <div className="token-total">
+                {t('agent.context.estimate', { count: formatAgentTokens(estimate.total) })}
               </div>
-            ))}
-          </div>
+              <div className="breakdown-list">
+                {estimate.breakdown.map((item, index) => (
+                  <div key={index} className="breakdown-item">
+                    <span className="label">
+                      {item.kind === 'prompt' ? t('agent.context.prompt') : item.label}
+                    </span>
+                    <span className="tokens">{formatAgentTokens(item.tokens)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
         </div>
       )}
     </div>
   )
 }
 
-function formatTokens(count: number): string {
-  if (count >= 1000) {
-    return `${(count / 1000).toFixed(1)}k`
-  }
-  return count.toString()
+function usageCost(usage: AgentUsage, unavailable: string): string {
+  return formatAgentUsd(usage.costUsd) ?? unavailable
+}
+
+function UsageSection({ title, usage }: { title: string; usage: AgentUsage }) {
+  const t = useT()
+  const rows: Array<[string, string]> = [
+    [t('agent.usage.input'), formatAgentTokens(usage.inputTokens)],
+    [t('agent.usage.cachedInput'), formatAgentTokens(usage.cachedInputTokens)],
+    [t('agent.usage.cacheWrite'), formatAgentTokens(usage.cacheWriteInputTokens)],
+    [t('agent.usage.output'), formatAgentTokens(usage.outputTokens)],
+    [t('agent.usage.reasoning'), formatAgentTokens(usage.reasoningOutputTokens)],
+    [t('agent.usage.total'), formatAgentTokens(usage.totalTokens)],
+    [t('agent.usage.cost'), usageCost(usage, t('agent.usage.costUnavailable'))],
+  ]
+  return (
+    <div className="usage-section">
+      <div className="usage-section-title">{title}</div>
+      <div className="breakdown-list">
+        {rows.map(([label, value]) => (
+          <div key={label} className="breakdown-item">
+            <span className="label">{label}</span>
+            <span className="tokens">{value}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
 }

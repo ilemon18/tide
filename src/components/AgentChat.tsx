@@ -10,6 +10,35 @@ import { AgentComposer } from './AgentComposer'
 import { AssistantMessage, UserMessage } from './AgentMessage'
 import { Icon } from './Icon'
 import { AgentTokenBudget } from './AgentTokenBudget'
+import { CopyButton } from './CopyButton'
+import { elapsedSeconds, formatAgentDuration } from '../lib/agentDuration'
+
+/** Queued prompt plus the metadata that will be sent with it. */
+function serializeQueuedMessage(item: AgentDraft): string {
+  const parts: string[] = []
+  if (item.command) parts.push(`/${item.command}`)
+  for (const skill of item.skills ?? []) parts.push(`$${skill.name} (${skill.path})`)
+  for (const mention of item.mentions ?? []) parts.push(`@${mention.rel}`)
+  if (item.text) parts.push(item.text)
+  return parts.join('\n')
+}
+
+/** The elapsed clock lives here so a running turn does not re-render the whole transcript each second. */
+function RunningStatus({ startedAt }: { startedAt: number | undefined }) {
+  const t = useT()
+  const [, update] = useState(0)
+  useEffect(() => {
+    if (!startedAt) return
+    const id = setInterval(() => update((value) => value + 1), 1000)
+    return () => clearInterval(id)
+  }, [startedAt])
+  const duration = startedAt ? formatAgentDuration(elapsedSeconds(startedAt)) : '0s'
+  return (
+    <span className="shrink-0 text-2xs text-muted">
+      {t('agent.status.running', { duration })}
+    </span>
+  )
+}
 
 /** A chat tab: transcript, per-chat options and the composer. */
 export function AgentChat({ chatId }: { chatId: string }) {
@@ -25,7 +54,6 @@ export function AgentChat({ chatId }: { chatId: string }) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const [atBottom, setAtBottom] = useState(true)
   const jumpKeys = isMac() ? '⇧⌘↓' : 'Ctrl+Shift+↓'
-  const [, tick] = useState(0)
 
   useEffect(() => {
     if (providers === null) void useAgent.getState().loadProviders()
@@ -57,12 +85,6 @@ export function AgentChat({ chatId }: { chatId: string }) {
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [])
-
-  useEffect(() => {
-    if (!startedAt) return
-    const id = setInterval(() => tick((value) => value + 1), 1000)
-    return () => clearInterval(id)
-  }, [startedAt])
 
   const last = chat && chat.messages.length > 0 ? chat.messages[chat.messages.length - 1] : undefined
   const signature = useMemo(() => {
@@ -111,8 +133,6 @@ export function AgentChat({ chatId }: { chatId: string }) {
     providers !== null && (!providerInfo || !providerInfo.installed || !providerInfo.supported)
   const providerLabel =
     providerInfo?.name ?? (chat.provider || t('agent.noAgents'))
-  const elapsed = startedAt ? Math.max(1, Math.round((Date.now() - startedAt) / 1000)) : 0
-
   // What the CLI is doing right now: a running tool beats the tail item, so the strip does
   // not keep saying “writing” while a long command runs.
   const activity = useMemo(() => {
@@ -177,7 +197,7 @@ export function AgentChat({ chatId }: { chatId: string }) {
             const el = e.currentTarget
             setAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 40)
           }}
-          className="h-full overflow-y-auto"
+          className="h-full select-text overflow-y-auto"
         >
           <div className="mx-auto flex w-full max-w-[820px] flex-col gap-4 px-4 py-4">
             {chat.messages.length === 0 ? (
@@ -225,9 +245,7 @@ export function AgentChat({ chatId }: { chatId: string }) {
           {running ? (
             <div className="flex h-7 items-center gap-2 rounded-[var(--r-row)] border border-line-soft bg-accent/10 px-2">
               <Icon name="spinner" size={11} className="shrink-0 animate-spin text-accent" />
-              <span className="shrink-0 text-2xs text-muted">
-                {t('agent.status.running', { seconds: elapsed })}
-              </span>
+              <RunningStatus startedAt={startedAt} />
               <span
                 data-tip={activityLabel}
                 className="min-w-0 flex-1 truncate text-2xs text-fg/75"
@@ -242,7 +260,7 @@ export function AgentChat({ chatId }: { chatId: string }) {
                 <div
                   key={item.id}
                   data-tip={t('agent.queue.pending')}
-                  className="flex items-center gap-1.5 rounded-[var(--r-row)] border border-line-soft bg-panel-alt px-2 py-1 text-2xs text-muted"
+                  className="group/item flex items-center gap-1.5 rounded-[var(--r-row)] border border-line-soft bg-panel-alt px-2 py-1 text-2xs text-muted"
                 >
                   <Icon name="clock" size={11} className="shrink-0" />
                   <span className="shrink-0">{t('agent.queue.badge')}</span>
@@ -267,6 +285,13 @@ export function AgentChat({ chatId }: { chatId: string }) {
                   <span className="min-w-0 flex-1 truncate text-fg/80">
                     {item.text.split('\n')[0]}
                   </span>
+                  <CopyButton
+                    text={serializeQueuedMessage(item)}
+                    label={t('agent.copy.queued')}
+                    tip={t('agent.copy.queued')}
+                    iconOnly
+                    className="h-4 w-4 opacity-0 group-hover/item:opacity-100 group-focus-within/item:opacity-100"
+                  />
                   <button
                     type="button"
                     aria-label={t('agent.queue.remove')}
