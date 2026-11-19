@@ -30,6 +30,8 @@ type Props = {
   effort: string
   running: boolean
   disabled?: boolean
+  /** An unanswered structured question owns the next turn */
+  pendingQuestion?: boolean
   /** The current agent is missing: keep the agent picker usable so the user can switch */
   blocked?: boolean
   /** Bumped when the panel opens or the active chat changes: the textarea takes focus */
@@ -91,6 +93,7 @@ export function AgentComposer({
   effort,
   running,
   disabled,
+  pendingQuestion,
   blocked,
   autoFocusKey,
   showAgentPicker = true,
@@ -229,7 +232,14 @@ export function AgentComposer({
     Boolean(root) &&
     Boolean(provider) &&
     !disabled &&
-    !blocked
+    !blocked &&
+    !pendingQuestion
+
+  const sendTip = pendingQuestion
+    ? t('agent.question.pendingHint')
+    : running
+      ? t('agent.queue.send')
+      : t('agent.send')
 
   return (
     <div className="relative flex flex-col gap-1.5">
@@ -474,8 +484,8 @@ export function AgentComposer({
             type="button"
             onClick={onSend}
             disabled={!canSend}
-            data-tip={running ? t('agent.queue.send') : t('agent.send')}
-            aria-label={running ? t('agent.queue.send') : t('agent.send')}
+            data-tip={sendTip}
+            aria-label={sendTip}
             className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[var(--r-control)] bg-accent text-accent-fg transition-opacity duration-fast hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-35"
           >
             <Icon name="send" size={14} />

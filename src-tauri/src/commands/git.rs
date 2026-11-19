@@ -899,11 +899,67 @@ fn discard_changes(
     tracked: &[String],
     untracked: &[String],
 ) -> AppResult<GitDiscardResult> {
-    discard_changes_with(root, tracked, untracked, |rel, tracked| {
-        apply_discard_change(root, rel, tracked)
-    })
+    preflight_discard(root, tracked, untracked)?;
+
+    let mut result = GitDiscardResult {
+        restored: Vec::new(),
+        deleted: Vec::new(),
+        error: None,
+    };
+
+    // Restore every tracked file in one `git restore` process. The previous per-file loop spawned
+    // several Git processes for every row, which made a large discard-all feel like it had hung.
+    if !tracked.is_empty() {
+        if let Err(error) = discard_paths(root, tracked, true) {
+            result.error = Some(error);
+            return Ok(result);
+        }
+        result.restored.extend(tracked.iter().cloned());
+    }
+
+    if !untracked.is_empty() {
+        // One index probe protects all untracked files. Doing `git ls-files` once per file was the
+        // other half of the large-list slowdown; removal itself is a cheap filesystem operation.
+        let root_str = root.to_string_lossy().to_string();
+        let mut check: Vec<&str> = vec!["--literal-pathspecs", "ls-files", "-z", "--"];
+        check.extend(untracked.iter().map(|path| path.as_str()));
+        let (ok, indexed, error) = run_bytes(&root_str, &check)?;
+        if !ok {
+            result.error = Some(AppError::new(error));
+            return Ok(result);
+        }
+        let indexed: std::collections::HashSet<&[u8]> = indexed
+            .split(|byte| *byte == 0)
+            .filter(|path| !path.is_empty())
+            .collect();
+        if let Some(rel) = untracked.iter().find(|rel| indexed.contains(rel.as_bytes())) {
+            result.error = Some(AppError::p(
+                "git.discardStatusChanged",
+                [("path", rel.clone())],
+            ));
+            return Ok(result);
+        }
+
+        for rel in untracked {
+            let abs = match validate_discard_file(root, rel) {
+                Ok(abs) => abs,
+                Err(error) => {
+                    result.error = Some(error);
+                    return Ok(result);
+                }
+            };
+            if let Err(error) = std::fs::remove_file(abs) {
+                result.error = Some(error.into());
+                return Ok(result);
+            }
+            result.deleted.push(rel.clone());
+        }
+    }
+
+    Ok(result)
 }
 
+#[cfg(test)]
 fn apply_discard_change(root: &Path, rel: &str, tracked: bool) -> AppResult<()> {
     // Repeat the boundary/type check just before touching each path.
     let abs = validate_discard_file(root, rel)?;
@@ -923,14 +979,38 @@ fn apply_discard_change(root: &Path, rel: &str, tracked: bool) -> AppResult<()> 
     }
 }
 
+#[cfg(test)]
 fn discard_changes_with(
     root: &Path,
     tracked: &[String],
     untracked: &[String],
     mut apply: impl FnMut(&str, bool) -> AppResult<()>,
 ) -> AppResult<GitDiscardResult> {
-    // Preflight the entire confirmation snapshot before any mutations. In particular, never
-    // silently filter paths that were staged, ignored, conflicted or otherwise reclassified.
+    preflight_discard(root, tracked, untracked)?;
+    let mut result = GitDiscardResult {
+        restored: Vec::new(),
+        deleted: Vec::new(),
+        error: None,
+    };
+    for (paths, is_tracked) in [(tracked, true), (untracked, false)] {
+        for rel in paths {
+            if let Err(error) = apply(rel, is_tracked) {
+                result.error = Some(error);
+                return Ok(result);
+            }
+            if is_tracked {
+                result.restored.push(rel.clone());
+            } else {
+                result.deleted.push(rel.clone());
+            }
+        }
+    }
+    Ok(result)
+}
+
+/// Validate the complete confirmation snapshot before any mutation. In particular, never silently
+/// filter paths that were staged, ignored, conflicted or otherwise reclassified.
+fn preflight_discard(root: &Path, tracked: &[String], untracked: &[String]) -> AppResult<()> {
     for rel in tracked.iter().chain(untracked) {
         validate_discard_file(root, rel)?;
     }
@@ -949,21 +1029,7 @@ fn discard_changes_with(
             }
         }
     }
-    let mut result = GitDiscardResult { restored: Vec::new(), deleted: Vec::new(), error: None };
-    for (paths, is_tracked) in [(tracked, true), (untracked, false)] {
-        for rel in paths {
-            if let Err(error) = apply(rel, is_tracked) {
-                result.error = Some(error);
-                return Ok(result);
-            }
-            if is_tracked {
-                result.restored.push(rel.clone());
-            } else {
-                result.deleted.push(rel.clone());
-            }
-        }
-    }
-    Ok(result)
+    Ok(())
 }
 
 #[tauri::command(async)]

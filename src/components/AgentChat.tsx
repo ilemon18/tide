@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useAgent } from '../store/agent'
+import { chatTabId, findPendingQuestion, useAgent } from '../store/agent'
+import { useTabs } from '../store/tabs'
+import { useUi } from '../store/ui'
 import type { AgentDraft } from '../lib/agentCommand'
 import { useSettings } from '../store/settings'
 import { useT } from '../i18n'
@@ -50,10 +52,28 @@ export function AgentChat({ chatId }: { chatId: string }) {
   const queued = useAgent((s) => s.queues[chatId])
   const providers = useAgent((s) => s.providers)
   const enabled = useSettings((s) => s.agentEnabled)
+  const focused = useTabs((s) => s.activeId === chatTabId(chatId))
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const [atBottom, setAtBottom] = useState(true)
+  const running = chat?.status === 'running'
   const jumpKeys = isMac() ? '⇧⌘↓' : 'Ctrl+Shift+↓'
+
+  // Esc stops the turn of the focused chat. Pickers and the token-budget popup handle Escape
+  // first and stop propagation, so dismissing them must not cancel the agent.
+  useEffect(() => {
+    if (!focused || !running) return
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.repeat || e.isComposing || e.defaultPrevented) return
+      const ui = useUi.getState()
+      if (ui.overlay || ui.confirmReq || ui.promptReq) return
+      e.preventDefault()
+      e.stopPropagation()
+      void useAgent.getState().stop(chatId)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [chatId, focused, running])
 
   useEffect(() => {
     if (providers === null) void useAgent.getState().loadProviders()
@@ -126,7 +146,7 @@ export function AgentChat({ chatId }: { chatId: string }) {
     )
   }
 
-  const running = chat.status === 'running'
+  const pendingQuestion = findPendingQuestion(chat.messages)
   const draft: AgentDraft = draftState ?? { text: '', mentions: [] }
   const providerInfo = providers?.find((provider) => provider.id === chat.provider)
   const providerMissing =
@@ -212,8 +232,10 @@ export function AgentChat({ chatId }: { chatId: string }) {
                 ) : (
                   <AssistantMessage
                     key={message.id}
+                    chatId={chatId}
                     message={message}
                     running={running && message.id === last?.id}
+                    pendingQuestionId={pendingQuestion?.item.id ?? null}
                   />
                 ),
               )
@@ -335,6 +357,12 @@ export function AgentChat({ chatId }: { chatId: string }) {
               </button>
             </div>
           ) : null}
+          {pendingQuestion ? (
+            <div className="flex items-center gap-1.5 text-2xs text-accent">
+              <Icon name="info" size={11} className="shrink-0" />
+              {t('agent.question.pendingHint')}
+            </div>
+          ) : null}
           <AgentComposer
             tokenBudget={<AgentTokenBudget chatId={chatId} />}
             root={chat.root}
@@ -348,6 +376,7 @@ export function AgentChat({ chatId }: { chatId: string }) {
             running={running}
             disabled={!enabled}
             blocked={providerMissing}
+            pendingQuestion={pendingQuestion !== null}
             autoFocusKey={chatId}
             onDraft={(text) => useAgent.getState().setChatDraft(chatId, { text })}
             onMentions={(mentions) => useAgent.getState().setChatDraft(chatId, { mentions })}

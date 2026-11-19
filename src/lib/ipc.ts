@@ -333,6 +333,8 @@ export type AgentCatalog = {
 /** A file or folder mentioned in a prompt (workspace-relative) */
 export type AgentMention = { rel: string; isDir: boolean }
 
+export type AgentQuestionOption = { label: string; description: string }
+
 /** Where a skill was found: the open project, or the user's own CLI config */
 export type AgentSkillSource = 'project' | 'user'
 
@@ -354,6 +356,8 @@ export type AgentTurnRequest = {
   effort: string | null
   prompt: string
   mentions: AgentMention[]
+  /** Planning turns and their question-answer follow-ups cannot modify the workspace. */
+  readOnly: boolean
 }
 
 /** Provider-reported usage for one assistant turn. `null` cost means the provider omitted it. */
@@ -375,6 +379,15 @@ export type AgentEvent =
   | { kind: 'toolStart'; itemId: string; title: string }
   | { kind: 'toolDetail'; itemId: string; detail: string }
   | { kind: 'toolEnd'; itemId: string; ok: boolean; output: string | null }
+  | {
+      kind: 'question'
+      itemId: string
+      header: string
+      question: string
+      multiSelect: boolean
+      options: AgentQuestionOption[]
+    }
+  | { kind: 'questionInvalid'; text: string }
   | { kind: 'notice'; text: string }
   | { kind: 'stderr'; text: string }
   | { kind: 'usage'; usage: AgentUsage }
@@ -471,6 +484,8 @@ export const api = {
     invoke<void>('git_conflict_reset', { root, rel }),
 
   // ---- Window ----
+  /** Focus the next Tide window in label order, wrapping at the end */
+  cycleWindow: () => invoke<void>('cycle_window'),
   /** true = no new window was opened, an existing one was focused instead */
   newWindow: (path?: string | null) => invoke<boolean>('new_window', { path: path ?? null }),
   /**

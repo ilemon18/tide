@@ -5,6 +5,7 @@ use std::path::Path;
 
 use serde_json::Value;
 
+use super::question::{self, Piece};
 use super::{uuid_v4, workspace_note, AgentEvent, AgentTurnRequest, AgentUsage, Launch};
 
 /// One process per user turn. The first turn names its own session so a follow-up can resume
@@ -16,14 +17,20 @@ pub fn launch(program: &Path, request: &AgentTurnRequest, root: &Path) -> Launch
         "--output-format".into(),
         "stream-json".into(),
         "--include-partial-messages".into(),
-        // Tide has no approval channel: Claude must not stop to ask. The system prompt keeps
-        // it inside the project; the settings page says so in plain words.
+        // Tide has no approval channel. Planning uses Claude's read-only plan mode; ordinary
+        // turns retain the existing bypass because the settings page explains that trust boundary.
         "--permission-mode".into(),
-        "bypassPermissions".into(),
-        "--allow-dangerously-skip-permissions".into(),
-        "--append-system-prompt".into(),
-        workspace_note(root),
+        if request.read_only {
+            "plan".into()
+        } else {
+            "bypassPermissions".into()
+        },
     ];
+    if !request.read_only {
+        args.push("--allow-dangerously-skip-permissions".into());
+    }
+    args.push("--append-system-prompt".into());
+    args.push(workspace_note(root));
     if let Some(model) = request.model.as_deref().filter(|m| !m.is_empty()) {
         args.push("--model".into());
         args.push(model.to_string());
@@ -52,10 +59,72 @@ pub fn launch(program: &Path, request: &AgentTurnRequest, root: &Path) -> Launch
 pub struct State {
     text_id: Option<String>,
     seq: u64,
+    questions: question::Parser,
     /// Tool ids already announced, so the final `assistant` event does not duplicate them
     tools: HashSet<String>,
     /// Any text delta seen: the assistant event then carries the same text again
     streamed: bool,
+}
+
+fn next_text_id(seq: &mut u64) -> String {
+    *seq += 1;
+    format!("text-{seq}")
+}
+
+fn next_question_id(seq: &mut u64) -> String {
+    *seq += 1;
+    format!("question-{seq}")
+}
+
+fn piece_events(
+    pieces: Vec<Piece>,
+    text_id: &mut Option<String>,
+    seq: &mut u64,
+) -> Vec<AgentEvent> {
+    let mut out = Vec::new();
+    for piece in pieces {
+        match piece {
+            Piece::Text(text) if !text.is_empty() => {
+                let id = text_id.get_or_insert_with(|| next_text_id(seq)).clone();
+                out.push(AgentEvent::TextDelta { item_id: id, text });
+            }
+            Piece::Question(question) => {
+                out.push(AgentEvent::Question {
+                    item_id: next_question_id(seq),
+                    header: question.header,
+                    question: question.question,
+                    multi_select: question.multi_select,
+                    options: question.options,
+                });
+                // Text after a question is a separate item; otherwise the reducer would append it
+                // to the text item before the question and lose the original source order.
+                *text_id = None;
+            }
+            Piece::Invalid(text) => {
+                if !text.is_empty() {
+                    let id = text_id.get_or_insert_with(|| next_text_id(seq)).clone();
+                    out.push(AgentEvent::TextDelta {
+                        item_id: id,
+                        text: text.clone(),
+                    });
+                    out.push(AgentEvent::QuestionInvalid { text });
+                }
+            }
+            Piece::Text(_) => {}
+        }
+    }
+    out
+}
+
+fn push_text(state: &mut State, text: &str) -> Vec<AgentEvent> {
+    let pieces = state.questions.push(text);
+    piece_events(pieces, &mut state.text_id, &mut state.seq)
+}
+
+/// Flush a partial marker or an unclosed text block before the process reports `Done`.
+pub fn flush(state: &mut State) -> Vec<AgentEvent> {
+    let pieces = state.questions.flush();
+    piece_events(pieces, &mut state.text_id, &mut state.seq)
 }
 
 fn clip(value: &str) -> String {
@@ -158,8 +227,7 @@ pub fn translate(line: &str, state: &mut State) -> Vec<AgentEvent> {
                     let block = event.get("content_block");
                     match block.and_then(|b| b.get("type")).and_then(Value::as_str) {
                         Some("text") => {
-                            state.seq += 1;
-                            state.text_id = Some(format!("text-{}", state.seq));
+                            state.text_id = Some(next_text_id(&mut state.seq));
                         }
                         Some("tool_use") => {
                             let id = block
@@ -186,19 +254,17 @@ pub fn translate(line: &str, state: &mut State) -> Vec<AgentEvent> {
                     if delta.and_then(|d| d.get("type")).and_then(Value::as_str)
                         == Some("text_delta")
                     {
-                        if let (Some(id), Some(text)) = (
+                        if let (Some(_), Some(text)) = (
                             state.text_id.as_ref(),
                             delta.and_then(|d| d.get("text")).and_then(Value::as_str),
                         ) {
                             state.streamed = true;
-                            out.push(AgentEvent::TextDelta {
-                                item_id: id.clone(),
-                                text: text.to_string(),
-                            });
+                            out.extend(push_text(state, text));
                         }
                     }
                 }
                 "content_block_stop" => {
+                    out.extend(flush(state));
                     state.text_id = None;
                 }
                 _ => {}
@@ -219,11 +285,10 @@ pub fn translate(line: &str, state: &mut State) -> Vec<AgentEvent> {
                             continue;
                         }
                         if let Some(text) = block.get("text").and_then(Value::as_str) {
-                            state.seq += 1;
-                            out.push(AgentEvent::TextDelta {
-                                item_id: format!("text-{}", state.seq),
-                                text: text.to_string(),
-                            });
+                            state.text_id = Some(next_text_id(&mut state.seq));
+                            out.extend(push_text(state, text));
+                            out.extend(flush(state));
+                            state.text_id = None;
                         }
                     }
                     "tool_use" => {
@@ -324,6 +389,124 @@ pub fn translate(line: &str, state: &mut State) -> Vec<AgentEvent> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
+
+    fn request(read_only: bool) -> AgentTurnRequest {
+        AgentTurnRequest {
+            chat_id: "chat-1".into(),
+            root: "/tmp".into(),
+            provider: "claude".into(),
+            session_id: None,
+            model: None,
+            effort: None,
+            prompt: "hi".into(),
+            mentions: Vec::new(),
+            read_only,
+        }
+    }
+
+    fn question_marker() -> String {
+        format!(
+            "{}{}{}",
+            question::QUESTION_START,
+            r#"{"header":"Decision","question":"Which option?","multiSelect":false,"options":[{"label":"A","description":"First"},{"label":"B","description":"Second"}]}"#,
+            question::QUESTION_END
+        )
+    }
+
+    fn stream_text(state: &mut State, text: &str) -> Vec<AgentEvent> {
+        translate(
+            r#"{"type":"stream_event","event":{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}}"#,
+            state,
+        );
+        let delta = serde_json::to_string(&json!({
+            "type": "stream_event",
+            "event": {
+                "type": "content_block_delta",
+                "index": 0,
+                "delta": { "type": "text_delta", "text": text }
+            }
+        }))
+        .expect("stream event should serialize");
+        let mut events = translate(&delta, state);
+        events.extend(translate(
+            r#"{"type":"stream_event","event":{"type":"content_block_stop","index":0}}"#,
+            state,
+        ));
+        events
+    }
+
+    #[test]
+    fn read_only_uses_plan_mode_without_dangerous_permissions() {
+        let launch = launch(Path::new("claude"), &request(true), Path::new("/tmp"));
+        assert!(launch.args.windows(2).any(|args| {
+            args[0] == "--permission-mode" && args[1] == "plan"
+        }));
+        assert!(!launch.args.iter().any(|arg| arg == "bypassPermissions"));
+        assert!(!launch
+            .args
+            .iter()
+            .any(|arg| arg == "--allow-dangerously-skip-permissions"));
+    }
+
+    #[test]
+    fn writable_turns_keep_existing_claude_permissions() {
+        let launch = launch(Path::new("claude"), &request(false), Path::new("/tmp"));
+        assert!(launch.args.windows(2).any(|args| {
+            args[0] == "--permission-mode" && args[1] == "bypassPermissions"
+        }));
+        assert!(launch
+            .args
+            .iter()
+            .any(|arg| arg == "--allow-dangerously-skip-permissions"));
+    }
+
+    #[test]
+    fn streamed_question_preserves_text_order_and_hides_final_duplicate() {
+        let mut state = State::default();
+        let text = format!("before\n{}\nafter", question_marker());
+        let events = stream_text(&mut state, &text);
+        assert!(matches!(&events[0], AgentEvent::TextDelta { text, .. } if text == "before\n"));
+        let question_index = events
+            .iter()
+            .position(|event| matches!(event, AgentEvent::Question { header, .. } if header == "Decision"))
+            .expect("question event");
+        assert!(events[question_index + 1..]
+            .iter()
+            .any(|event| matches!(event, AgentEvent::TextDelta { text, .. } if text == "\nafter")));
+
+        let final_event = serde_json::to_string(&json!({
+            "type": "assistant",
+            "message": { "content": [{ "type": "text", "text": text }] }
+        }))
+        .expect("assistant event should serialize");
+        assert!(translate(&final_event, &mut state).is_empty());
+    }
+
+    #[test]
+    fn non_streamed_assistant_text_can_emit_a_question() {
+        let mut state = State::default();
+        let event = serde_json::to_string(&json!({
+            "type": "assistant",
+            "message": { "content": [{ "type": "text", "text": question_marker() }] }
+        }))
+        .expect("assistant event should serialize");
+        let events = translate(&event, &mut state);
+        assert!(events.iter().any(|event| matches!(event, AgentEvent::Question { .. })));
+    }
+
+    #[test]
+    fn invalid_question_restores_text_and_reports_notice() {
+        let mut state = State::default();
+        let raw = format!("{}not-json{}", question::QUESTION_START, question::QUESTION_END);
+        let events = stream_text(&mut state, &raw);
+        assert!(events
+            .iter()
+            .any(|event| matches!(event, AgentEvent::TextDelta { text, .. } if text == &raw)));
+        assert!(events
+            .iter()
+            .any(|event| matches!(event, AgentEvent::QuestionInvalid { text } if text == &raw)));
+    }
 
     #[test]
     fn reads_session_and_text_deltas() {

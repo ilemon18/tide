@@ -10,10 +10,9 @@ creates a 60/40 row split; an existing split keeps its ratio, moves chat to seco
 a column split to row.
 
 - Title bar sparkle button → new chat for the active workspace (hidden when `agentEnabled` is off).
-- Explorer row double-click (file or folder) → new chat whose composer already holds the
-  `@file` / `@folder` mention. The first click still opens the row;
-  `e.detail > 1` suppresses the second one.
-- Explorer context menu (file or folder) → same new chat with that mention.
+- Explorer file double-click → new chat whose composer already holds the `@file` mention. The first
+  click still opens the file; `e.detail > 1` suppresses the second one. Folder double-click only toggles
+  the folder. The context menu still starts a new chat for either a file or a folder.
 - Command palette → “Ask the agent…”.
 
 When the focused secondary tab is a chat, ordinary file, quick-open, search,
@@ -24,8 +23,10 @@ that chat or choosing unsplit restores the normal empty-pane merge.
 
 A message typed while a turn is running is **queued** for that chat (FIFO, shown above the
 composer) and starts the next turn when `done` arrives, reusing the same CLI session.
-Stop ends the current turn and drains the queue immediately; the transcript keeps the queue out
-until it is actually sent.
+Stop, or Escape while the running chat is the focused tab, ends the current turn and drains the queue
+immediately; the transcript keeps the queue out until it is actually sent.
+An unanswered structured question blocks both normal sends and automatic queue draining; the user must
+answer it through the question card before the next turn starts.
 
 Provider scan warms after first paint and is cached per session; Settings can rescan. While scanning,
 `loadProviders` ignores new/forced requests and a failed refresh keeps the old provider list.
@@ -46,17 +47,17 @@ Provider scan warms after first paint and is cached per session; Settings can re
   prompt assembly.
 - `src-tauri/src/commands/agent.rs`: spawn/cancel turns, skill scan, chat and tab persistence.
 - `src-tauri/src/agent/`: provider scan, skill discovery, argument builders, JSONL translators,
-  file store.
+  shared question parser and file store.
 
 ## Turn lifecycle
 
 1. `agent_send` authorizes the root, resolves the binary, builds args, spawns with cwd = root, writes
    the prompt to **stdin** (never argv), then returns.
 2. A reader thread parses stdout JSONL into `session | textDelta | thinking | toolStart |
-   toolDetail | toolEnd | usage | notice | stderr | done`; a merge thread coalesces text deltas (24ms)
-   before emitting `agent:event` to the window.
-3. The frontend reducer appends text to an item id, upserts tool cards, stores the CLI session id,
-   attaches usage to the latest assistant message and closes the turn on `done`.
+   toolDetail | toolEnd | question | questionInvalid | usage | notice | stderr | done`; a merge thread
+   coalesces text deltas (24ms) before emitting `agent:event` to the window.
+3. The frontend reducer appends text to an item id, upserts tool and question cards, stores the CLI
+   session id, attaches usage to the latest assistant message and closes the turn on `done`.
 4. Stop / close / exit / disable kills the process group (setsid on Unix, `taskkill /T` on Windows).
    At most 4 turns run; one per chat.
 
@@ -75,14 +76,40 @@ Provider scan warms after first paint and is cached per session; Settings can re
   after a failure. No watcher and no cache in Rust.
 - Queue entries and the session-reset retry carry `command` / `skills` along with the text.
 
+## Structured questions and read-only planning
+
+- A provider may emit one question per turn using the exact marker
+  `<TIDE_QUESTION>{"header":"...","question":"...","multiSelect":false,"options":[{"label":"...","description":"..."}]}</TIDE_QUESTION>`.
+  The header and question must be non-empty; `options` must contain 2–4 entries with non-empty labels and
+  descriptions. The translators stream-parse the marker, preserve ordinary text before and after it in
+  source order, and hide only a valid marker from the visible text.
+- More than one question is invalid. Invalid JSON/options and an unclosed marker restore the original
+  marker text and produce a localized `questionInvalid` notice; a partially streamed marker must not be
+  shown or dropped until the text block/turn is flushed.
+- A question item is pending when its optional `answer` is absent or blank. While a pending question
+  exists, `AgentComposer`, `sendMessage` and `drainQueue` all reject another turn. Submitting marks the
+  item answered, appends the localized question/answer prompt as a user message, and resumes the same
+  CLI session in a new process. The answer turn inherits the source assistant message's `readOnly` flag;
+  a session-reset retry preserves both the question item and that flag.
+- `/plan` sets `AgentTurnRequest.readOnly = true` and asks the agent to inspect the repository first. It
+  may ask only when a key decision cannot be derived from the repository; otherwise it returns the full
+  implementation plan. Every answer follow-up keeps `readOnly` true, and the next ordinary user message
+  starts a writable turn. Questions in ordinary chats are allowed too, but their answer turns are
+  writable unless they came from a read-only plan turn.
+- Tool cards are grouped only while rendering an assistant message: consecutive `tool` items form one
+  component-local group, and every non-tool item cuts it. The group status is `error > running > ok`.
+  Running groups start expanded; completed groups auto-collapse until the user manually toggles that
+  group. Grouping and toggle state are UI-only and never enter the transcript or IPC.
+
 ## Provider mapping
 
-- Claude: `claude -p --verbose --output-format stream-json --include-partial-messages
-  --permission-mode bypassPermissions --allow-dangerously-skip-permissions`, then
-  `--session-id <uuid>` (first) or `--resume <id>`; `--model` / `--effort` optional.
+- Claude writable: `claude -p --verbose --output-format stream-json --include-partial-messages
+  --permission-mode bypassPermissions --allow-dangerously-skip-permissions`, then `--session-id <uuid>`
+  (first) or `--resume <id>`; `--model` / `--effort` optional. Read-only turns use
+  `--permission-mode plan` and omit both bypass/dangerously-skip flags.
 - Codex: `codex exec [resume <thread>] --json --skip-git-repo-check` (with `-C <root>` on the
-  first turn), plus
-  `-c sandbox_mode="workspace-write" -c approval_policy="never"`; the prompt is `-` (stdin).
+  first turn), plus `-c sandbox_mode="workspace-write" -c approval_policy="never"` for writable turns;
+  read-only turns use `-c sandbox_mode="read-only"`. The prompt is `-` (stdin).
 - Empty `model` / `effort` means **no flag**: providers keep their configured model, including custom
   providers. Tide never edits those configs or auto-fills a catalog model.
 - A resumed session that no longer exists is retried once without the id, with a visible notice.
@@ -105,7 +132,9 @@ Provider scan warms after first paint and is cached per session; Settings can re
 
 - `<appConfig>/agent/chats/<id>.json`: opaque frontend-owned transcript JSON, atomic write,
   8MB hard cap. Trimmed to 300 messages / 2MB before saving. Keep `v: 1`; old transcripts without
-  usage must load normally.
+  usage, question items or assistant `readOnly` must load normally. These new fields are optional; a
+  question item stores its structured payload plus the submitted `answer`, and a read-only assistant
+  turn stores `readOnly: true`.
 - `<appConfig>/agent/tabs.json`: open chat tabs (max 8) + active chat; primary window only.
 - Both are flushed on `app:hidden` / `beforeunload`.
 

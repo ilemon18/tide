@@ -6,6 +6,7 @@ import {
   type AgentEventPayload,
   type AgentMention,
   type AgentProviderInfo,
+  type AgentQuestionOption,
   type AgentUsage,
   type TokenEstimate,
 } from '../lib/ipc'
@@ -31,7 +32,14 @@ import { normalizeAgentUsage } from '../lib/agentUsage'
  * are kept in memory; closing a tab drops the record after its last write.
  */
 
-export type AgentItemType = 'text' | 'thinking' | 'tool' | 'error' | 'notice' | 'log'
+export type AgentItemType =
+  | 'text'
+  | 'thinking'
+  | 'tool'
+  | 'question'
+  | 'error'
+  | 'notice'
+  | 'log'
 
 export type AgentItem = {
   id: string
@@ -44,6 +52,12 @@ export type AgentItem = {
   status?: 'running' | 'ok' | 'error'
   /** Tool output (stdout, diff, error) */
   output?: string
+  /** Structured question metadata; pending while `answer` is blank or absent */
+  header?: string
+  question?: string
+  multiSelect?: boolean
+  options?: AgentQuestionOption[]
+  answer?: string
 }
 
 export type AgentMessage = {
@@ -58,6 +72,8 @@ export type AgentMessage = {
   items?: AgentItem[]
   /** Provider-reported usage snapshot for this assistant turn */
   usage?: AgentUsage
+  /** `/plan` and plan follow-up turns stay read-only until the next ordinary message */
+  readOnly?: boolean
 }
 
 export type AgentChatStatus = 'idle' | 'running' | 'error' | 'cancelled'
@@ -175,6 +191,7 @@ type AgentStore = {
   newChat: (root?: string, mentions?: AgentMention[]) => string | null
   loadSkills: (root: string) => Promise<void>
   sendMessage: (chatId: string, draft: AgentDraft) => Promise<void>
+  answerQuestion: (chatId: string, itemId: string, answer: string) => boolean
   removeQueued: (chatId: string, id: string) => void
   stop: (chatId: string) => Promise<void>
   applyEvent: (payload: AgentEventPayload) => void
@@ -256,12 +273,18 @@ function normalizeChat(raw: unknown): AgentChat | null {
     .map((message) => {
       if (message.role !== 'user') {
         const usage = normalizeAgentUsage(message.usage)
-        return usage ? { ...message, usage } : { ...message, usage: undefined }
+        const readOnly = message.readOnly === true ? true : undefined
+        return usage ? { ...message, usage, readOnly } : { ...message, usage: undefined, readOnly }
       }
       const command = isAgentCommandId(message.command) ? message.command : undefined
       const rawSkills = Array.isArray(message.skills) ? message.skills : []
       const skills = rawSkills.filter(isAgentSkillRef)
-      return { ...message, command, skills: skills.length > 0 ? skills : undefined }
+      return {
+        ...message,
+        command,
+        skills: skills.length > 0 ? skills : undefined,
+        readOnly: undefined,
+      }
     })
   // A turn interrupted by a restart leaves an empty assistant bubble; the user message is enough
   const last = messages[messages.length - 1]
@@ -286,12 +309,29 @@ function normalizeChat(raw: unknown): AgentChat | null {
   }
 }
 
+export type PendingQuestion = { message: AgentMessage; item: AgentItem }
+
+/** Scan the whole transcript: a notice or later assistant item must not hide an unanswered question. */
+export function findPendingQuestion(messages: AgentMessage[]): PendingQuestion | null {
+  for (let messageIndex = messages.length - 1; messageIndex >= 0; messageIndex -= 1) {
+    const message = messages[messageIndex]
+    if (message.role !== 'assistant') continue
+    const items = message.items ?? []
+    for (let itemIndex = items.length - 1; itemIndex >= 0; itemIndex -= 1) {
+      const item = items[itemIndex]
+      if (item.type === 'question' && !item.answer?.trim()) return { message, item }
+    }
+  }
+  return null
+}
+
 export const useAgent = create<AgentStore>((set, get) => {
   const runTurn = async (
     chatId: string,
     draft: AgentDraft,
     appendUser: boolean,
     clearDraft = appendUser,
+    readOnlyOverride?: boolean,
   ) => {
     const chat = get().chats[chatId]
     if (!chat || chat.status === 'running') return
@@ -310,8 +350,15 @@ export const useAgent = create<AgentStore>((set, get) => {
         skills: draft.skills,
       })
     }
+    const readOnly = readOnlyOverride ?? draft.command === 'plan'
     const assistantId = agentUid('a')
-    messages.push({ id: assistantId, role: 'assistant', at: now, items: [] })
+    messages.push({
+      id: assistantId,
+      role: 'assistant',
+      at: now,
+      items: [],
+      readOnly: readOnly || undefined,
+    })
     const title =
       chat.title || titleFromPrompt(draft.text || (draft.skills?.[0]?.name ?? ''))
     set({
@@ -346,8 +393,9 @@ export const useAgent = create<AgentStore>((set, get) => {
         sessionId: chat.sessionId,
         model: chat.model || null,
         effort: chat.effort || null,
-        prompt: buildAgentPrompt(draft),
+        prompt: buildAgentPrompt(draft, readOnly),
         mentions: draft.mentions,
+        readOnly,
       })
     } catch (e) {
       const current = get().chats[chatId]
@@ -402,6 +450,8 @@ export const useAgent = create<AgentStore>((set, get) => {
   /** Start the oldest queued message; a manual Stop drains too, so Stop means “send now” */
   const drainQueue = (chatId: string) => {
     if (!useSettings.getState().agentEnabled) return
+    const chat = get().chats[chatId]
+    if (!chat || findPendingQuestion(chat.messages)) return
     const queue = get().queues[chatId] ?? []
     if (queue.length === 0) return
     const [head, ...rest] = queue
@@ -638,6 +688,9 @@ export const useAgent = create<AgentStore>((set, get) => {
       if (!useSettings.getState().agentEnabled) return
       const next = normalizeAgentDraft(draft)
       if (!next.text.trim() && !(next.skills ?? []).length) return
+      // A structured question owns the next turn. The answer must go through answerQuestion so
+      // it carries the source question and the planning read-only boundary.
+      if (findPendingQuestion(chat.messages)) return
       retried.delete(chatId)
       const queue = get().queues[chatId] ?? []
       // Running turn, or a queue left over from a stopped / disabled turn: keep FIFO order
@@ -647,6 +700,36 @@ export const useAgent = create<AgentStore>((set, get) => {
         return
       }
       await runTurn(chatId, next, true)
+    },
+
+    answerQuestion: (chatId, itemId, answer) => {
+      const chat = get().chats[chatId]
+      if (!chat || chat.status === 'running') return false
+      const pending = findPendingQuestion(chat.messages)
+      if (!pending || pending.item.id !== itemId) return false
+      const trimmed = answer.trim()
+      if (!trimmed) return false
+      const readOnly = pending.message.readOnly === true
+      const messages = chat.messages.map((message) => {
+        if (message.id !== pending.message.id) return message
+        return {
+          ...message,
+          items: (message.items ?? []).map((item) =>
+            item.id === itemId ? { ...item, answer: trimmed } : item,
+          ),
+        }
+      })
+      set({
+        chats: {
+          ...get().chats,
+          [chatId]: { ...chat, messages, updatedAt: Date.now() },
+        },
+      })
+      schedulePersist(chatId)
+      const question = pending.item.question ?? ''
+      const prompt = t('agent.question.answerPrompt', { question, answer: trimmed })
+      void runTurn(chatId, { text: prompt, mentions: [] }, true, false, readOnly)
+      return true
     },
 
     removeQueued: (chatId, id) => {
@@ -742,7 +825,9 @@ export const useAgent = create<AgentStore>((set, get) => {
           chat.sessionId &&
           last?.role === 'assistant' &&
           !last.usage &&
-          (last.items ?? []).every((item) => item.type !== 'text' && item.type !== 'tool') &&
+          (last.items ?? []).every(
+            (item) => item.type !== 'text' && item.type !== 'tool' && item.type !== 'question',
+          ) &&
           !retried.has(chatId)
         ) {
           retried.add(chatId)
@@ -778,6 +863,8 @@ export const useAgent = create<AgentStore>((set, get) => {
                 skills: lastUser.skills,
               },
               false,
+              false,
+              last.readOnly === true ? true : undefined,
             )
             return
           }
@@ -846,6 +933,32 @@ export const useAgent = create<AgentStore>((set, get) => {
                 output: event.output ?? item.output,
               }),
             )
+          case 'question':
+            return upsert(
+              message,
+              event.itemId,
+              () => ({
+                id: event.itemId,
+                type: 'question',
+                text: '',
+                header: event.header,
+                question: event.question,
+                multiSelect: event.multiSelect,
+                options: event.options,
+              }),
+              (item) => ({
+                ...item,
+                header: event.header,
+                question: event.question,
+                multiSelect: event.multiSelect,
+                options: event.options,
+              }),
+            )
+          case 'questionInvalid':
+            return [
+              ...(message.items ?? []),
+              { id: agentUid('n'), type: 'notice', text: t('agent.question.invalid') },
+            ]
           case 'notice':
             return [
               ...(message.items ?? []),

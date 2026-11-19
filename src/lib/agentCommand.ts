@@ -43,15 +43,47 @@ export function isAgentSkillRef(value: unknown): value is AgentSkillRef {
   )
 }
 
-/** The user text with the command tag and skill pointers the CLI agent reads. */
-export function buildAgentPrompt(draft: AgentDraft): string {
+const PLAN_INSTRUCTIONS = `
+Planning mode:
+- This turn is strictly read-only. Inspect the repository, but do not modify files or run commands with side effects.
+- Ask the user only when a critical decision cannot be inferred from the repository or request. Ask at most one question per turn.
+- If there is no blocking ambiguity, return a complete, decision-ready plan with the files and steps the implementation will touch.
+- After a question is answered, continue from the same planning work. Ask again only if another critical decision remains; otherwise return the final plan.
+`.trim()
+
+const READ_ONLY_CONTINUATION = `
+Read-only planning continuation:
+Continue the existing planning task without modifying files or running commands with side effects. Use the answer above, inspect the repository as needed, and either ask at most one remaining critical question or return the final decision-ready plan.
+`.trim()
+
+const QUESTION_PROTOCOL = `
+Structured questions (only when the user must make a decision):
+- Prefer discovering the answer from the repository. Do not ask about facts you can inspect.
+- Ask at most one question in this turn. Never use a question marker for a status update, progress report, or confirmation that is not required.
+- A question must have 2 to 4 options. Every option needs a non-empty label and a non-empty description.
+- Set multiSelect to true only when several choices may be valid together. The UI also lets the user enter a custom answer.
+- Emit exactly one marker as plain text, not inside a code fence, and use this shape:
+<TIDE_QUESTION>{"header":"Short title","question":"The decision needed","multiSelect":false,"options":[{"label":"Option A","description":"What this choice means"},{"label":"Option B","description":"What this choice means"}]}</TIDE_QUESTION>
+`.trim()
+
+/** The user text with the command tag, skill pointers and shared prompt guidance the CLI agent reads. */
+export function buildAgentPrompt(
+  draft: AgentDraft,
+  readOnly = draft.command === 'plan',
+): string {
   const skills = draft.skills ?? []
-  const body = draft.command
-    ? `<${draft.command}>\n${draft.text}\n</${draft.command}>`
-    : draft.text
-  if (skills.length === 0) return body
+  const body =
+    draft.command === 'plan'
+      ? `<plan>\n${draft.text}\n\n${PLAN_INSTRUCTIONS}\n</plan>`
+      : draft.command
+        ? `<${draft.command}>\n${draft.text}\n</${draft.command}>`
+        : draft.text
+  const planning = readOnly && draft.command !== 'plan' ? `\n\n${READ_ONLY_CONTINUATION}` : ''
+  const questionProtocol = `\n\n${QUESTION_PROTOCOL}`
+  const prompt = `${body}${planning}${questionProtocol}`
   const lines = skills.map((skill) => `Use the skill "${skill.name}" (SKILL.md: ${skill.path}).`)
-  return `${lines.join('\n')}\n\n${body}`
+  if (lines.length === 0) return prompt
+  return `${lines.join('\n')}\n\n${prompt}`
 }
 
 /**

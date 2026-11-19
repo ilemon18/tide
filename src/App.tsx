@@ -456,8 +456,12 @@ export function App() {
       toggleSidebar()
       return true
     }
-    if (key === 'j' || shortcut === '`') {
+    if (key === 'j') {
       toggleTerminal()
+      return true
+    }
+    if (shortcut === '`' && !shift) {
+      void api.cycleWindow()
       return true
     }
     if (key === 'k' && shift) {

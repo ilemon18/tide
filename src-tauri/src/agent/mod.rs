@@ -9,6 +9,7 @@
 pub mod claude;
 pub mod codex;
 pub mod providers;
+pub mod question;
 pub mod skills;
 pub mod store;
 
@@ -45,6 +46,9 @@ pub struct AgentTurnRequest {
     pub prompt: String,
     #[serde(default)]
     pub mentions: Vec<AgentMention>,
+    /// Planning and its question-answer follow-ups must not be able to modify the workspace.
+    #[serde(default)]
+    pub read_only: bool,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -102,6 +106,19 @@ pub enum AgentEvent {
         item_id: String,
         ok: bool,
         output: Option<String>,
+    },
+    Question {
+        #[serde(rename = "itemId")]
+        item_id: String,
+        header: String,
+        question: String,
+        #[serde(rename = "multiSelect")]
+        multi_select: bool,
+        options: Vec<question::QuestionOption>,
+    },
+    QuestionInvalid {
+        /// Original marker text, also restored separately as ordinary assistant text.
+        text: String,
     },
     Notice {
         text: String,
@@ -196,4 +213,28 @@ fn format_uuid(mut bytes: [u8; 16]) -> String {
         &hex[16..20],
         &hex[20..32]
     )
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn read_only_defaults_to_false() {
+        let request: AgentTurnRequest = serde_json::from_str(
+            r#"{"chatId":"chat-1","root":"/tmp","provider":"codex","sessionId":null,"model":null,"effort":null,"prompt":"hi","mentions":[]}"#,
+        )
+        .expect("request should deserialize");
+        assert!(!request.read_only);
+    }
+
+    #[test]
+    fn read_only_deserializes_from_camel_case() {
+        let request: AgentTurnRequest = serde_json::from_str(
+            r#"{"chatId":"chat-1","root":"/tmp","provider":"codex","sessionId":null,"model":null,"effort":null,"prompt":"hi","mentions":[],"readOnly":true}"#,
+        )
+        .expect("request should deserialize");
+        assert!(request.read_only);
+    }
 }

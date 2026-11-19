@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useWorkspace, type DirState, type RootNode } from '../store/workspace'
 import { useSettings } from '../store/settings'
 import { useGit } from '../store/git'
@@ -23,6 +23,13 @@ import { copyText } from '../lib/clipboard'
 const ROW_H = 24
 const OVERSCAN = 10
 const INDENT = 14
+/** Wait this long after the last scroll event before resolving folder chains for the new viewport. */
+const SCROLL_IDLE_MS = 120
+
+/** Stable identity of a row across folder-chain compaction (`start` stays the same). */
+function rowAnchorKey(row: Row): string {
+  return row.kind === 'node' ? `${row.root}:${row.start}` : row.key
+}
 
 /**
  * The sidebar shows one view at a time (explorer / search / git), so switching to search or the Git panel
@@ -237,6 +244,10 @@ export function FileTree() {
   const compactFolders = useSettings((s) => s.compactFolders)
   const agentEnabled = useSettings((s) => s.agentEnabled)
   const chains = useFolderChain((s) => s.chains)
+  // Keep the last settled chain snapshot while the scrollbar is moving. Applying async chain
+  // results mid-scroll changes row count under the thumb, which makes it flicker and snap back.
+  const [settledChains, setSettledChains] = useState(chains)
+  const [scrollIdle, setScrollIdle] = useState(true)
   const toggleDir = useWorkspace((s) => s.toggleDir)
   const loadMore = useWorkspace((s) => s.loadMore)
   const toggleRootCollapsed = useWorkspace((s) => s.toggleRootCollapsed)
@@ -267,23 +278,117 @@ export function FileTree() {
   const activeRoot = activeTab?.root ?? null
   const activeRel =
     activeTab && activeTab.kind !== 'welcome' && activeTab.kind !== 'settings' ? activeTab.rel : null
+  const activeKey = activeRoot && activeRel ? `${activeRoot}:${activeRel}` : null
   const rows = useMemo(
-    () => buildRows(roots, showHidden, compactFolders, chains),
-    [roots, showHidden, compactFolders, chains, locale],
+    () => buildRows(roots, showHidden, compactFolders, settledChains),
+    [roots, showHidden, compactFolders, settledChains, locale],
   )
   const statuses = useGit((s) => s.statuses)
   const marks = useMemo(() => buildGitMarks(statuses), [statuses])
+  const scrollFrame = useRef<number | null>(null)
+  const scrollIdleTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const scrolling = useRef(false)
+  const latestScrollTop = useRef(remembered.top)
+  const rowsRef = useRef(rows)
+  const settledChainsRef = useRef(settledChains)
+  const chainsRef = useRef(chains)
+  const pendingScrollAnchor = useRef<{
+    key: string
+    offset: number
+    atBottom: boolean
+  } | null>(null)
+  /** The selection whose automatic reveal has already been handled, so row rebuilds stay put. */
+  const followedSelection = useRef<string | null>(null)
+  rowsRef.current = rows
+  settledChainsRef.current = settledChains
+  chainsRef.current = chains
+
+  /** Keep the exact offset in refs and update the virtual window at most once per frame. */
+  const syncScrollTop = useCallback((top: number, immediate = false) => {
+    remembered.top = top
+    latestScrollTop.current = top
+    const renderTop = Math.floor(top / ROW_H) * ROW_H
+    if (immediate) {
+      setScrollTop((previous) => (previous === renderTop ? previous : renderTop))
+      return
+    }
+    if (scrollFrame.current !== null) return
+    scrollFrame.current = requestAnimationFrame(() => {
+      scrollFrame.current = null
+      const next = Math.floor(latestScrollTop.current / ROW_H) * ROW_H
+      setScrollTop((previous) => (previous === next ? previous : next))
+    })
+  }, [])
+
+  const scrollTreeTo = useCallback(
+    (el: HTMLDivElement, top: number) => {
+      el.scrollTop = top
+      syncScrollTop(el.scrollTop, true)
+    },
+    [syncScrollTop],
+  )
+
+  /** Apply a newer chain snapshot only after a user scroll has gone quiet. */
+  const applySettledChains = useCallback((next: Record<string, string>) => {
+    if (next === settledChainsRef.current) return
+    const el = containerRef.current
+    const currentRows = rowsRef.current
+    if (el && currentRows.length > 0) {
+      const index = Math.min(
+        currentRows.length - 1,
+        Math.max(0, Math.floor(el.scrollTop / ROW_H)),
+      )
+      const max = Math.max(0, currentRows.length * ROW_H - el.clientHeight)
+      pendingScrollAnchor.current = {
+        key: rowAnchorKey(currentRows[index]),
+        offset: Math.max(0, Math.min(ROW_H - 1, el.scrollTop - index * ROW_H)),
+        atBottom: el.scrollTop >= max - 1,
+      }
+    }
+    setSettledChains(next)
+  }, [])
+
+  const markScrolling = useCallback(() => {
+    scrolling.current = true
+    setScrollIdle(false)
+    if (scrollIdleTimer.current !== null) clearTimeout(scrollIdleTimer.current)
+    scrollIdleTimer.current = setTimeout(() => {
+      scrollIdleTimer.current = null
+      scrolling.current = false
+      setScrollIdle(true)
+      applySettledChains(chainsRef.current)
+    }, SCROLL_IDLE_MS)
+  }, [applySettledChains])
+
+  useEffect(() => {
+    if (scrolling.current) return
+    applySettledChains(chains)
+  }, [applySettledChains, chains])
 
   // The list can shrink under a scrolled viewport (folder compaction merging rows, collapsing, a refresh
-  // replacing the tree). The offset then sits past the new content height: the browser cannot clamp it
-  // because absolutely positioned rows keep stretching the scroll area. Pull it back before painting.
+  // replacing the tree). Keep the same logical row under the viewport, or stay at the bottom when the user
+  // was already there; then clamp before paint. Without the anchor a chain resolving after a fast scroll
+  // pulls the viewport back to an older part of the tree.
   useLayoutEffect(() => {
     const el = containerRef.current
     if (!el) return
     const max = Math.max(0, rows.length * ROW_H - el.clientHeight)
+    const anchor = pendingScrollAnchor.current
+    if (anchor && rows.length > 0) {
+      pendingScrollAnchor.current = null
+      if (anchor.atBottom) {
+        scrollTreeTo(el, max)
+        return
+      }
+      const index = rows.findIndex((row) => rowAnchorKey(row) === anchor.key)
+      if (index !== -1) {
+        scrollTreeTo(el, Math.min(max, index * ROW_H + anchor.offset))
+        return
+      }
+    }
     if (el.scrollTop > max) el.scrollTop = max
-    if (scrollTop > max) setScrollTop(max)
-  }, [rows.length, scrollTop])
+    syncScrollTop(el.scrollTop, true)
+  }, [rows, viewportH, scrollTreeTo, syncScrollTop])
 
   // Chain results depend on whether hidden entries count: drop them when the setting flips
   const prevShowHidden = useRef(showHidden)
@@ -303,6 +408,14 @@ export function FileTree() {
     return () => ro.disconnect()
   }, [])
 
+  useEffect(
+    () => () => {
+      if (scrollFrame.current !== null) cancelAnimationFrame(scrollFrame.current)
+      if (scrollIdleTimer.current !== null) clearTimeout(scrollIdleTimer.current)
+    },
+    [],
+  )
+
   // Coming back from search / Git: put the list where the user left it, before the first paint (a later
   // effect would draw the top of the tree for one frame and then jump). A different project has different
   // rows, so its offset is not reused.
@@ -318,14 +431,12 @@ export function FileTree() {
     }
     // The row of the file that is open in the editor stays marked (VSCode does this): after a view switch the
     // tree otherwise looked as if nothing was open. A remembered row that still exists wins over it.
-    const activeKey = activeRoot && activeRel ? `${activeRoot}:${activeRel}` : null
     const kept = sameProject && remembered.selected && rows.some((row) => row.key === remembered.selected)
     if (!kept && activeKey && rows.some((row) => row.key === activeKey)) setSelected(activeKey)
     if (!sameProject || remembered.top <= 0) return
     const max = Math.max(0, rows.length * ROW_H - el.clientHeight)
     const top = Math.min(remembered.top, max)
-    el.scrollTop = top
-    setScrollTop(top)
+    scrollTreeTo(el, top)
     // Mount only: later row rebuilds must not yank the list back here
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -394,14 +505,14 @@ export function FileTree() {
   // Folder chains are resolved only for the rows on screen: an "expand all" tree can hold hundreds of
   // folders, and each probe costs one round-trip even though it never leaves the disk cache
   useEffect(() => {
-    if (!compactFolders) return
+    if (!compactFolders || !scrollIdle) return
     const store = useFolderChain.getState()
     for (const row of visible) {
       if (row.kind !== 'node' || !row.isDir) continue
       if (`${row.root}:${row.start}` in chains) continue
       store.resolve(row.root, row.start, showHidden)
     }
-  }, [visible, chains, compactFolders, showHidden])
+  }, [visible, chains, compactFolders, scrollIdle, showHidden])
 
   // An empty tree has three different causes: project collapsed / not read yet / truly no files.
   // Sharing one "empty directory" message would make users think the project was wiped.
@@ -416,29 +527,36 @@ export function FileTree() {
 
   // position first and then jump, which looks like a scroll animation
   useLayoutEffect(() => {
-    if (!selected) return
+    if (!selected) {
+      followedSelection.current = null
+      return
+    }
+    if (followedSelection.current === selected) return
     // First run after mounting: the list was just put back where the user left it, and scrolling to the
     // restored selection would throw that away
     if (skipSelectScroll.current) {
       skipSelectScroll.current = false
+      followedSelection.current = selected
       return
     }
     const index = rows.findIndex((r) => r.key === selected)
     if (index === -1) return
     const el = containerRef.current
     if (!el) return
+    followedSelection.current = selected
     const top = index * ROW_H
-    if (top < el.scrollTop) el.scrollTop = top
-    else if (top + ROW_H > el.scrollTop + el.clientHeight) el.scrollTop = top + ROW_H - el.clientHeight
-  }, [selected, rows])
+    if (top < el.scrollTop) scrollTreeTo(el, top)
+    else if (top + ROW_H > el.scrollTop + el.clientHeight) {
+      scrollTreeTo(el, top + ROW_H - el.clientHeight)
+    }
+  }, [selected, rows, scrollTreeTo])
 
   // With many files open the tree is often scrolled away from the current one: bring the active file back into
   // view. Expansion is left untouched on purpose — only the scroll moves, and once a file was followed the user
   // keeps control (a row rebuild must not yank the view again)
   useLayoutEffect(() => {
-    if (!activeRoot || !activeRel) return
-    const key = `${activeRoot}:${activeRel}`
-    if (key === followed.current) return
+    if (!activeKey || !activeRoot || !activeRel) return
+    if (activeKey === followed.current) return
 
     const el = containerRef.current
     if (!el) return
@@ -467,16 +585,16 @@ export function FileTree() {
     // Nothing drawn for this file yet: retry when the rows change
     if (index === -1) return
 
-    followed.current = key
-    remembered.followed = key
+    followed.current = activeKey
+    remembered.followed = activeKey
     // Already on screen: leave the list exactly where the user left it
     if (isVisible(index)) return
 
     const top = index * ROW_H
     const bottom = top + ROW_H
-    if (top < viewTop) el.scrollTop = top
-    else if (bottom > viewBottom) el.scrollTop = bottom - el.clientHeight
-  }, [activeRoot, activeRel, rows])
+    if (top < viewTop) scrollTreeTo(el, top)
+    else if (bottom > viewBottom) scrollTreeTo(el, bottom - el.clientHeight)
+  }, [activeKey, activeRel, activeRoot, rows, scrollTreeTo])
 
   const openRow = (row: Row) => {
     if (row.kind === 'more') {
@@ -616,8 +734,11 @@ export function FileTree() {
         onKeyDown={onKeyDown}
         onScroll={(e) => {
           const top = e.currentTarget.scrollTop
-          remembered.top = top
-          setScrollTop(top)
+          // A user scroll wins over a pending reveal/follow that could not find its row yet.
+          if (activeKey && followed.current !== activeKey) followed.current = activeKey
+          if (selected && followedSelection.current !== selected) followedSelection.current = selected
+          markScrolling()
+          syncScrollTop(top)
         }}
         className="tree-pane min-h-0 flex-1 overflow-x-auto overflow-y-auto outline-none"
       >
@@ -681,6 +802,8 @@ export function FileTree() {
                   if (e.detail > 1) {
                     if (
                       e.detail === 2 &&
+                      row.kind === 'node' &&
+                      !row.isDir &&
                       !(e.target as HTMLElement).closest('button, input, [data-tree-chevron]')
                     ) {
                       openAgentForRow(row)
@@ -693,7 +816,7 @@ export function FileTree() {
                   openRow(row)
                 }}
                 onDoubleClick={(e) => {
-                  if (row.kind !== 'node') return
+                  if (row.kind !== 'node' || row.isDir) return
                   if ((e.target as HTMLElement).closest('button, input, [data-tree-chevron]')) return
                   openAgentForRow(row)
                 }}

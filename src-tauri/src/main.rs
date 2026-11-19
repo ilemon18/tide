@@ -214,6 +214,39 @@ fn new_window(
     }
 }
 
+/// Stable cycle order: the main window first, then secondary windows by creation sequence. Labels are
+/// process-local (`win-<pid>-<seq>`), so sorting by the label string is predictable across invocations.
+fn window_cycle_key(label: &str) -> (u8, u32, &str) {
+    if label == "main" {
+        return (0, 0, label);
+    }
+    if label.starts_with("win-") {
+        if let Some(seq) = label.rsplit('-').next().and_then(|value| value.parse::<u32>().ok()) {
+            return (1, seq, label);
+        }
+    }
+    (2, 0, label)
+}
+
+/// ⌘` / Ctrl+`: bring the next Tide window to the front, wrapping after the last one.
+#[tauri::command]
+fn cycle_window(app: tauri::AppHandle, window: tauri::Window) -> Result<(), String> {
+    let mut labels: Vec<String> = app.webview_windows().into_keys().collect();
+    labels.sort_by(|a, b| window_cycle_key(a).cmp(&window_cycle_key(b)));
+    if labels.is_empty() {
+        return Ok(());
+    }
+
+    let current = window.label();
+    let index = labels.iter().position(|label| label == current).unwrap_or(0);
+    let next = &labels[(index + 1) % labels.len()];
+    if focus_window(&app, next) {
+        Ok(())
+    } else {
+        Err(format!("window not found: {next}"))
+    }
+}
+
 /// Forward a second launch to the already running instance:
 /// with a path open (or switch to) that project's window, without one focus an existing window.
 fn handle_second_instance(app: &tauri::AppHandle, argv: Vec<String>) {
@@ -271,6 +304,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             // window
             new_window,
+            cycle_window,
             claim_project,
             release_project_claim,
             // file system

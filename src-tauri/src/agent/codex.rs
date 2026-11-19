@@ -8,6 +8,7 @@ use std::path::Path;
 
 use serde_json::Value;
 
+use super::question::{self, Piece};
 use super::{AgentEvent, AgentTurnRequest, AgentUsage, Launch};
 
 pub fn launch(program: &Path, request: &AgentTurnRequest, root: &Path) -> Launch {
@@ -34,7 +35,11 @@ pub fn launch(program: &Path, request: &AgentTurnRequest, root: &Path) -> Launch
         args.push(format!("model_reasoning_effort=\"{effort}\""));
     }
     args.push("-c".into());
-    args.push("sandbox_mode=\"workspace-write\"".into());
+    args.push(if request.read_only {
+        "sandbox_mode=\"read-only\"".into()
+    } else {
+        "sandbox_mode=\"workspace-write\"".into()
+    });
     args.push("-c".into());
     args.push("approval_policy=\"never\"".into());
     // Prompt over stdin: no argv length limit, and it does not show up in `ps`
@@ -48,6 +53,68 @@ pub fn launch(program: &Path, request: &AgentTurnRequest, root: &Path) -> Launch
 #[derive(Default)]
 pub struct State {
     seen: HashSet<String>,
+    questions: question::Parser,
+    seq: u64,
+    /// Current text item. A question closes it so trailing text starts a new item.
+    text_id: Option<String>,
+}
+
+fn piece_events(pieces: Vec<Piece>, base_id: &str, state: &mut State) -> Vec<AgentEvent> {
+    let mut out = Vec::new();
+    let mut text_id = state
+        .text_id
+        .clone()
+        .or_else(|| Some(base_id.to_string()));
+    for piece in pieces {
+        match piece {
+            Piece::Text(text) if !text.is_empty() => {
+                if text_id.is_none() {
+                    state.seq += 1;
+                    text_id = Some(format!("{base_id}-text-{}", state.seq));
+                }
+                out.push(AgentEvent::TextDelta {
+                    item_id: text_id.clone().expect("text id set above"),
+                    text,
+                });
+            }
+            Piece::Question(question) => {
+                state.seq += 1;
+                out.push(AgentEvent::Question {
+                    item_id: format!("question-{}", state.seq),
+                    header: question.header,
+                    question: question.question,
+                    multi_select: question.multi_select,
+                    options: question.options,
+                });
+                text_id = None;
+            }
+            Piece::Invalid(text) => {
+                if !text.is_empty() {
+                    if text_id.is_none() {
+                        state.seq += 1;
+                        text_id = Some(format!("{base_id}-text-{}", state.seq));
+                    }
+                    out.push(AgentEvent::TextDelta {
+                        item_id: text_id.clone().expect("text id set above"),
+                        text: text.clone(),
+                    });
+                    out.push(AgentEvent::QuestionInvalid { text });
+                }
+            }
+            Piece::Text(_) => {}
+        }
+    }
+    state.text_id = text_id;
+    out
+}
+
+pub fn flush(state: &mut State) -> Vec<AgentEvent> {
+    let pieces = state.questions.flush();
+    let item_id = state
+        .text_id
+        .clone()
+        .unwrap_or_else(|| format!("text-flush-{}", state.seq + 1));
+    piece_events(pieces, &item_id, state)
 }
 
 fn clip(value: &str) -> String {
@@ -270,10 +337,10 @@ pub fn translate(line: &str, state: &mut State) -> Vec<AgentEvent> {
             match item_type {
                 "agent_message" if kind == "item.completed" => {
                     if let Some(text) = item.get("text").and_then(Value::as_str) {
-                        out.push(AgentEvent::TextDelta {
-                            item_id: id.to_string(),
-                            text: text.to_string(),
-                        });
+                        state.text_id = Some(id.to_string());
+                        let pieces = state.questions.push(text);
+                        out.extend(piece_events(pieces, id, state));
+                        out.extend(flush(state));
                     }
                 }
                 "reasoning" if kind == "item.completed" => {
@@ -349,6 +416,9 @@ pub fn translate(line: &str, state: &mut State) -> Vec<AgentEvent> {
                 text: clip(message),
             });
         }
+        "turn.completed" => {
+            out.extend(flush(state));
+        }
         _ => {}
     }
     out
@@ -357,6 +427,109 @@ pub fn translate(line: &str, state: &mut State) -> Vec<AgentEvent> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
+
+    fn request(read_only: bool) -> AgentTurnRequest {
+        AgentTurnRequest {
+            chat_id: "chat-1".into(),
+            root: "/tmp".into(),
+            provider: "codex".into(),
+            session_id: None,
+            model: None,
+            effort: None,
+            prompt: "hi".into(),
+            mentions: Vec::new(),
+            read_only,
+        }
+    }
+
+    fn question_marker() -> String {
+        format!(
+            "{}{}{}",
+            question::QUESTION_START,
+            r#"{"header":"Decision","question":"Which option?","multiSelect":true,"options":[{"label":"A","description":"First"},{"label":"B","description":"Second"}]}"#,
+            question::QUESTION_END
+        )
+    }
+
+    #[test]
+    fn read_only_uses_codex_read_only_sandbox() {
+        let launch = launch(Path::new("codex"), &request(true), Path::new("/tmp"));
+        assert!(launch
+            .args
+            .iter()
+            .any(|arg| arg == "sandbox_mode=\"read-only\""));
+        assert!(!launch
+            .args
+            .iter()
+            .any(|arg| arg == "sandbox_mode=\"workspace-write\""));
+    }
+
+    #[test]
+    fn writable_turns_keep_codex_workspace_write_sandbox() {
+        let launch = launch(Path::new("codex"), &request(false), Path::new("/tmp"));
+        assert!(launch
+            .args
+            .iter()
+            .any(|arg| arg == "sandbox_mode=\"workspace-write\""));
+        assert!(!launch.args.iter().any(|arg| arg == "sandbox_mode=\"read-only\""));
+    }
+
+    #[test]
+    fn completed_agent_message_emits_question_in_source_order() {
+        let mut state = State::default();
+        let text = format!("before\n{}\nafter", question_marker());
+        let event = serde_json::to_string(&json!({
+            "type": "item.completed",
+            "item": { "id": "m1", "type": "agent_message", "text": text }
+        }))
+        .expect("agent message should serialize");
+        let events = translate(&event, &mut state);
+        assert!(matches!(&events[0], AgentEvent::TextDelta { text, .. } if text == "before\n"));
+        let question_index = events
+            .iter()
+            .position(|event| matches!(event, AgentEvent::Question { multi_select: true, .. }))
+            .expect("question event");
+        assert!(events[question_index + 1..]
+            .iter()
+            .any(|event| matches!(event, AgentEvent::TextDelta { text, .. } if text == "\nafter")));
+    }
+
+    #[test]
+    fn partial_marker_after_question_flushes_into_trailing_text_item() {
+        let mut state = State::default();
+        let text = format!("before{}after <TIDE_QU", question_marker());
+        let event = serde_json::to_string(&json!({
+            "type": "item.completed",
+            "item": { "id": "m1", "type": "agent_message", "text": text }
+        }))
+        .expect("agent message should serialize");
+        let events = translate(&event, &mut state);
+        let question_index = events
+            .iter()
+            .position(|event| matches!(event, AgentEvent::Question { .. }))
+            .expect("question event");
+        let before_id = events[..question_index]
+            .iter()
+            .find_map(|event| match event {
+                AgentEvent::TextDelta { item_id, .. } => Some(item_id),
+                _ => None,
+            })
+            .expect("text before question");
+        let trailing_id = events[question_index + 1..]
+            .iter()
+            .find_map(|event| match event {
+                AgentEvent::TextDelta { item_id, .. } => Some(item_id),
+                _ => None,
+            })
+            .expect("text after question");
+        let last = events.last().expect("partial marker text");
+        assert!(matches!(
+            last,
+            AgentEvent::TextDelta { item_id, text } if item_id == trailing_id && text == "<TIDE_QU"
+        ));
+        assert_ne!(before_id, trailing_id);
+    }
 
     #[test]
     fn reads_thread_and_agent_message() {

@@ -39,7 +39,12 @@ export function ContextMenu({ x, y, items, onClose, maxHeight }: Props) {
       if (!ref.current?.contains(e.target as Node)) onClose()
     }
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
+      if (e.key !== 'Escape') return
+      // Menus are a layer above the editor and agent. Escape dismisses the menu only; letting the
+      // same key reach the focused chat would also cancel a running turn.
+      e.preventDefault()
+      e.stopPropagation()
+      onClose()
     }
     document.addEventListener('mousedown', onDown)
     document.addEventListener('keydown', onKey)

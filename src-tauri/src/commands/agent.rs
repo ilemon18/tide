@@ -250,6 +250,16 @@ pub fn agent_send(
                 Err(_) => break,
             }
         }
+        let events = if provider_id == "claude" {
+            agent::claude::flush(&mut claude_state)
+        } else {
+            agent::codex::flush(&mut codex_state)
+        };
+        for event in events {
+            if tx.send(event).is_err() {
+                break;
+            }
+        }
         let status = child.wait();
         let ok = status
             .as_ref()
@@ -450,4 +460,3 @@ pub fn agent_estimate_tokens(
         .fold(0usize, |total, item| total.saturating_add(item.tokens));
     Ok(TokenEstimate { total, breakdown })
 }
-

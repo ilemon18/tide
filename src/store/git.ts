@@ -52,6 +52,8 @@ const timers = new Map<string, ReturnType<typeof setTimeout>>()
 const signatures = new Map<string, string>()
 const statusRefreshes = new Map<string, Promise<void>>()
 let discardAllConfirmPending = false
+/** Roots whose changes are hidden optimistically while one bulk discard is in flight. */
+const optimisticDiscards = new Set<string>()
 /** Roots asked to force-refresh while a request is in flight; rerun once it finishes */
 const pendingForceBranches = new Set<string>()
 
@@ -126,6 +128,14 @@ export const useGit = create<GitStore>((set, get) => ({
         get().forget(target)
         continue
       }
+      // Watcher/focus refreshes must not put the rows back while discard-all is still running. The
+      // operation finishes with one forced refresh, which becomes the authoritative state.
+      if (optimisticDiscards.has(target)) {
+        if (get().loading[target]) {
+          set({ loading: { ...get().loading, [target]: false } })
+        }
+        continue
+      }
       const pending = statusRefreshes.get(target)
       if (pending) {
         if (force) {
@@ -146,6 +156,11 @@ export const useGit = create<GitStore>((set, get) => ({
         // project and would pin the changed-file count to it
         if (!isOpen(target)) {
           get().forget(target)
+          continue
+        }
+        // A status request that started before the optimistic mutation must not overwrite it.
+        if (optimisticDiscards.has(target)) {
+          set({ loading: { ...get().loading, [target]: false } })
           continue
         }
         set({ loading: { ...get().loading, [target]: false }, lastRefresh: Date.now() })
@@ -188,6 +203,7 @@ export const useGit = create<GitStore>((set, get) => ({
           continue
         }
         set({ loading: { ...get().loading, [target]: false } })
+        if (optimisticDiscards.has(target)) continue
         if (force) useUi.getState().toast(errorText(e), 'error')
       } finally {
         statusRefreshes.delete(target)
@@ -204,6 +220,7 @@ export const useGit = create<GitStore>((set, get) => ({
     }
     signatures.delete(root)
     pendingForceBranches.delete(root)
+    optimisticDiscards.delete(root)
 
     const statuses = { ...get().statuses }
     const loading = { ...get().loading }
@@ -291,20 +308,19 @@ export const useGit = create<GitStore>((set, get) => ({
 
   discardAllChanges: async (root) => {
     if (get().busy || discardAllConfirmPending || useUi.getState().confirmReq) return
-    const snapshot = get().statuses[root]
-    if (!snapshot || snapshot.error) return
-    const trackedPaths = snapshot.changes.map((file) => file.path)
-    const untrackedPaths = snapshot.untracked.map((file) => file.path)
-    const targets = [...trackedPaths, ...untrackedPaths]
-    if (targets.length === 0) return
+    const confirmSnapshot = get().statuses[root]
+    if (!confirmSnapshot || confirmSnapshot.error) return
+    const confirmTracked = confirmSnapshot.changes.map((file) => file.path)
+    const confirmUntracked = confirmSnapshot.untracked.map((file) => file.path)
+    if (confirmTracked.length + confirmUntracked.length === 0) return
     discardAllConfirmPending = true
     let ok: boolean
     try {
       ok = await useUi.getState().confirm({
         title: t('dialog.gitDiscard.title'),
         message: t('dialog.gitDiscardAll.message', {
-          restoreCount: trackedPaths.length,
-          deleteCount: untrackedPaths.length,
+          restoreCount: confirmTracked.length,
+          deleteCount: confirmUntracked.length,
         }),
         confirmText: t('dialog.gitDiscard.confirm'),
         danger: true,
@@ -313,31 +329,72 @@ export const useGit = create<GitStore>((set, get) => ({
       discardAllConfirmPending = false
     }
     if (!ok || get().busy || !useWorkspace.getState().roots.some((node) => node.id === root)) return
-    set({ busy: 'discard' })
+
+    // Use the newest snapshot after the confirmation dialog. Keep it so an IPC-level failure can put
+    // every row back immediately, before the forced refresh reports the real disk state.
+    const snapshot = get().statuses[root]
+    if (!snapshot || snapshot.error) return
+    const trackedPaths = snapshot.changes.map((file) => file.path)
+    const untrackedPaths = snapshot.untracked.map((file) => file.path)
+    const targets = [...trackedPaths, ...untrackedPaths]
+    if (targets.length === 0) return
+
+    optimisticDiscards.add(root)
+    signatures.delete(root)
+    set({
+      busy: 'discard',
+      statuses: {
+        ...get().statuses,
+        [root]: { ...snapshot, changes: [], untracked: [] },
+      },
+    })
+
     let resumeSaves: ((reschedule?: boolean | readonly string[]) => void) | undefined
     const completed = new Set<string>()
+    let receivedResult = false
     try {
       const { useTabs, suspendFileSaves } = await import('./tabs')
       resumeSaves = await suspendFileSaves(root, targets)
-      try {
-        const result = await api.gitDiscardChanges(root, trackedPaths, untrackedPaths)
-        for (const path of [...result.restored, ...result.deleted]) completed.add(path)
-        // Remove deleted buffers before refreshing diffs, including dirty editors in both panes.
-        for (const path of result.deleted) useTabs.getState().onDeleted(root, path)
-        if (result.restored.length > 0) {
-          await useTabs.getState().refreshFromDisk(root, { force: true, paths: result.restored })
+      const result = await api.gitDiscardChanges(root, trackedPaths, untrackedPaths)
+      receivedResult = true
+      for (const path of [...result.restored, ...result.deleted]) completed.add(path)
+      // Remove deleted buffers before refreshing diffs, including dirty editors in both panes.
+      for (const path of result.deleted) useTabs.getState().onDeleted(root, path)
+      if (result.restored.length > 0) {
+        await useTabs.getState().refreshFromDisk(root, { force: true, paths: result.restored })
+      }
+      if (result.error) {
+        // A partial failure restores only the unprocessed rows right away; completed paths stay hidden.
+        const remaining = new Set(targets.filter((path) => !completed.has(path)))
+        if (useWorkspace.getState().roots.some((node) => node.id === root)) {
+          set({
+            statuses: {
+              ...get().statuses,
+              [root]: {
+                ...snapshot,
+                changes: snapshot.changes.filter((file) => remaining.has(file.path)),
+                untracked: snapshot.untracked.filter((file) => remaining.has(file.path)),
+              },
+            },
+          })
         }
-        if (result.error) useUi.getState().toast(errorText(result.error), 'error')
-      } finally {
-        signatures.delete(root)
-        await get().refresh(root, true)
+        useUi.getState().toast(errorText(result.error), 'error')
       }
     } catch (error) {
+      if (!receivedResult && useWorkspace.getState().roots.some((node) => node.id === root)) {
+        set({ statuses: { ...get().statuses, [root]: snapshot } })
+      }
       useUi.getState().toast(errorText(error), 'error')
     } finally {
       // Never reschedule a successful discard's old buffer, even if disk reload failed.
       resumeSaves?.(targets.filter((path) => !completed.has(path)))
-      set({ busy: null })
+      optimisticDiscards.delete(root)
+      signatures.delete(root)
+      try {
+        await get().refresh(root, true)
+      } finally {
+        set({ busy: null })
+      }
     }
   },
 
@@ -498,6 +555,8 @@ export const useGit = create<GitStore>((set, get) => ({
     for (const timer of timers.values()) clearTimeout(timer)
     timers.clear()
     signatures.clear()
+    optimisticDiscards.clear()
+    pendingForceBranches.clear()
     set({
       statuses: {},
       loading: {},

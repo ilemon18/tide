@@ -82,31 +82,57 @@ state clears as soon as checkout succeeds; the transition keeps a short grace wi
 
 ## Agent
 
-**Entry → tab**: title-bar button, explorer double-click / context menu
+**Entry → tab**: title-bar button, explorer **file** double-click / context menu
 (`e.detail > 1` suppresses the second row click) or the palette → `useAgent.newChat`,
 which creates `chats[chatId]`, opens a `kind: 'chat'` tab on the right and seeds any
-`@file` / `@folder` mention into the composer draft. The first split is row-wise and
-60/40 so files stay in primary. Sending runs `agent_send` (headless CLI in the
+`@file` / `@folder` mention into the composer draft. A folder double-click only toggles
+the folder; its context menu still offers the folder mention. The first split is row-wise
+and 60/40 so files stay in primary. Sending runs `agent_send` (headless CLI in the
 workspace root). One turn per chat, four at once.
+
+**Escape**: only the focused running chat tab stops on Escape. Menus, composer pickers and
+the token-budget popup consume Escape first; those layers must stop propagation so dismissing
+one does not also cancel the turn.
 
 **Interject**: sending during a turn appends to a per-chat FIFO (`queues` in the store),
 not the running stdin. `done` drains one message as the next turn; Stop also drains, so
-“send now” = queue + Stop. Auto-drained turns must not clear a draft typed meanwhile.
+“send now” = queue + Stop. Auto-drained turns must not clear a draft typed meanwhile. A pending
+structured question blocks normal sends and `done`/Stop queue draining until the user answers it.
+
+**Structured questions**: providers emit at most one valid
+`<TIDE_QUESTION>{...}</TIDE_QUESTION>` marker per turn. It requires non-empty `header` / `question`
+and 2–4 non-empty labelled/described options. Rust keeps surrounding text in source order, hides only
+the valid marker, restores malformed JSON/options or unclosed markers as text, and emits a localized
+`questionInvalid` notice. An item is pending while `answer` is absent/blank; answer submission marks it
+answered, appends the localized question/answer user message and resumes the same CLI session. Answer
+turns inherit the source assistant message's optional `readOnly`; session-reset retry must preserve it.
+
+**Read-only planning**: `/plan` sends `readOnly: true`. Claude uses `--permission-mode plan` and omits
+bypass/dangerous-skip flags; Codex uses `sandbox_mode="read-only"`. Question-answer follow-ups keep the
+source turn read-only, but the next ordinary message is writable again. Do not route planning turns
+through the ordinary bypass/workspace-write launch path.
 
 **CLI config wins**: an empty model / effort sends no `--model` / `--effort` flag, so a
 custom Codex provider or model in the user config still applies. Never auto-select a catalog model,
 and a per-chat pick must not rewrite the global default (that would override their config forever).
 
-**Streaming**: Rust parses JSONL into `agent:event` (session / textDelta / tool* / done), coalesces
-text every 24ms, and the store reducer appends by item id. `done` writes the transcript; Stop,
-window close, app exit and disabling the setting kill the process group.
+**Streaming**: Rust parses JSONL into `agent:event` (session / textDelta / tool* / question /
+questionInvalid / done), coalesces text every 24ms, and the store reducer appends by item id.
+`done` writes the transcript; Stop, window close, app exit and disabling the setting kill the process
+group.
+
+**Tool grouping**: consecutive tool items are grouped only in `AgentMessage`; any non-tool item cuts
+the group. Status priority is error > running > ok. Running groups expand and completed groups
+auto-collapse until the user manually toggles that group. Never persist group or toggle state.
 
 **Provider scans**: `loadProviders` deduplicates globally while `providersLoading` is true, including
 forced rescans. A refresh failure keeps the last successful provider list; only a failed first scan
 falls back to `[]`. The settings rescan button follows the same loading flag so it cannot start twice.
 
 **Persistence**: `agent/chats/<id>.json` (opaque frontend JSON) and `agent/tabs.json`; both flush
-on `app:hidden`. Closing a chat tab stops its turn and keeps the file.
+on `app:hidden`. Closing a chat tab stops its turn and keeps the file. Transcripts stay `v: 1`;
+question items with optional answers and assistant `readOnly` flags are optional additions and old
+files must still load.
 
 ## File tree
 
@@ -120,7 +146,11 @@ on `app:hidden`. Closing a chat tab stops its turn and keeps the file.
 - Switching tabs only scrolls the row of "the directory containing the current file" into view (the
   `followed` ref) and does **not** change expansion. Follow a file once, or row rebuilds fight the user's
   scrolling.
-- Virtual scrolling: when the row count shrinks (compaction, collapse, refresh) clamp `scrollTop` back to
+- Virtual scrolling: while the scrollbar is moving, keep the last settled folder-chain snapshot and
+  defer visible-chain resolution until a short scroll-idle delay. Applying async chain results mid-scroll
+  changes the row count under the thumb, which reads as flicker or a snap back. When the snapshot does
+  change, anchor the row under the viewport by its stable root + `start` identity (or stay at the bottom).
+- When the row count shrinks (compaction, collapse, refresh) clamp `scrollTop` back to
   `rows.length * ROW_H - clientHeight`, otherwise absolutely positioned rows sit past the new content
   height and inflate the scroll range (symptom: lots of empty scrollable space, a tiny scrollbar thumb).
   Clamp again in the render window with `maxScroll`.
@@ -132,13 +162,16 @@ on `app:hidden`. Closing a chat tab stops its turn and keeps the file.
   or non-Unicode paths. Keep this compatibility in the shared path-component comparison, not by
   stripping prefixes everywhere, because doing so can change path semantics.
 - The Changes group displays `changes` followed by `untracked`; only the UI maps `?` to a green `A`.
-  Stage all includes both lists. `useGit.discardAllChanges(root)` snapshots both categories before one
-  dangerous confirmation with separate restore/delete counts. `api.gitDiscardChanges` /
-  `git_discard_changes` validates all paths, conflicts, directory placeholders and current Git categories
-  before mutation; changed categories reject the whole snapshot. Tracked files restore from the index
-  (staged content survives); only explicitly listed untracked files/symlinks are deleted, never directories.
-  Processing stops at the first failure and returns restored/deleted paths plus an optional coded error.
-  Legacy `api.gitDiscard` / `git_discard` retains its single-file behavior.
+  Stage all includes both lists. `useGit.discardAllChanges(root)` takes a fresh snapshot after the
+  dangerous confirmation with separate restore/delete counts, then hides `changes` / `untracked`
+  optimistically while the bulk operation runs. Watcher/focus refreshes are suppressed during this window;
+  an IPC-level failure restores the snapshot, while a partial backend failure restores only unprocessed rows.
+  `api.gitDiscardChanges` / `git_discard_changes` validates all paths, conflicts, directory placeholders and
+  current Git categories before mutation; changed categories reject the whole snapshot. Tracked files restore
+  from the index in one `git restore` (staged content survives); one `git ls-files` probe protects all
+  explicitly listed untracked files/symlinks before unlink, never directories. Processing stops at the first
+  failure and returns restored/deleted paths plus an optional coded error. Legacy `api.gitDiscard` /
+  `git_discard` retains its single-file behavior.
 - Bulk discard suspends target saves (`suspendFileSaves` in `store/tabs.ts`), cancels queued autosaves,
   invalidates pending on-save formatting and waits for in-flight writes. Watcher reloads skip suspended
   files. Successful deletions close matching tabs; successful restores force-reload exact paths across
@@ -193,6 +226,8 @@ on `app:hidden`. Closing a chat tab stops its turn and keeps the file.
   previews are never sent, and a composition that never ends expires without output. Do not broaden this
   to plain `Ctrl+punctuation`, which is terminal control input.
 
+- `Cmd+\`` / `Ctrl+\`` cycles Tide windows in stable order: `main`, then `win-<pid>-<seq>` by sequence,
+  wrapping after the last. Shift is not part of the shortcut.
 - Debug builds never run the startup update report or quiet update check and never show the title-bar
   update badge. Settings → About remains the only manual update entry. The backend mirrors the startup
   guard, so an accidental automatic `update_check` in a debug build cannot reach the network.
