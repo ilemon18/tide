@@ -348,6 +348,7 @@ fn main() {
             commands::theme::remove_recent,
             // in-app update
             update::app_version,
+            update::is_debug_build,
             update::update_check,
             update::update_download,
             update::update_install,

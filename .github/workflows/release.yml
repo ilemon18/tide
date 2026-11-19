@@ -2,7 +2,8 @@
 #
 #   tide-macos-X.Y.Z.dmg   Universal binary (Apple Silicon + Intel)
 #   tide-win-X.Y.Z.exe     NSIS installer (x64, per-user install)
-#   latest.json            Manifest the app reads when checking for updates (version / file name / size / SHA-256)
+#   latest.json            Manifest for app updates and install.sh
+#   install.sh             macOS curl installer
 #
 # The version shown in the app comes from the tag: `scripts/set-version.mjs` rewrites
 # package.json, tauri.conf.json, Cargo.toml and Cargo.lock before the build, so the About page,
@@ -381,3 +382,4 @@ jobs:
             dist/tide-macos-*.dmg
             dist/tide-win-*.exe
             dist/latest.json
+            install.sh

@@ -294,11 +294,14 @@ pub fn resolve_in_root(root: &Path, rel: &str) -> AppResult<PathBuf> {
 /// by someone else. This **only checks containment**; existence is left to the real file operation
 /// — with `exists()` + `canonicalize()` a rename in between reports a live file as missing.
 pub fn assert_inside(root: &Path, path: &Path) -> AppResult<()> {
+    // Canonicalize both sides so symlinks cannot escape the root. dunce keeps the Windows `\\?\`
+    // prefix for long / non-Unicode paths; the shared comparison treats equivalent prefix forms as equal.
+    let root = paths::canon(root)?;
     let mut probe = path;
     loop {
         match paths::canon(probe) {
             Ok(canon) => {
-                return if paths::is_inside(root, &canon) {
+                return if paths::is_inside(&root, &canon) {
                     Ok(())
                 } else {
                     Err(AppError::p(
@@ -315,5 +318,16 @@ pub fn assert_inside(root: &Path, path: &Path) -> AppResult<()> {
             Some(p) => probe = p,
             None => return Err(AppError::c("path.invalidEmpty")),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[cfg(windows)]
+    #[test]
+    fn assert_inside_accepts_verbatim_root() {
+        let root = std::fs::canonicalize(std::env::temp_dir()).unwrap();
+        let path = root.join("tide-assert-inside-test");
+        super::assert_inside(&root, &path).unwrap();
     }
 }

@@ -150,6 +150,7 @@ export function SettingsView() {
 
   // Agent page: the provider scan is lazy (first open of the page / new chat), never at startup
   const agentProviders = useAgent((s) => s.providers)
+  const agentProvidersLoading = useAgent((s) => s.providersLoading)
   const agentCatalog = useAgent((s) => s.catalogs[settings.agentDefaultProvider])
   const agentModelInfo = agentCatalog?.models.find(
     (item) => item.id === settings.agentDefaultModel,
@@ -539,8 +540,11 @@ export function SettingsView() {
           <div className="flex justify-end border-b border-line/60 px-4 py-2">
             <button
               type="button"
+              disabled={agentProvidersLoading}
+              aria-busy={agentProvidersLoading}
               onClick={() => {
                 const agent = useAgent.getState()
+                if (agent.providersLoading) return
                 void agent.loadProviders(true).then(() => {
                   // A CLI installed after the first scan may still have an empty cached catalog
                   const providers = useAgent.getState().providers ?? []
@@ -551,9 +555,16 @@ export function SettingsView() {
                   }
                 })
               }}
-              className="shrink-0 rounded-[var(--r-control)] border border-line-soft px-2 py-0.5 text-2xs text-fg/80 transition-colors duration-fast hover:bg-hover"
+              className="flex shrink-0 items-center gap-1 rounded-[var(--r-control)] border border-line-soft px-2 py-0.5 text-2xs text-fg/80 transition-colors duration-fast hover:bg-hover disabled:cursor-default disabled:opacity-70 disabled:hover:bg-transparent"
             >
-              {t('settings.agent.rescan')}
+              {agentProvidersLoading ? (
+                <>
+                  <Icon name="spinner" size={11} className="animate-spin" />
+                  {t('settings.agent.scanning')}
+                </>
+              ) : (
+                t('settings.agent.rescan')
+              )}
             </button>
           </div>
           {agentProviders === null ? (

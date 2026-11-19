@@ -6,8 +6,11 @@ on the next turn. That survives restarts and leaves auth, models and tool loops 
 
 ## Entry points
 
-Every entry opens a new chat tab (`kind: 'chat'`, id `chat:<chatId>`) in the
-focused pane; there is no separate popover.
+Every entry opens a new chat tab (`kind: 'chat'`, id `chat:<chatId>`) in the right
+pane; there is no separate popover. The first new chat creates a row split with
+the existing editor content untouched in primary and a 60/40 primary/chat width.
+An existing split keeps its current ratio, moves the new chat into secondary and
+switches a column split to row.
 
 - Title bar sparkle button → new chat for the active workspace (hidden when `agentEnabled` is off).
 - Explorer row double-click (file or folder) → new chat whose composer already holds the
@@ -16,13 +19,21 @@ focused pane; there is no separate popover.
 - Explorer context menu (file or folder) → same new chat with that mention.
 - Command palette → “Ask the agent…”.
 
+When the focused secondary tab is a chat, ordinary file, quick-open, search,
+diff and untitled opens route to primary so code appears beside the conversation.
+File drops into an explicit pane and in-place replacements keep their target.
+An emptied primary remains split while secondary still contains a chat; closing
+that chat or choosing unsplit restores the normal empty-pane merge.
+
 A message typed while a turn is running is **queued** for that chat (FIFO, shown above the
 composer) and starts the next turn when `done` arrives, reusing the same CLI session.
 Stop ends the current turn and drains the queue immediately; the transcript keeps the queue out
 until it is actually sent.
 
 The provider scan is warmed shortly after first paint (and again when the setting is turned back
-on), then cached for the session; the settings page can rescan on demand.
+on), then cached for the session; the settings page can rescan on demand. While any scan is active,
+`loadProviders` ignores new requests (including forced rescans), the button shows the existing
+scanning label and stays disabled, and a failed refresh keeps the last provider list visible.
 
 ## Code map
 

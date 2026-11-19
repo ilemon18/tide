@@ -63,6 +63,8 @@ export type UpdateReport = {
 export const updateApi = {
   /** Running app version; used by the about page so the frontend stops hardcoding one */
   appVersion: () => invoke<string>('app_version'),
+  /** Debug builds only offer updates from Settings → About; the title bar stays quiet */
+  isDebugBuild: () => invoke<boolean>('is_debug_build'),
   /** `manual` = the user clicked: re-checks the network, while startup may answer from the cache */
   check: (manual: boolean) => invoke<UpdateInfo>('update_check', { manual }),
   download: (url: string, fileName: string, checksum: string) =>

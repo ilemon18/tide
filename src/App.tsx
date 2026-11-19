@@ -213,8 +213,8 @@ export function App() {
     }
   }, [])
 
-  // In-app update: report the last install and run one quiet check at startup.
-  // Only the main window does it (N windows each checking and each downloading a package is pointless).
+  // In-app update: release builds report the last install and run one quiet check at startup; debug
+  // builds leave Settings → About as the manual entry. Only the main window starts this watcher.
   // `startUpdateWatcher` guards itself once, safe for StrictMode double mounts / HMR reloads.
   useEffect(() => {
     if (!IS_PRIMARY_WINDOW) return

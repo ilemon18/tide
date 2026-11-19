@@ -300,7 +300,6 @@ export const ja: Messages = {
   'tabs.splitTip': '右に分割 (⌘\\)',
   'tabs.editSource': 'ソースを編集',
   'tabs.viewSvg': 'SVG 画像を表示',
-  'tabs.stagedName': '{name}（ステージ済み）',
   'tabs.pinnedSuffix': ' · 固定中',
 
   'quickopen.placeholder': 'ファイルを検索、@ でシンボル、:行番号 で移動',

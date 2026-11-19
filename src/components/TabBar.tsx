@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { groupTabs, useTabs, type TabGroupId } from '../store/tabs'
 import { isSvgPath } from '../lib/media'
@@ -59,9 +59,12 @@ export function TabBar({ groupId }: { groupId: TabGroupId }) {
   const [ghost, setGhost] = useState<{ x: number; y: number } | null>(null)
 
   const tabOrder = JSON.stringify(tabs.map((tab) => tab.id))
+  const hasTabs = tabs.length > 0
   const [viewportWidth, setViewportWidth] = useState(0)
   const widthsRef = useRef(widths)
-  widthsRef.current = widths
+  const measuredOnceRef = useRef(false)
+  const wheelDeltaRef = useRef(0)
+  const wheelFrameRef = useRef<number | null>(null)
 
   // Observe intrinsic sizes, including font/locale/title changes and pane/sidebar resizing.
   // Never feed these measurements back into the tab's own width.
@@ -69,26 +72,97 @@ export function TabBar({ groupId }: { groupId: TabGroupId }) {
     const track = trackRef.current
     const strip = stripRef.current
     if (!track || !strip) {
+      measuredOnceRef.current = false
+      widthsRef.current = {}
       setWidths((previous) => Object.keys(previous).length === 0 ? previous : {})
+      setViewportWidth((previous) => (previous === 0 ? previous : 0))
       return
     }
-    const measure = () => {
+
+    // The first pass establishes every intrinsic width. Later observer callbacks only read tabs that
+    // actually resized, while strip resizes update just the viewport used for active-tab visibility.
+    if (!measuredOnceRef.current) {
       const next: Record<string, number> = {}
       track.querySelectorAll<HTMLElement>('[data-tab-id]').forEach((el) => {
         if (el.dataset.tabId) next[el.dataset.tabId] = el.getBoundingClientRect().width
       })
-      setWidths((previous) =>
-        Object.keys(previous).length === Object.keys(next).length &&
-        Object.keys(next).every((id) => previous[id] === next[id]) ? previous : next,
-      )
-      setViewportWidth(strip.clientWidth)
+      measuredOnceRef.current = true
+      widthsRef.current = next
+      setWidths(next)
+    } else {
+      // A newly opened/reordered tab needs one measurement; existing widths are already current.
+      let next: Record<string, number> | null = null
+      track.querySelectorAll<HTMLElement>('[data-tab-id]').forEach((el) => {
+        const id = el.dataset.tabId
+        if (!id || widthsRef.current[id] !== undefined) return
+        next ??= { ...widthsRef.current }
+        next[id] = el.getBoundingClientRect().width
+      })
+      if (next) {
+        widthsRef.current = next
+        setWidths(next)
+      }
     }
-    measure()
-    const observer = new ResizeObserver(measure)
+
+    const viewport = strip.clientWidth
+    setViewportWidth((previous) => (previous === viewport ? previous : viewport))
+
+    const observer = new ResizeObserver((entries) => {
+      let nextWidths: Record<string, number> | null = null
+      let nextViewport: number | null = null
+      for (const entry of entries) {
+        if (entry.target === strip) {
+          nextViewport = strip.clientWidth
+          continue
+        }
+        const tab = entry.target as HTMLElement
+        const id = tab.dataset.tabId
+        if (!id) continue
+        const width = tab.getBoundingClientRect().width
+        if (widthsRef.current[id] === width) continue
+        nextWidths ??= { ...widthsRef.current }
+        nextWidths[id] = width
+      }
+      if (nextWidths) {
+        widthsRef.current = nextWidths
+        setWidths(nextWidths)
+      }
+      const viewportWidth = nextViewport
+      if (viewportWidth !== null) {
+        setViewportWidth((previous) => (previous === viewportWidth ? previous : viewportWidth))
+      }
+    })
     observer.observe(strip)
     track.querySelectorAll<HTMLElement>('[data-tab-id]').forEach((el) => observer.observe(el))
     return () => observer.disconnect()
   }, [tabOrder])
+
+  // Let the browser handle horizontal trackpad scrolling natively. Vertical mouse-wheel deltas are
+  // accumulated and committed as one scrollLeft write per frame, with no layout reads in the handler.
+  useEffect(() => {
+    const strip = stripRef.current
+    if (!strip) return
+    const flush = () => {
+      wheelFrameRef.current = null
+      const delta = wheelDeltaRef.current
+      wheelDeltaRef.current = 0
+      if (delta !== 0) strip.scrollLeft += delta
+    }
+    const onWheel = (event: WheelEvent) => {
+      if (event.shiftKey || Math.abs(event.deltaX) > Math.abs(event.deltaY)) return
+      if (event.deltaY === 0) return
+      event.preventDefault()
+      wheelDeltaRef.current += event.deltaY
+      if (wheelFrameRef.current === null) wheelFrameRef.current = requestAnimationFrame(flush)
+    }
+    strip.addEventListener('wheel', onWheel, { passive: false })
+    return () => {
+      strip.removeEventListener('wheel', onWheel)
+      if (wheelFrameRef.current !== null) cancelAnimationFrame(wheelFrameRef.current)
+      wheelFrameRef.current = null
+      wheelDeltaRef.current = 0
+    }
+  }, [hasTabs])
 
   // Scroll the active tab into view (the scrollbar is hidden once tabs overflow, so this is the only way).
   // Do it in the layout phase: a newly opened tab is already inside the viewport on the current frame,
@@ -304,12 +378,6 @@ export function TabBar({ groupId }: { groupId: TabGroupId }) {
           ref={stripRef}
           data-tab-strip="true"
           className="tab-strip h-full min-w-0 flex-1 overflow-x-auto overflow-y-hidden"
-          onWheel={(e) => {
-            // The scrollbar is hidden: use the wheel / horizontal trackpad swipe to reach pushed-out tabs
-            const strip = e.currentTarget
-            if (strip.scrollWidth <= strip.clientWidth) return
-            strip.scrollLeft += Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY
-          }}
         >
           <div ref={trackRef} className="relative h-full" style={{ width: Math.max(cursor, 1) }}>
             {tabs.map((tab) => {
@@ -356,8 +424,7 @@ export function TabBar({ groupId }: { groupId: TabGroupId }) {
                   ) : tab.kind === 'untitled' ? (
                     <Icon name="pen" size={14} className="shrink-0 text-muted" />
                   ) : (
-                    // Icon comes from the real file name: diff tab names carry a "(staged)" suffix that breaks
-                    // the extension match
+                    // Use the real relative path so file and diff tabs resolve the same file icon.
                     <FileIcon
                       name={basename(tab.rel)}
                       size={14}

@@ -118,6 +118,11 @@ const CLOSED_LIMIT = 20
 const RESTORE_MAX_BYTES = 2 * 1024 * 1024
 /** Restored tabs are stat'ed in parallel: sequential round-trips made them appear one after another */
 const RESTORE_CONCURRENCY = 6
+const SPLIT_RATIO_MIN = 0.2
+const SPLIT_RATIO_MAX = 0.8
+const SPLIT_RATIO_DEFAULT = 0.5
+/** First chat split leaves most of the editor available for code beside the conversation */
+const CHAT_SPLIT_RATIO = 0.6
 
 function pushClosed(
   list: ClosedTab[],
@@ -251,6 +256,8 @@ type TabsStore = {
   activeGroupId: TabGroupId
   /** null = not split */
   splitOrientation: SplitOrientation | null
+  /** Primary pane share of a split; drag clamps it to 20%-80% */
+  splitRatio: number
   cursors: Record<string, CursorInfo>
   reveal: RevealRequest | null
   opening: boolean
@@ -285,6 +292,8 @@ type TabsStore = {
   openSettings: () => void
   /** Agent chat tabs: one per conversation; an already open id is activated */
   openChat: (chatId: string, root: string, title: string) => void
+  /** Start a new-agent layout: keep files in primary and put the chat in secondary */
+  openChatInRight: (chatId: string, root: string, title: string) => void
   /** Rename a tab without touching its content (agent title follows the first prompt) */
   setTabName: (id: string, name: string) => void
   /**
@@ -315,6 +324,7 @@ type TabsStore = {
   activate: (id: string, groupId?: TabGroupId) => void
   activateOffset: (delta: number) => void
   setActiveGroup: (id: TabGroupId) => void
+  setSplitRatio: (ratio: number) => void
   /** Split: move=false puts the current file in both panes (synced), move=true moves the tab over */
   split: (orientation: SplitOrientation, move: boolean) => Promise<void>
   /** Unsplit: merge the secondary pane's tabs back into the primary */
@@ -543,14 +553,29 @@ function mergeGroups(groups: TabGroup[]): TabGroup[] {
   return [{ id: 'primary', activeId, order: merged }]
 }
 
-/** A pane emptied (last file closed / last tab dragged away): collapse it, the other fills the editor */
+/** A pane emptied (last file closed / last tab dragged away): collapse normally, except for the chat split */
 function settleLayout(
   groups: TabGroup[],
+  tabs: Tab[],
   activeGroupId: TabGroupId,
   split: SplitOrientation | null,
 ): { groups: TabGroup[]; activeGroupId: TabGroupId; split: SplitOrientation | null } {
   if (!split || groups.length < 2) return { groups, activeGroupId, split }
   if (!groups.some((g) => g.order.length === 0)) return { groups, activeGroupId, split }
+  // The chat split is intentional: an empty primary stays available for the next file while the
+  // conversation remains in the right pane. Closing the chat (or an explicit unsplit) merges again.
+  const secondary = groups.find((g) => g.id === 'secondary')
+  const chatInSecondary = secondary?.order.some(
+    (id) => tabs.find((tab) => tab.id === id)?.kind === 'chat',
+  )
+  if (chatInSecondary) {
+    const focused = groups.find((g) => g.id === activeGroupId)
+    return {
+      groups,
+      activeGroupId: focused?.order.length ? activeGroupId : 'secondary',
+      split,
+    }
+  }
   return { groups: mergeGroups(groups), activeGroupId: 'primary', split: null }
 }
 
@@ -603,8 +628,15 @@ function cancelAutoSave(id: string) {
  * secondary, and without a fallback the tab lands in a hidden group.
  */
 function resolveGroupId(groupId: TabGroupId | undefined): TabGroupId {
-  const { groups, activeGroupId } = useTabs.getState()
+  const { groups, tabs, activeGroupId } = useTabs.getState()
   if (groupId && groups.some((g) => g.id === groupId)) return groupId
+  // With a focused chat on the right, ordinary opens go to the code pane so the conversation stays
+  // visible for comparison. Drops and other explicit group targets above keep their chosen pane.
+  const active = groups.find((g) => g.id === activeGroupId)
+  const activeTab = tabs.find((tab) => tab.id === active?.activeId)
+  if (groups.length > 1 && activeGroupId === 'secondary' && activeTab?.kind === 'chat') {
+    return 'primary'
+  }
   return activeGroupId
 }
 
@@ -777,6 +809,7 @@ export const useTabs = create<TabsStore>((set, get) => ({
   groups: [{ id: 'primary', activeId: null, order: [] }],
   activeGroupId: 'primary',
   splitOrientation: null,
+  splitRatio: SPLIT_RATIO_DEFAULT,
   cursors: {},
   reveal: null,
   opening: false,
@@ -1024,12 +1057,51 @@ export const useTabs = create<TabsStore>((set, get) => ({
     if (root) useWorkspace.getState().setActiveRoot(root)
   },
 
+  openChatInRight: (chatId, root, title) => {
+    const id = `chat:${chatId}`
+    const state = get()
+    const existing = state.tabs.find((tab) => tab.id === id)
+    const tab: Tab = existing ?? {
+      id,
+      root,
+      kind: 'chat',
+      rel: '',
+      name: title,
+      dirty: false,
+      readOnly: true,
+      tier: 'full',
+      pinned: false,
+      temporary: false,
+      mtime: 0,
+    }
+    const tabs = existing
+      ? state.tabs.map((current) =>
+          current.id === id && current.name !== title ? { ...current, name: title } : current,
+        )
+      : [...state.tabs, tab]
+    const isNewSplit = state.groups.length < 2
+    const primary = state.groups.find((group) => group.id === 'primary') ?? state.groups[0]
+    const groups = isNewSplit
+      ? [primary, { id: 'secondary', activeId: id, order: [id] } satisfies TabGroup]
+      : openInGroup(state.groups, 'secondary', id)
+    set({
+      tabs,
+      groups,
+      activeId: id,
+      activeGroupId: 'secondary',
+      splitOrientation: 'row',
+      // A first chat split favors code; an existing split keeps the user's current draggable width.
+      ...(isNewSplit ? { splitRatio: CHAT_SPLIT_RATIO } : {}),
+    })
+    if (root) useWorkspace.getState().setActiveRoot(root)
+  },
+
   setTabName: (id, name) => {
     set({ tabs: get().tabs.map((tab) => (tab.id === id ? { ...tab, name } : tab)) })
   },
 
   openUntitled: (options) => {
-    const groupId = get().activeGroupId
+    const groupId = resolveGroupId(undefined)
     untitledCounter += 1
     const seq = options?.seq ?? untitledCounter
     const id = `untitled:${seq}`
@@ -1170,11 +1242,11 @@ export const useTabs = create<TabsStore>((set, get) => ({
     const id = diffTabId(root, rel, staged)
     const existing = get().tabs.find((t) => t.id === id)
     if (existing) {
-      const groupId = get().activeGroupId
+      const groupId = resolveGroupId(undefined)
       set({ activeId: id, activeGroupId: groupId, groups: openInGroup(get().groups, groupId, id) })
       return
     }
-    const groupId = get().activeGroupId
+    const groupId = resolveGroupId(undefined)
     // DiffView fetches the patch itself (full-context diff) on demand; here we only create the tab
     const tab: Tab = {
       id,
@@ -1323,6 +1395,10 @@ export const useTabs = create<TabsStore>((set, get) => ({
     set({ activeGroupId: id, activeId: deriveActiveId(state.groups, id) })
   },
 
+  setSplitRatio: (ratio) => {
+    set({ splitRatio: Math.min(SPLIT_RATIO_MAX, Math.max(SPLIT_RATIO_MIN, ratio)) })
+  },
+
   split: async (orientation, move) => {
     const state = get()
     const primary = state.groups[0]
@@ -1425,7 +1501,7 @@ export const useTabs = create<TabsStore>((set, get) => ({
     // After the move the mirror state is dead if only one pane shows it
     if (groups.filter((g) => g.order.includes(id)).length <= 1) dropEditorState(mirrorKey(id))
     // Dragging the last tab out of a pane empties it: collapse that pane too
-    const layout = settleLayout(groups, target, get().splitOrientation)
+    const layout = settleLayout(groups, state.tabs, target, get().splitOrientation)
     set({
       groups: layout.groups,
       activeGroupId: layout.activeGroupId,
@@ -1455,6 +1531,7 @@ export const useTabs = create<TabsStore>((set, get) => ({
     // When split, an emptied pane is collapsed right away
     const layout = settleLayout(
       settleGroups(get().groups, new Set([id])),
+      tabs,
       get().activeGroupId,
       get().splitOrientation,
     )
@@ -1491,7 +1568,7 @@ export const useTabs = create<TabsStore>((set, get) => ({
       if (groups.filter((g) => g.order.includes(id)).length <= 1) {
         dropEditorState(mirrorKey(id))
       }
-      const layout = settleLayout(groups, state.activeGroupId, state.splitOrientation)
+      const layout = settleLayout(groups, state.tabs, state.activeGroupId, state.splitOrientation)
       set({
         groups: layout.groups,
         activeGroupId: layout.activeGroupId,
@@ -2244,6 +2321,7 @@ export const useTabs = create<TabsStore>((set, get) => ({
       const tabs = state.tabs.filter((t) => !removed.has(t.id))
       const layout = settleLayout(
         settleGroups(state.groups, removed),
+        tabs,
         state.activeGroupId,
         state.splitOrientation,
       )
@@ -2329,7 +2407,7 @@ async function closeMany(ids: string[], force?: boolean, groupId?: TabGroupId): 
     delete cursors[id]
     delete diffEpoch[id]
   }
-  const layout = settleLayout(groups, snapshot.activeGroupId, snapshot.splitOrientation)
+  const layout = settleLayout(groups, tabs, snapshot.activeGroupId, snapshot.splitOrientation)
   useTabs.setState({
     tabs,
     groups: layout.groups,

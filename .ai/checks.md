@@ -51,7 +51,7 @@ When the user asks for a release check / 发布前检查 / 打包前检查, load
 [the release-check skill](./skills/release-check/SKILL.md). It is separate from verify because it
 also covers version/tag state, the Tauri bundle, both workflows and the update manifest.
 
-1. `pnpm release:check <version>` - local git, version, Tauri, workflow and manifest checks. No network.
+1. `pnpm release:check <version>` - local git, version, Tauri, workflow, `install.sh` and manifest checks. No network.
 2. `pnpm install --frozen-lockfile`, `pnpm verify`, `pnpm build`, `cargo test --manifest-path src-tauri/Cargo.toml`.
 3. An optional local release bundle after the user agrees: macOS universal dmg or Windows NSIS exe.
 
@@ -78,7 +78,10 @@ the workflow files only; remote tag/release/CI state still needs a manual check 
 
 Write test code during implementation, but do not run it. The verification skill runs
 `cargo test --manifest-path src-tauri/Cargo.toml` when the user asked for tests, test code changed, or
-the change touches `src-tauri/src/update.rs`, `paths.rs` or `commands/theme.rs`. CI always runs it.
+the change touches `src-tauri/src/update.rs`, `paths.rs` or `commands/theme.rs`. For installer changes it
+also runs `scripts/test-install.sh`, which stubs macOS tools and covers validation, rollback, cleanup
+and launch without touching the network or `~/Applications`.
+CI always runs the Rust tests.
 Unit tests also cover Git commands and agent providers, skill discovery and persistence. A test build
 uses the dev profile, which the release build does not reuse, which is why `verify` leaves it out.
 
@@ -91,11 +94,12 @@ The release-check skill runs it unconditionally, because it mirrors the tag-time
   asserts `src-tauri/icons/icon.ico` exists, because tauri-build hard-errors without it.
 - `.github/workflows/release.yml` — on a `vX.Y.Z` tag: resolves the version, runs
   `scripts/set-version.mjs`, then `pnpm check`, then `tauri build` for the universal macOS dmg and the
-  Windows NSIS exe, then `scripts/make-latest-json.mjs` writes the update manifest.
+  Windows NSIS exe, then `scripts/make-latest-json.mjs` writes the update manifest; the release also
+  uploads `install.sh` for the macOS curl installer.
 
 Locally: run the verification skill when the user asks; it wraps `pnpm verify` (or the same steps) and
 adds tests when in scope. For a release, run the release-check skill first; it adds version, workflow,
 bundle and manifest checks around the same gate. `pnpm app:dev` is only for a requested UI check.
 
 ---
-**Last updated**: 2026-11-18
+**Last updated**: 2026-11-19

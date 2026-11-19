@@ -1727,7 +1727,7 @@ mod tests {
                 std::process::id(),
             ));
             std::fs::create_dir_all(&root).unwrap();
-            let repo = Self { root: std::fs::canonicalize(root).unwrap() };
+            let repo = Self { root: crate::paths::canon(&root).unwrap() };
             repo.git(&["init", "-q"]);
             repo.git(&["config", "user.name", "Tide tests"]);
             repo.git(&["config", "user.email", "tests@example.invalid"]);

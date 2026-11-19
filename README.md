@@ -20,6 +20,14 @@
   <img src="docs/screenshots/00.png" alt="Tide screenshot" />
 </p>
 
+## Install
+
+```sh
+curl -fsSL https://github.com/ilemon18/tide/releases/latest/download/install.sh | sh
+```
+
+Windows users: download the `.exe` from [GitHub Releases](https://github.com/ilemon18/tide/releases/latest).
+
 ## Why Tide?
 
 Tide is a focused, AI-native editor for people who want a fast, lightweight workspace without giving up familiar editing conventions. It is designed as a lighter alternative for everyday coding, not as a complete replacement for the full VS Code ecosystem.
@@ -29,7 +37,7 @@ Tide is a focused, AI-native editor for people who want a fast, lightweight work
 | **Startup approach** | Starts from a focused core and loads project resources on demand, with an optional lightweight mode for constrained environments. | Starts a broad editor platform; actual startup time depends on installed extensions, workspace size, and enabled services. |
 | **Memory and background work** | Uses bounded caches for editor state, file trees, search, terminals, and agent chats, and can release inactive resources after focus loss or when the window is hidden. | Extension hosts, language servers, debuggers, and other services can add long-lived processes; actual memory use varies by setup. |
 | **Runtime architecture** | Tauri 2 + Rust with the operating system WebView, so Chromium is not bundled. | Electron with a bundled Chromium runtime. |
-| **Built-in AI** | Claude Code and Codex run in dedicated chat tabs from locally installed CLIs, with file and folder references, model and reasoning controls, and resumable conversations. | AI capabilities come through extensions or connected services, with behavior and availability determined by the chosen tools. |
+| **Built-in AI** | Local AI coding agents run in dedicated chat tabs, with file and folder references, model and reasoning controls, and resumable conversations. | AI capabilities come through extensions or connected services, with behavior and availability determined by the chosen tools. |
 | **Out-of-the-box workflow** | Includes Git, a native terminal, global search, structure outline, quick open, find and replace, and optional formatting in a focused editor. | Provides broad editing and source-control foundations, with much of its specialized workflow supplied by extensions. |
 | **Ecosystem and advanced tooling** | Prioritizes a cohesive built-in workflow rather than VS Code extension compatibility. | Offers a large extension marketplace plus mature debugging, remote development, and language-specific tooling. |
 | **Best fit** | Fast, lightweight, AI-native editing for focused everyday projects. | Projects that depend on extension breadth, integrated debugging, remote development, or specialized language tools. |
@@ -42,27 +50,8 @@ Performance and resource use vary with the project, settings, installed tools, a
 
 ## Features
 
-- **Built-in AI agent**:  
-  Chat with locally installed Claude Code or Codex in dedicated tabs, stream reasoning and tool activity, reference files or folders with `@`, choose the model and reasoning effort, and resume conversations across sessions.
-- **Light on memory**:  
-  On-demand indexing and bounded caches keep Tide focused on the active project.
-- **Familiar editing**:  
-  VS Code shortcuts, command palette, tabs, split view, and find & replace.
-- **Structure outline**:  
-  A per-file symbol tree in the sidebar, plus `@` symbol jump in quick open.
-- **Built-in Git**:  
-  Stage, commit, push/pull, diffs, inline blame, and conflict resolution.
-- **Native terminal**:  
-  Multi-tab PTY starting in the current file's directory.
-- **Global search**:  
-  Respects .gitignore, with regex, path filters, and batch replace.
-- **Optional formatting**:  
-  Off by default; matches formatters to file types when enabled.
-- **Session restore**:  
-  Restores projects, files, and cursor positions, with multi-window support.
-- **Editor customization**:  
-  Choose editor fonts and sizes, with optional programming ligatures.
-- **21 themes**:  
-  Popular color schemes with system-theme support.
-- **Six languages**:  
-  Simplified/Traditional Chinese, English, Japanese, Korean, and Spanish; switch instantly.
+- **AI pair programming**: Local AI coding agents in dedicated tabs.
+- **Fast by design**: On-demand indexing and bounded caches.
+- **Familiar editing**: VS Code shortcuts, command palette, split view, and find & replace.
+- **Integrated workflow**: Git, global search, outline, and a multi-tab terminal.
+- **Personalized workspace**: Session restore, 21 themes, and six languages.

@@ -38,10 +38,14 @@ state clears as soon as checkout succeeds; the transition keeps a short grace wi
 
 ## Editor & tabs
 
-- TabBar uses intrinsic tab widths capped at 220px (including icon and action slots). A ResizeObserver
-  measures tabs and the viewport for absolute positioning, drag centers and active-tab visibility;
-  140px is only an initial position estimate. Never write measured widths back to the tabs. The 36px
-  bar gives 28px pills vertical shadow space; active tabs stack above normal tabs, dragged tabs above both.
+- TabBar uses intrinsic tab widths capped at 220px (including icon and action slots). Measure every tab
+  on first mount; afterwards the ResizeObserver may only remeasure tabs whose own size changed and may
+  only update the viewport when the strip changes. The measurements drive absolute positioning, drag
+  centers and active-tab visibility; 140px is only an initial position estimate. Never write measured
+  widths back to the tabs. Horizontal-dominant wheel input must use native overflow scrolling; accumulate
+  vertical wheel deltas and write `scrollLeft` at most once per animation frame, without reading
+  `scrollWidth`/`clientWidth` in the wheel handler. The 36px bar gives 28px pills vertical shadow space;
+  active tabs stack above normal tabs, dragged tabs above both.
 - Tab kinds are `file | diff | image | welcome | settings | untitled | chat`. `diff` and `image` have no
   `EditorState`; `welcome` and `settings` are virtual tabs (`root` empty): they are not written to the
   layout session, do not enter `closedTabs`, and get no state. `untitled` does have a state but no file:
@@ -58,6 +62,11 @@ state clears as soon as checkout succeeds; the transition keeps a short grace wi
   explicit preserves (drag to pane, save-as, diff-to-file, reopen) call `promoteTab`; undoing an edit
   must not make it temporary again. Restored and non-file virtual tabs are always non-temporary.
   Double-click promotes a tab; "Close others" remains available only from the context menu.
+- **Agent split routing**: `useAgent.newChat` calls `tabs.openChatInRight`; the first chat split keeps
+  primary tabs untouched and sets the primary share to 0.6, while an existing split keeps its ratio and
+  changes to row. When secondary's active tab is a chat, ordinary opens without an explicit group route to
+  primary. Do not route drops, `openFileInGroup`, diff-to-file replacement or other explicit pane targets.
+  An empty primary stays split while secondary has a chat; closing the chat or unsplitting merges normally.
 - CodeMirror documents are always `\n` internally: **every write path must restore `tab.eol`**, or a CRLF
   file is rewritten whole and the diff becomes the entire file.
 - Indent/newline are per file (`tab.indentSize` / `tab.useTabs` / `tab.eol`); `settings.tabSize` is only
@@ -75,9 +84,10 @@ state clears as soon as checkout succeeds; the transition keeps a short grace wi
 
 **Entry → tab**: title-bar button, explorer double-click / context menu
 (`e.detail > 1` suppresses the second row click) or the palette → `useAgent.newChat`,
-which creates `chats[chatId]`, opens a `kind: 'chat'` tab and seeds any
-`@file` / `@folder` mention into the composer draft. Sending runs `agent_send`
-(headless CLI in the workspace root). One turn per chat, four at once.
+which creates `chats[chatId]`, opens a `kind: 'chat'` tab on the right and seeds any
+`@file` / `@folder` mention into the composer draft. The first split is row-wise and
+60/40 so files stay in primary. Sending runs `agent_send` (headless CLI in the
+workspace root). One turn per chat, four at once.
 
 **Interject**: sending during a turn appends to a per-chat FIFO (`queues` in the store),
 not the running stdin. `done` drains one message as the next turn; Stop also drains, so
@@ -90,6 +100,10 @@ and a per-chat pick must not rewrite the global default (that would override the
 **Streaming**: Rust parses JSONL into `agent:event` (session / textDelta / tool* / done), coalesces
 text every 24ms, and the store reducer appends by item id. `done` writes the transcript; Stop,
 window close, app exit and disabling the setting kill the process group.
+
+**Provider scans**: `loadProviders` deduplicates globally while `providersLoading` is true, including
+forced rescans. A refresh failure keeps the last successful provider list; only a failed first scan
+falls back to `[]`. The settings rescan button follows the same loading flag so it cannot start twice.
 
 **Persistence**: `agent/chats/<id>.json` (opaque frontend JSON) and `agent/tabs.json`; both flush
 on `app:hidden`. Closing a chat tab stops its turn and keeps the file.
@@ -113,6 +127,10 @@ on `app:hidden`. Closing a chat tab stops its turn and keeps the file.
 
 ## Git & diff
 
+- Windows containment comparisons must treat `C:\...` and `\\?\C:\...` (and `\\server\share` /
+  `\\?\UNC\server\share`) as the same root: dunce intentionally keeps the verbatim prefix for long
+  or non-Unicode paths. Keep this compatibility in the shared path-component comparison, not by
+  stripping prefixes everywhere, because doing so can change path semantics.
 - The Changes group displays `changes` followed by `untracked`; only the UI maps `?` to a green `A`.
   Stage all includes both lists. `useGit.discardAllChanges(root)` snapshots both categories before one
   dangerous confirmation with separate restore/delete counts. `api.gitDiscardChanges` /
@@ -154,8 +172,17 @@ on `app:hidden`. Closing a chat tab stops its turn and keeps the file.
 
 ## Window & memory
 
-- Terminal `Cmd/Ctrl +/-` character input must pass through App's capture-phase handler before
-  TerminalView can send it to the PTY. Outside the terminal those keys still adjust editor font size.
+- App's capture-phase shortcuts run before xterm. After those, TerminalView forwards printable
+  punctuation held with `Cmd` on macOS or `Ctrl+Shift` on Windows/Linux to the PTY, because xterm would
+  otherwise drop it; `Cmd/Ctrl +/-` remain visible-character inputs. macOS `Cmd+/` under an IME can report
+  `Process`/229: let the browser commit it, capture the textarea's final `?` or `？`, and let xterm's
+  data event win the one-send race; a delayed fallback writes only when xterm emitted nothing. Composition
+  previews are never sent, and a composition that never ends expires without output. Do not broaden this
+  to plain `Ctrl+punctuation`, which is terminal control input.
+
+- Debug builds never run the startup update report or quiet update check and never show the title-bar
+  update badge. Settings → About remains the only manual update entry. The backend mirrors the startup
+  guard, so an accidental automatic `update_check` in a debug build cannot reach the network.
 
 - macOS reserves the left 92px for native traffic lights. Windows and Linux use `decorations(false)`, so
   they must not reserve that macOS-only inset; `TitleBar` draws the drag region and right-side
@@ -194,4 +221,4 @@ on `app:hidden`. Closing a chat tab stops its turn and keeps the file.
   is a vendored standalone build — do not hand-edit either.
 
 ---
-**Last updated**: 2026-11-18
+**Last updated**: 2026-11-19

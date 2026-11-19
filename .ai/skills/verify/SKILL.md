@@ -40,6 +40,7 @@ After the six static checks pass, run the tests that are in scope:
   changed, or when the change touches `src-tauri/src/update.rs`, `src-tauri/src/paths.rs` or
   `src-tauri/src/commands/theme.rs`.
 - If the user asks for the full gate, run it even when the change is frontend-only.
+- When installer files changed, run `sh scripts/test-install.sh`; stubs prevent network and real installs.
 - For a frontend-only change with no test edits, leave tests to CI and say so in the final report.
 
 Test locations are documented in [checks.md](../../checks.md). `pnpm verify` deliberately does not
@@ -65,4 +66,4 @@ Builds, installers, version bumps, release manifests, signing and GUI verificati
 packaging or publishing checks, use [the release-check skill](../release-check/SKILL.md).
 
 ---
-**Last updated**: 2026-11-18
+**Last updated**: 2026-11-19

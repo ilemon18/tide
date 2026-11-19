@@ -12,13 +12,14 @@ import { useT } from '../i18n'
  * installs. Labels come from `lib/updateView.ts`, which the Settings -> About button also reads, so the
  * two never disagree.
  *
- * Rendered only in the **main window**: check / download / install are owned by the main window
- * (with several windows open there is no point downloading N copies); other windows just read the
- * status from the settings page.
+ * Rendered only in the **main window of a release build**: check / download / install are owned by the
+ * main window (with several windows open there is no point downloading N copies); debug builds keep
+ * Settings → About as their only update entry.
  */
 export function UpdateBadge({ primary }: { primary: boolean }) {
   const t = useT()
   const status = useUpdate((s) => s.status)
+  const debugBuild = useUpdate((s) => s.debugBuild)
   const manual = useUpdate((s) => s.manual)
   const info = useUpdate((s) => s.info)
   const percent = useUpdate((s) => s.percent)
@@ -35,6 +36,8 @@ export function UpdateBadge({ primary }: { primary: boolean }) {
   const action = updateAction(view)
   const tip = updateTip(view)
   const busy = action.kind === 'wait'
+  const hasLabel =
+    status === 'downloading' || status === 'installing' || status === 'ready'
 
   // The label changes (download update -> 42% -> restart): the ring must follow it
   useEffect(() => {
@@ -57,6 +60,7 @@ export function UpdateBadge({ primary }: { primary: boolean }) {
 
   // Stay quiet in the titlebar when there is no update and no download in progress
   const visible =
+    debugBuild === false &&
     primary &&
     (status === 'available' ||
       status === 'downloading' ||
@@ -76,7 +80,9 @@ export function UpdateBadge({ primary }: { primary: boolean }) {
       aria-label={tip}
       aria-busy={busy}
       data-tip={tip}
-      className={`relative flex h-6 items-center gap-1 rounded-[var(--r-control)] px-1.5 transition-colors duration-fast ${
+      className={`relative flex h-6 items-center rounded-[var(--r-control)] transition-colors duration-fast ${
+        hasLabel ? 'gap-1.5 px-2' : 'w-6 justify-center'
+      } ${
         busy
           ? 'cursor-default text-muted'
           : action.tone === 'accent'
@@ -97,10 +103,10 @@ export function UpdateBadge({ primary }: { primary: boolean }) {
               : ''
         }
       />
-      {status === 'downloading' || status === 'installing' || status === 'ready' ? (
+      {hasLabel ? (
         <span
           ref={ringRef}
-          className="relative inline-flex items-center px-1 text-2xs tabular-nums leading-none"
+          className="relative inline-flex items-center px-1.5 text-2xs tabular-nums leading-none"
         >
           <span>{action.label}</span>
           {ring && status === 'downloading' ? (

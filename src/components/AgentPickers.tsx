@@ -30,10 +30,20 @@ type PickerProps = {
   options: PickerOption[]
   onPick: (id: string) => void
   disabled?: boolean
+  hideLabel?: boolean
+  tip?: string
 }
 
 /** One compact footer chip; the agent, model and complexity menus share it. */
-export function Picker({ label, value, options, onPick, disabled }: PickerProps) {
+export function Picker({
+  label,
+  value,
+  options,
+  onPick,
+  disabled,
+  hideLabel,
+  tip,
+}: PickerProps) {
   const buttonRef = useRef<HTMLButtonElement>(null)
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   const current = options.find((option) => option.id === value)
@@ -49,13 +59,15 @@ export function Picker({ label, value, options, onPick, disabled }: PickerProps)
         ref={buttonRef}
         type="button"
         disabled={disabled}
+        data-tip={tip}
+        aria-label={label || current?.label || value}
         onClick={() => {
           const rect = buttonRef.current?.getBoundingClientRect()
           if (rect) setMenu({ x: rect.left, y: rect.bottom + 4 })
         }}
-        className="flex h-6 max-w-[190px] items-center gap-1 rounded-[var(--r-control)] px-1.5 text-xs text-muted transition-colors duration-fast hover:bg-hover hover:text-fg disabled:cursor-not-allowed disabled:opacity-40"
+        className="flex h-6 min-w-0 max-w-[190px] items-center gap-1 rounded-[var(--r-control)] px-1.5 text-xs text-muted transition-colors duration-fast hover:bg-hover hover:text-fg disabled:cursor-not-allowed disabled:opacity-40"
       >
-        {label ? <span className="shrink-0 text-muted/70">{label}</span> : null}
+        {label && !hideLabel ? <span className="shrink-0 text-muted/70">{label}</span> : null}
         <span className="min-w-0 truncate text-fg/80">{current?.label ?? value}</span>
         <Icon name="chevron-down" size={10} className="shrink-0 text-muted/70" />
       </button>
@@ -89,6 +101,8 @@ export function AgentPicker({
   return (
     <Picker
       label={t('agent.picker.agent')}
+      hideLabel
+      tip={t('agent.picker.agentTip')}
       value={value}
       options={usable.map((provider) => ({ id: provider.id, label: provider.name }))}
       onPick={onPick}
@@ -118,6 +132,7 @@ export function ModelPicker({
   return (
     <Picker
       label={t('agent.picker.model')}
+      tip={t('agent.picker.modelTip')}
       value={value}
       options={options}
       onPick={(id) => {
@@ -169,6 +184,7 @@ export function EffortPicker({
   return (
     <Picker
       label={t('agent.picker.complexity')}
+      tip={t('agent.picker.complexityTip')}
       value={value}
       options={options}
       onPick={onPick}

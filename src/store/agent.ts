@@ -190,7 +190,7 @@ const timers = new Map<string, ReturnType<typeof setTimeout>>()
 const writeQueues = new Map<string, Promise<void>>()
 /** Catalog requests can overlap on a forced rescan: only the newest response may win */
 const catalogTickets = new Map<string, number>()
-/** A forced provider rescan may overtake the startup scan */
+/** Identifies the active provider scan so only its response may finish the loading state */
 let providerTicket = 0
 /** One automatic retry per chat when a resumed CLI session has gone away */
 const retried = new Set<string>()
@@ -454,7 +454,8 @@ export const useAgent = create<AgentStore>((set, get) => {
     tokenEstimates: {},
 
     loadProviders: async (force = false) => {
-      if (get().providersLoading && !force) return
+      // A scan is global work: forced rescans leave the in-flight request untouched rather than race it.
+      if (get().providersLoading) return
       providerTicket += 1
       const ticket = providerTicket
       set({ providersLoading: true })
@@ -465,7 +466,8 @@ export const useAgent = create<AgentStore>((set, get) => {
         get().resolveDefaults()
       } catch {
         if (ticket !== providerTicket) return
-        set({ providers: [], providersLoading: false })
+        // Keep the last successful list visible when a refresh fails. Only the initial scan starts empty.
+        set({ providers: get().providers ?? [], providersLoading: false })
       }
     },
 
@@ -608,7 +610,7 @@ export const useAgent = create<AgentStore>((set, get) => {
           ? { chatDrafts: { ...get().chatDrafts, [chatId]: { text: '', mentions: unique } } }
           : {}),
       })
-      useTabs.getState().openChat(chatId, targetRoot, '')
+      useTabs.getState().openChatInRight(chatId, targetRoot, '')
       if (defaults.provider) void get().loadCatalog(defaults.provider)
       return chatId
     },

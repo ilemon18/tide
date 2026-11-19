@@ -482,6 +482,19 @@ fn versions_equal(left: &str, right: &str) -> bool {
     normalize(left) == normalize(right)
 }
 
+/// Re-evaluate a cached answer against the version that is actually running now.
+///
+/// The cache can outlive an in-app update: a check made by 0.0.1 can still be fresh after the app
+/// has restarted as 0.0.2. Update `current`, and if the cached release is no longer newer, hide
+/// the obsolete download entry. A genuinely newer cached release stays available.
+fn calibrate_cached_info(mut info: UpdateInfo, current: &str) -> UpdateInfo {
+    info.current = current.to_string();
+    if !is_newer(&info.latest, current) {
+        info.available = false;
+    }
+    info
+}
+
 /// Fill the `@@NAME@@` placeholders in a helper script.
 ///
 /// The scripts are shell / PowerShell source full of braces, quotes and `$`, so they stay plain
@@ -504,6 +517,19 @@ pub fn app_version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
 }
 
+/// Build mode for the frontend. Debug builds use Settings → About as the only update entry:
+/// startup stays quiet and the title bar never advertises a release.
+#[tauri::command]
+pub fn is_debug_build() -> bool {
+    cfg!(debug_assertions)
+}
+
+/// Debug builds may still perform an explicit user-requested check, but never the quiet startup
+/// check. Kept pure so the guard is testable without an AppHandle or network access.
+fn background_update_allowed(debug_build: bool, manual: bool) -> bool {
+    manual || !debug_build
+}
+
 /// Ask GitHub for the latest release and compare it with the current build.
 ///
 /// `manual` = the user clicked "check for updates": that always goes to the network (except for a
@@ -514,8 +540,17 @@ pub fn app_version() -> String {
 /// used to replace every answer with "rate limited".
 #[tauri::command]
 pub async fn update_check<R: Runtime>(app: AppHandle<R>, manual: bool) -> AppResult<UpdateInfo> {
+    if !background_update_allowed(cfg!(debug_assertions), manual) {
+        // The frontend skips this path in debug builds too. Keep the backend guard so a stale or
+        // manually invoked automatic check still cannot touch the network.
+        return Err(AppError::c("update.state"));
+    }
+
     let current = app.package_info().version.to_string();
-    let cached = read_cache(&app);
+    let cached = read_cache(&app).map(|mut cache| {
+        cache.info = calibrate_cached_info(cache.info, &current);
+        cache
+    });
 
     if let Some(cache) = &cached {
         if cache_is_fresh(now_ms().saturating_sub(cache.at), manual) {
@@ -1738,10 +1773,49 @@ mod tests {
     }
 
     #[test]
+    fn debug_build_allows_manual_checks_but_blocks_background_checks() {
+        assert!(!background_update_allowed(true, false));
+        assert!(background_update_allowed(true, true));
+        // Release builds keep the quiet startup check
+        assert!(background_update_allowed(false, false));
+        assert!(background_update_allowed(false, true));
+    }
+
+    #[test]
     fn tags_and_bare_versions_name_the_same_build() {
         assert!(versions_equal("v0.0.2", "0.0.2"));
         assert!(versions_equal("0.0.2", "v0.0.2"));
         assert!(!versions_equal("0.0.3", "0.0.2"));
+    }
+
+    #[test]
+    fn cached_update_is_cleared_after_running_the_cached_latest() {
+        let cached = info_from_tag(
+            "v0.0.2",
+            "https://github.com/ilemon18/tide/releases/tag/v0.0.2",
+            "0.0.1",
+        );
+        assert!(cached.available);
+
+        let refreshed = calibrate_cached_info(cached, "0.0.2");
+
+        assert_eq!(refreshed.current, "0.0.2");
+        assert!(!refreshed.available);
+    }
+
+    #[test]
+    fn cached_update_stays_available_when_a_newer_release_exists() {
+        let cached = info_from_tag(
+            "v0.0.3",
+            "https://github.com/ilemon18/tide/releases/tag/v0.0.3",
+            "0.0.1",
+        );
+        assert!(cached.available);
+
+        let refreshed = calibrate_cached_info(cached, "0.0.2");
+
+        assert_eq!(refreshed.current, "0.0.2");
+        assert!(refreshed.available);
     }
 
     #[cfg(target_os = "macos")]

@@ -16,6 +16,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -31,6 +32,7 @@ const TAURI_CONF = 'src-tauri/tauri.conf.json'
 const CARGO_TOML = 'src-tauri/Cargo.toml'
 const CARGO_LOCK = 'src-tauri/Cargo.lock'
 const UPDATE_RS = 'src-tauri/src/update.rs'
+const INSTALL_SH = 'install.sh'
 
 /** semver.org; groups: major, minor, patch, prerelease, build */
 const SEMVER =
@@ -271,7 +273,7 @@ function checkGit(version) {
   else pass('latest.json is not tracked')
 
   for (const dir of ['dist', 'release', 'src-tauri/target']) {
-    const ignored = run('git', ['check-ignore', '-q', dir])
+    const ignored = run('git', ['check-ignore', '-q', dir + '/.release-check-probe'])
     if (ignored.ok) pass(dir + '/ is gitignored')
     else warn(dir + '/ is not gitignored', 'add it to .gitignore')
   }
@@ -403,6 +405,38 @@ function checkTauri() {
   else fail('bundle targets do not include app and dmg', 'keep app/dmg for macOS; the release workflow overrides Windows with nsis')
 }
 
+function checkInstallScript() {
+  const path = join(ROOT, INSTALL_SH)
+  if (!existsSync(path)) {
+    fail(INSTALL_SH + ' is missing', 'restore the macOS curl installer')
+    return
+  }
+  pass(INSTALL_SH + ' exists')
+
+  const tracked = run('git', ['ls-files', '--stage', '--', INSTALL_SH])
+  if (tracked.ok && tracked.out) {
+    const mode = tracked.out.split(/\s+/)[0]
+    if (mode === '100755') pass(INSTALL_SH + ' is executable in git')
+    else fail(INSTALL_SH + ' has git mode ' + mode + ', expected 100755', 'run chmod +x install.sh and commit the mode')
+  } else {
+    try {
+      const mode = statSync(path).mode
+      if ((mode & 0o111) !== 0) pass(INSTALL_SH + ' is executable')
+      else fail(INSTALL_SH + ' is not executable', 'run chmod +x install.sh')
+    } catch (err) {
+      fail('cannot inspect ' + INSTALL_SH + ': ' + err.message)
+    }
+  }
+
+  const syntax = run('sh', ['-n', INSTALL_SH])
+  if (syntax.ok) pass(INSTALL_SH + ' passes sh -n')
+  else if (syntax.error && syntax.error.code === 'ENOENT') {
+    warn('sh is not available; skipped ' + INSTALL_SH + ' syntax check')
+  } else {
+    fail(INSTALL_SH + ' fails sh -n', syntax.err || syntax.out)
+  }
+}
+
 function checkGeneratedFiles() {
   for (const file of [
     'src/assets/fileIcons.generated.ts',
@@ -445,6 +479,7 @@ function checkWorkflows() {
     [/pnpm tauri build\b/, 'tauri build step', 'restore the release build step'],
     [/node scripts\/make-latest-json\.mjs/, 'latest.json generation', 'restore manifest generation'],
     [/dist\/latest\.json/, 'latest.json upload', 'latest.json must ship with the installers'],
+    [/(?:^|\n)\s+install\.sh\s*(?=\n|$)/, 'install.sh upload', 'the macOS curl installer must ship with the release'],
     [/fail_on_unmatched_files:\s*true/, 'fail_on_unmatched_files', 'do not publish a release with missing assets'],
     [/contents:\s*write/, 'contents: write', 'the release job needs write permission'],
     [/softprops\/action-gh-release@v2/, 'GitHub release action', 'restore the publish step'],
@@ -696,6 +731,7 @@ console.log('Release preflight: ' + version + (allowDirty ? ' (allow dirty)' : '
 const repoSlug = checkGit(version)
 checkVersions(version)
 checkTauri()
+checkInstallScript()
 checkGeneratedFiles()
 checkWorkflows()
 checkUpdater(repoSlug, version)

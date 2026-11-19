@@ -209,11 +209,11 @@ export function AgentChat({ chatId }: { chatId: string }) {
               const el = scrollRef.current
               if (el) el.scrollTop = el.scrollHeight
             }}
-            className="absolute bottom-2 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1 rounded-full border border-line-soft bg-panel px-2.5 py-1 text-2xs text-fg/80 shadow-popup hover:bg-hover"
+            className="absolute bottom-2 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1 rounded-full border border-line bg-panel px-2.5 py-1 text-2xs text-fg shadow-popup transition-colors duration-fast hover:bg-hover-solid"
           >
             <Icon name="arrow-down" size={11} />
             {t('agent.jumpToLatest')}
-            <span className="ml-0.5 rounded-[3px] border border-line-soft px-1 font-mono text-[10px] leading-[14px] text-muted/80">
+            <span className="ml-0.5 rounded-[3px] border border-line-soft bg-panel-alt px-1 font-mono text-[10px] leading-[14px] text-muted">
               {jumpKeys}
             </span>
           </button>

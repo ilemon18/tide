@@ -6,12 +6,14 @@
 //! (the file tree stops refreshing incrementally and a `.git` outside the repo is not watched).
 //! Every place that needs a normalized path goes through [`canon`] here.
 //!
-//! Windows also compares paths case-insensitively, so plain `Path::starts_with` misses;
-//! [`is_inside`] / [`rel_in`] compare component by component instead.
+//! Windows also compares paths case-insensitively and can mix plain and verbatim forms (dunce keeps
+//! the prefix when stripping it would change path semantics), so plain `Path::starts_with` misses;
+//! [`is_inside`] / [`rel_in`] compare equivalent component forms instead.
 
+#[cfg(windows)]
 use std::ffi::OsStr;
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Temp file sequence number: concurrent writes in one process each use their own temp file
@@ -45,18 +47,40 @@ pub fn home_dir() -> Option<PathBuf> {
 }
 
 /// Per-component comparison: case-insensitive on Windows, strict elsewhere.
-fn same_component(a: &OsStr, b: &OsStr) -> bool {
-    if a == b {
-        return true;
+#[cfg(not(windows))]
+fn same_component(a: Component<'_>, b: Component<'_>) -> bool {
+    a == b
+}
+
+/// Windows paths can describe the same location with or without a verbatim prefix. dunce keeps
+/// that prefix for long and non-Unicode paths, so compare the equivalent prefix forms instead of
+/// requiring callers to strip it (which can change path semantics).
+#[cfg(windows)]
+fn same_component(a: Component<'_>, b: Component<'_>) -> bool {
+    use std::path::Prefix;
+
+    match (a, b) {
+        (Component::Prefix(a), Component::Prefix(b)) => match (a.kind(), b.kind()) {
+            (Prefix::Disk(a), Prefix::Disk(b))
+            | (Prefix::Disk(a), Prefix::VerbatimDisk(b))
+            | (Prefix::VerbatimDisk(a), Prefix::Disk(b))
+            | (Prefix::VerbatimDisk(a), Prefix::VerbatimDisk(b)) => same_os_str(a, b),
+            (Prefix::UNC(server_a, share_a), Prefix::UNC(server_b, share_b))
+            | (Prefix::UNC(server_a, share_a), Prefix::VerbatimUNC(server_b, share_b))
+            | (Prefix::VerbatimUNC(server_a, share_a), Prefix::UNC(server_b, share_b))
+            | (
+                Prefix::VerbatimUNC(server_a, share_a),
+                Prefix::VerbatimUNC(server_b, share_b),
+            ) => same_os_str(server_a, server_b) && same_os_str(share_a, share_b),
+            _ => a.as_os_str() == b.as_os_str(),
+        },
+        _ => same_os_str(a.as_os_str(), b.as_os_str()),
     }
-    #[cfg(windows)]
-    {
-        a.to_string_lossy().to_lowercase() == b.to_string_lossy().to_lowercase()
-    }
-    #[cfg(not(windows))]
-    {
-        false
-    }
+}
+
+#[cfg(windows)]
+fn same_os_str(a: &OsStr, b: &OsStr) -> bool {
+    a == b || a.to_string_lossy().to_lowercase() == b.to_string_lossy().to_lowercase()
 }
 
 /// Whether `path` is inside `root` (`root` itself included).
@@ -64,7 +88,7 @@ pub fn is_inside(root: &Path, path: &Path) -> bool {
     let mut rest = path.components();
     for want in root.components() {
         match rest.next() {
-            Some(have) if same_component(have.as_os_str(), want.as_os_str()) => {}
+            Some(have) if same_component(have, want) => {}
             _ => return false,
         }
     }
@@ -74,13 +98,13 @@ pub fn is_inside(root: &Path, path: &Path) -> bool {
 /// Take the part of `path` relative to `root`, always `/`-separated (the convention shared
 /// by the frontend and git). Returns None when `path` is not inside `root`.
 pub fn rel_in(root: &Path, path: &Path) -> Option<String> {
-    let roots: Vec<&OsStr> = root.components().map(|c| c.as_os_str()).collect();
-    let parts: Vec<&OsStr> = path.components().map(|c| c.as_os_str()).collect();
+    let roots: Vec<Component<'_>> = root.components().collect();
+    let parts: Vec<Component<'_>> = path.components().collect();
     if parts.len() < roots.len() {
         return None;
     }
     for (want, have) in roots.iter().zip(parts.iter()) {
-        if !same_component(have, want) {
+        if !same_component(*have, *want) {
             return None;
         }
     }
@@ -89,7 +113,7 @@ pub fn rel_in(root: &Path, path: &Path) -> Option<String> {
         if !out.is_empty() {
             out.push('/');
         }
-        out.push_str(&part.to_string_lossy());
+        out.push_str(&part.as_os_str().to_string_lossy());
     }
     Some(out)
 }
@@ -228,6 +252,24 @@ mod tests {
         assert_eq!(rel_in(root, Path::new("/a/bc/d.ts")), None);
         assert!(is_inside(root, Path::new("/a/b/c")));
         assert!(!is_inside(root, Path::new("/a/bc")));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_verbatim_prefixes_are_equivalent() {
+        let root = Path::new(r"c:\a\b");
+        let verbatim = Path::new(r"\\?\C:\a\b\file.ts");
+        assert!(is_inside(root, verbatim));
+        assert_eq!(rel_in(root, verbatim), Some("file.ts".into()));
+        assert!(is_inside(
+            Path::new(r"\\?\C:\a\b"),
+            Path::new(r"C:\a\B\other.ts")
+        ));
+        assert!(!is_inside(root, Path::new(r"C:\a\bc\file.ts")));
+
+        let unc_root = Path::new(r"\\server\share\a");
+        let verbatim_unc = Path::new(r"\\?\UNC\server\share\a\file.ts");
+        assert_eq!(rel_in(unc_root, verbatim_unc), Some("file.ts".into()));
     }
 
     #[test]

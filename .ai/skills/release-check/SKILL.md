@@ -23,8 +23,8 @@ Use only when the user explicitly asks for a release check. While coding, follow
 
 Run from the repository root.
 
-1. `pnpm release:check <version>` - static checks. If it fails, fix local files, then rerun with
-   --allow-dirty while the tree is dirty.
+1. `pnpm release:check <version>` - static checks, including `install.sh` mode, syntax and release upload.
+   If it fails, fix local files, then rerun with --allow-dirty while the tree is dirty.
 2. pnpm install --frozen-lockfile
 3. Run the verification gate in [.ai/skills/verify/SKILL.md](../verify/SKILL.md). If pnpm verify stops
    early, run the remaining verify commands individually so one pass collects all failures.
@@ -78,4 +78,4 @@ Mention that remote tags, releases and CI runs were not queried by design; the u
 Actions after pushing the tag.
 
 ---
-**Last updated**: 2026-11-17
+**Last updated**: 2026-11-19

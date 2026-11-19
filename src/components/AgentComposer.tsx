@@ -353,7 +353,9 @@ export function AgentComposer({
           disabled={disabled}
           spellCheck={false}
           placeholder={
-            disabled ? '' : t('agent.composer.placeholder')
+            disabled
+              ? ''
+              : `${t('agent.composer.placeholder')} · ${t('agent.composer.sendHint', { key: modKey() })}`
           }
           onChange={(e) => {
             const value = e.target.value
@@ -436,27 +438,26 @@ export function AgentComposer({
         />
       </div>
 
-      <div className="flex items-center gap-0.5">
-        {showAgentPicker ? (
-          <AgentPicker value={provider} onPick={onProvider} disabled={running || disabled} />
-        ) : null}
-        <ModelPicker
-          provider={provider}
-          value={model}
-          onPick={onModel}
-          disabled={running || disabled || blocked}
-        />
-        <EffortPicker
-          provider={provider}
-          model={model}
-          value={effort}
-          onPick={onEffort}
-          disabled={running || disabled || blocked}
-        />
-        <div className="ml-auto flex items-center gap-1">
-          <span className="hidden px-1 text-2xs text-muted/60 min-[520px]:inline">
-            {t('agent.composer.sendHint', { key: modKey() })}
-          </span>
+      <div className="flex min-w-0 items-center gap-0.5">
+        <div className="flex min-w-0 items-center gap-0.5">
+          {showAgentPicker ? (
+            <AgentPicker value={provider} onPick={onProvider} disabled={running || disabled} />
+          ) : null}
+          <ModelPicker
+            provider={provider}
+            value={model}
+            onPick={onModel}
+            disabled={running || disabled || blocked}
+          />
+          <EffortPicker
+            provider={provider}
+            model={model}
+            value={effort}
+            onPick={onEffort}
+            disabled={running || disabled || blocked}
+          />
+        </div>
+        <div className="ml-auto flex shrink-0 items-center gap-1">
           {running ? (
             <button
               type="button"

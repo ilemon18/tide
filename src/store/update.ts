@@ -10,9 +10,10 @@ import { t } from '../i18n'
 /**
  * In-app update state (GitHub Releases).
  *
- * One check per start: cheap and quiet, and the only way the update entry appears without the user looking
- * for it. Downloading is user-driven: the title-bar icon and the button in Settings → About both drive the
- * same state machine, so the two can never disagree.
+ * Release builds check once per start: cheap and quiet, and the only way the update entry appears without
+ * the user looking for it. Debug builds skip that path and keep Settings → About as the manual entry.
+ * Downloading is user-driven: the title-bar icon and the button in Settings → About both drive the same
+ * state machine, so the two can never disagree.
  *
  * Each status maps to exactly one button label (mapping in `lib/updateView.ts`):
  *
@@ -32,6 +33,8 @@ export type UpdateStatus =
 
 type UpdateStore = {
   status: UpdateStatus
+  /** null until the build-mode command answers; true hides the title-bar update entry */
+  debugBuild: boolean | null
   /** Whether this check was user-triggered or ran automatically at startup */
   manual: boolean
   info: UpdateInfo | null
@@ -83,6 +86,7 @@ export async function flushBeforeInstall() {
 
 export const useUpdate = create<UpdateStore>((set, get) => ({
   status: 'idle',
+  debugBuild: null,
   manual: false,
   info: null,
   percent: 0,
@@ -92,6 +96,7 @@ export const useUpdate = create<UpdateStore>((set, get) => ({
 
   check: async (manual = false) => {
     const state = get()
+    if (!manual && state.debugBuild === true) return
     if (
       state.status === 'checking' ||
       state.status === 'downloading' ||
@@ -254,10 +259,23 @@ async function reportStartup(): Promise<UpdateReport | null> {
 export function startUpdateWatcher() {
   if (started) return
   started = true
-  void reportStartup().then((report) => {
+  void (async () => {
+    let debugBuild = false
+    try {
+      debugBuild = await updateApi.isDebugBuild()
+    } catch {
+      // A failed probe must not disable updates in a packaged release build.
+    }
+    useUpdate.setState({ debugBuild })
+
+    // Debug builds keep Settings → About as the only update entry: no install report and no
+    // startup network/cache read. Manual checks and their download/install flow remain available.
+    if (debugBuild) return
+
+    const report = await reportStartup()
     // A "last install failed" report is the most important thing on screen:
     // a quiet check would replace it with "new version available" and bury it
     if (report && !report.ok) return
     void useUpdate.getState().check(false)
-  })
+  })()
 }

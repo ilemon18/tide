@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 import { useTabs, type TabGroupId } from '../store/tabs'
 import { useWorkspace } from '../store/workspace'
 import { setFocusedGroup } from '../editor/viewRef'
@@ -81,11 +81,12 @@ export function EditorArea({
   onCloseSearch: () => void
 }) {
   const splitOrientation = useTabs((s) => s.splitOrientation)
+  const splitRatio = useTabs((s) => s.splitRatio)
+  const setSplitRatio = useTabs((s) => s.setSplitRatio)
   const activeGroupId = useTabs((s) => s.activeGroupId)
   const totalTabs = useTabs((s) => s.tabs.length)
   const noProject = useWorkspace((s) => s.roots.length === 0)
   const containerRef = useRef<HTMLDivElement>(null)
-  const [ratio, setRatio] = useState(0.5)
 
   // The focused pane decides which side ⌘F / ⌘W / save act on
   useEffect(() => {
@@ -102,7 +103,7 @@ export function EditorArea({
     const size =
       splitOrientation === 'row' ? el.clientWidth : el.clientHeight
     if (!size) return
-    setRatio((current) => Math.min(0.8, Math.max(0.2, current + delta / size)))
+    setSplitRatio(useTabs.getState().splitRatio + delta / size)
   }
 
   if (!splitOrientation) {
@@ -119,8 +120,8 @@ export function EditorArea({
     )
   }
 
-  const primaryStyle = { flexGrow: ratio, flexBasis: 0 }
-  const secondaryStyle = { flexGrow: 1 - ratio, flexBasis: 0 }
+  const primaryStyle = { flexGrow: splitRatio, flexBasis: 0 }
+  const secondaryStyle = { flexGrow: 1 - splitRatio, flexBasis: 0 }
 
   return (
     <div
