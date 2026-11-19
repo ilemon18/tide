@@ -6,7 +6,7 @@ import { useGit } from '../store/git'
 import { useSettings } from '../store/settings'
 import { useUi } from '../store/ui'
 import { useWorkspace } from '../store/workspace'
-import { openSettings } from '../lib/actions'
+import { fetchRemote, openSettings } from '../lib/actions'
 import { Icon } from './Icon'
 import { languageLabel } from '../editor/languages'
 import { themeLabel } from '../theme/palettes'
@@ -18,7 +18,6 @@ export function StatusBar() {
   const activeRootId = useWorkspace((s) => s.activeRootId)
   const statuses = useGit((s) => s.statuses)
   const busy = useGit((s) => s.busy)
-  const fetchRemote = useGit((s) => s.fetch)
   const tabs = useTabs((s) => s.tabs)
   const activeId = useTabs((s) => s.activeId)
   const formatActive = useTabs((s) => s.formatActive)

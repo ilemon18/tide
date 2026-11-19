@@ -46,6 +46,8 @@ watching, or synchronization between disk, tree, Git and open tabs.
   appropriate `diffEpoch` to refresh in place.
 - If a status refresh discovers that `isRepo` changed, sync that result back to the workspace root so a
   terminal `git init` is noticed.
+- A fetch only updates remote-tracking refs. Suppress its pure `.git` watcher batch so it cannot invalidate
+  folder chains or rebuild the expanded tree; worktree paths in the same batch still refresh normally.
 - **Never close a tab because Git status changed.** Close only a file that really vanished from disk. The
   one conversion exception is an empty diff tab: Git/diff logic may replace it with the normal file tab.
   If the file is no longer openable as text, close only the diff tab.

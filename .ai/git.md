@@ -12,6 +12,8 @@ bulk discard, Git subprocess behavior, or path containment.
 - Keep Git status repo-local and subscribe only to the active path/id needed for highlighting. Use one
   NUL-delimited porcelain-v2 status read instead of shelling out per file; coalesce refreshes, skip
   `setState` when data is unchanged, and cache branch metadata with the TTL in the store.
+- Fetch refreshes branches and Git status only. It does not change the worktree, so it must not rebuild the
+  explorer tree or refresh open file/diff contents; suppress its metadata-only watcher batch.
 - Git file lists use fixed-height virtualization and a small overscan. Cache each list's body offset and
   refresh it from a content `ResizeObserver`/layout version. Scrolling must not measure rows with
   `getBoundingClientRect()`; pointer drag hit-testing is the exception. Create row actions only after

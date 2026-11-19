@@ -9,7 +9,12 @@ import { useBlame } from '../store/blame'
 import { useUi } from '../store/ui'
 import { useSettings } from '../store/settings'
 import { useFileIndex } from '../store/fileIndex'
-import { beginBranchTransition, endBranchTransition } from '../store/watcher'
+import {
+  beginBranchTransition,
+  beginGitMetadataTransition,
+  endBranchTransition,
+  endGitMetadataTransition,
+} from '../store/watcher'
 import type { SettingsSectionId } from './settingsSections'
 import { t } from '../i18n'
 
@@ -196,6 +201,16 @@ export async function createBranch(root: string, name: string): Promise<boolean>
   } finally {
     if (!refreshStarted) endBranchTransition(root)
     git.setBusy(null)
+  }
+}
+
+/** Refresh remote-tracking branches without treating the fetch's .git writes as a worktree change. */
+export async function fetchRemote(root: string): Promise<void> {
+  beginGitMetadataTransition(root)
+  try {
+    await useGit.getState().fetch(root)
+  } finally {
+    endGitMetadataTransition(root)
   }
 }
 

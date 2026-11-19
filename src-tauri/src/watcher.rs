@@ -38,7 +38,7 @@ const SKIP_DIRS: [&str; 12] = [
 #[serde(rename_all = "camelCase")]
 struct FsChanged {
     root: String,
-    /// Hit .git (branch switch / staging / commit)
+    /// Hit .git (branch switch / staging / commit / fetch)
     git: bool,
     /// Worktree file changes
     worktree: bool,

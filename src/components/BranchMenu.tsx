@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useGit } from '../store/git'
 import { useUi } from '../store/ui'
-import { checkoutBranch, createBranch } from '../lib/actions'
+import { checkoutBranch, createBranch, fetchRemote } from '../lib/actions'
 import { relativeTime, shortSha } from '../lib/format'
 import { Icon } from './Icon'
 import type { GitBranch } from '../lib/ipc'
@@ -28,7 +28,6 @@ export function BranchMenu() {
   const data = useGit((s) => (menu ? s.branches[menu.root] : undefined))
   const loading = useGit((s) => (menu ? s.branchesLoading[menu.root] : false))
   const busy = useGit((s) => s.busy)
-  const fetchRemote = useGit((s) => s.fetch)
 
   const [query, setQuery] = useState('')
   const [index, setIndex] = useState(0)

@@ -8,7 +8,7 @@ import { dirname } from '../lib/paths'
 
 type FsChanged = {
   root: string
-  /** Hit .git: branch switch / stage / commit */
+  /** Hit .git: branch switch / stage / commit / fetch */
   git: boolean
   /** Worktree file change */
   worktree: boolean
@@ -20,37 +20,55 @@ const diskTimers = new Map<string, ReturnType<typeof setTimeout>>()
 /** Paths accumulated within the debounce window: null means recompute all diff tabs under that root */
 const diskPaths = new Map<string, string[] | null>()
 
-type BranchTransition = {
+type WatchTransition = {
   depth: number
   graceTimer?: ReturnType<typeof setTimeout>
 }
 /** Explicit checkout/create refresh owns the watcher work until it finishes, plus one watcher debounce window. */
-const branchTransitions = new Map<string, BranchTransition>()
-const BRANCH_WATCH_GRACE_MS = 800
+const branchTransitions = new Map<string, WatchTransition>()
+/** A fetch only changes remote-tracking refs: ignore its pure .git event instead of rebuilding the file tree. */
+const metadataTransitions = new Map<string, WatchTransition>()
+const WATCH_GRACE_MS = 800
 
-export function beginBranchTransition(root: string): void {
-  const current = branchTransitions.get(root)
+function beginTransition(transitions: Map<string, WatchTransition>, root: string): void {
+  const current = transitions.get(root)
   if (current) {
     if (current.graceTimer) clearTimeout(current.graceTimer)
     current.graceTimer = undefined
     current.depth += 1
     return
   }
-  branchTransitions.set(root, { depth: 1 })
+  transitions.set(root, { depth: 1 })
 }
 
-export function endBranchTransition(root: string): void {
-  const current = branchTransitions.get(root)
+function endTransition(transitions: Map<string, WatchTransition>, root: string): void {
+  const current = transitions.get(root)
   if (!current) return
   current.depth = Math.max(0, current.depth - 1)
   if (current.depth > 0 || current.graceTimer) return
-  // The backend batches fs events for 350ms. Keep the last checkout event from kicking off the same full
-  // status / tree / open-file refresh immediately after the explicit one has completed.
+  // The backend batches fs events for 300ms. Keep the last event from repeating work after the explicit
+  // refresh has completed or, for a fetch, from rebuilding the tree through its debounce tail.
   current.graceTimer = setTimeout(() => {
-    if (branchTransitions.get(root) === current && current.depth === 0) {
-      branchTransitions.delete(root)
+    if (transitions.get(root) === current && current.depth === 0) {
+      transitions.delete(root)
     }
-  }, BRANCH_WATCH_GRACE_MS)
+  }, WATCH_GRACE_MS)
+}
+
+export function beginBranchTransition(root: string): void {
+  beginTransition(branchTransitions, root)
+}
+
+export function endBranchTransition(root: string): void {
+  endTransition(branchTransitions, root)
+}
+
+export function beginGitMetadataTransition(root: string): void {
+  beginTransition(metadataTransitions, root)
+}
+
+export function endGitMetadataTransition(root: string): void {
+  endTransition(metadataTransitions, root)
 }
 
 /** After external changes reload open files on demand; debounced to avoid repeated reads during checkout. No paths means recompute everything under that root. */
@@ -97,13 +115,18 @@ export async function setupFsEvents() {
       const node = workspace.roots.find((r) => r.id === root)
       if (!node) return
 
+      // Fetch updates remote-tracking refs only. Its explicit action already refreshes branches and status,
+      // so a pure .git batch must not invalidate folder chains or rebuild the expanded tree.
+      const metadataOnly = git && metadataTransitions.has(root)
+      if (metadataOnly && !worktree) return
+
       const gitStore = useGit.getState()
       // Don't call git for non-repo projects: a status run per save is a wasted subprocess. A .git hit must
       // probe once (signal of git init / rm -rf .git in a terminal); refresh() fixes isRepo via the result.
       if (git || node.isGitRepo) gitStore.scheduleRefresh(root)
       if (git) gitStore.invalidateBranches(root)
 
-      if (git) {
+      if (git && !metadataOnly) {
         // Branch switch / reset / merge touches many files: refresh the whole expanded tree.
         // quiet: no toast on background failure (dirs vanishing after a checkout is normal)
         useFolderChain.getState().invalidate(root)
@@ -128,8 +151,8 @@ export async function setupFsEvents() {
       }
 
       // .git change = stage / commit / branch switch: recompute diff tabs too;
-      // a plain file change recomputes only the diff of that file
-      scheduleRefreshFromDisk(root, git ? undefined : paths)
+      // a plain file change recomputes only the diff of that file. A fetch is metadata-only.
+      scheduleRefreshFromDisk(root, git && !metadataOnly ? undefined : paths)
     })
   } catch {
     ready = false
