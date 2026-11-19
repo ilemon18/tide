@@ -615,14 +615,14 @@ export function SettingsView() {
 
     keys: (
       <Card>
-        <div className="grid grid-cols-2 gap-x-10 px-4 py-2 text-xs text-muted">
+        <div className="px-4 text-xs text-muted">
           {SHORTCUTS.map(([labelKey, key]) => (
             <div
               key={labelKey}
-              className="flex items-center justify-between gap-2 border-b border-line/40 py-1.5 [&:nth-last-child(-n+2)]:border-b-0"
+              className="flex items-center justify-between gap-8 border-b border-line/40 py-2.5 last:border-b-0"
             >
-              <span>{t(labelKey)}</span>
-              <span className="shrink-0 text-fg/80">{key}</span>
+              <span className="min-w-0">{t(labelKey)}</span>
+              <span className="shrink-0 tabular-nums text-fg/80">{key}</span>
             </div>
           ))}
         </div>

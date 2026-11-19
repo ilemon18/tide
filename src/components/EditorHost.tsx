@@ -245,9 +245,10 @@ export function EditorHost({ groupId }: { groupId: TabGroupId }) {
       return
     }
 
-    // Image preview / diff / welcome mount no EditorState: remember the last text file's position first,
-    // then hide the editor, or focus stays in CodeMirror and typing edits an invisible file
-    if (tab.kind !== 'file') {
+    // Image preview / diff / welcome / settings / chat mount no EditorState: remember the last text file's
+    // position first, then hide the editor, or focus stays in CodeMirror and typing edits an invisible file.
+    // Untitled buffers do have an EditorState; treating them as virtual tabs would leave the previous file mounted.
+    if (tab.kind !== 'file' && tab.kind !== 'untitled') {
       if (shown && shown !== activeId && tabs.some((t) => t.id === shown)) {
         rememberScroll(scrollKey(shown), view.scrollDOM.scrollTop)
       }

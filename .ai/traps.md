@@ -229,9 +229,10 @@ files must still load.
   punctuation held with `Cmd` on macOS or `Ctrl+Shift` on Windows/Linux to the PTY, because xterm would
   otherwise drop it; `Cmd/Ctrl +/-` remain visible-character inputs. macOS `Cmd+/` under an IME can report
   `Process`/229: let the browser commit it, capture the textarea's final `?` or `？`, and let xterm's
-  data event win the one-send race; a delayed fallback writes only when xterm emitted nothing. Composition
-  previews are never sent, and a composition that never ends expires without output. Do not broaden this
-  to plain `Ctrl+punctuation`, which is terminal control input.
+  data event win the one-send race; otherwise poll for two stable textarea reads inside a 120ms bound and
+  write only when xterm emitted nothing. Composition previews are never sent, and a composition that never
+  ends expires without output. Do not broaden this to plain `Ctrl+punctuation`, which is terminal control
+  input.
 
 - `Cmd+\`` / `Ctrl+\`` cycles Tide windows in stable order: `main`, then `win-<pid>-<seq>` by sequence,
   wrapping after the last. Shift is not part of the shortcut.

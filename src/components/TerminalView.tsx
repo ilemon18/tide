@@ -35,6 +35,9 @@ function isCommandSlash(event: KeyboardEvent, mac: boolean): boolean {
 
 /** Abandon an IME capture if a composition never reports its end; never send its preview. */
 const IME_SLASH_COMPOSITION_TIMEOUT_MS = 30_000
+/** WKWebView can commit the textarea without emitting input/compositionend; poll within this bound. */
+const IME_SLASH_FALLBACK_MS = 120
+const IME_SLASH_POLL_MS = 8
 
 type Props = {
   tab: TerminalTab
@@ -288,13 +291,15 @@ export function TerminalView({ tab, active }: Props) {
     /**
      * Command + Slash under an IME is special: WebKit may report `Process`/229 while the final
      * `?` / `？` arrives later through composition/input events. Let xterm pass the keydown back
-     * to the browser, then use xterm's own data event when it fires. If xterm swallows it, send the
-     * textarea's committed text once from a delayed fallback.
+     * to the browser, then use xterm's own data event when it fires. If WKWebView omits those events,
+     * poll the textarea for a stable committed value and keep a short bounded fallback.
      */
     type ImeSlashCapture = {
       startValue: string
       composing: boolean
       timer: ReturnType<typeof setTimeout> | null
+      startedAt: number
+      observed: string
     }
     let imeSlash: ImeSlashCapture | null = null
 
@@ -325,15 +330,30 @@ export function TerminalView({ tab, active }: Props) {
       void api.ptyWrite(ptyRef.current, data)
     }
 
-    const finishImeSlash = (capture: ImeSlashCapture) => {
+    const finishImeSlash = (capture: ImeSlashCapture, committed = false) => {
       if (imeSlash !== capture) return
       clearImeTimer(capture)
-      if (capture.composing) return
-      imeSlash = null
+      if (capture.composing) {
+        holdImeSlash(capture)
+        return
+      }
       // Read the textarea after the browser has committed the edit. CompositionEvent.data is only a
       // preview and can still contain text that the user cancelled.
       const text = insertedText(capture.startValue)
-      if (!text) return
+      const expired = performance.now() - capture.startedAt >= IME_SLASH_FALLBACK_MS
+      if (!text) {
+        if (committed || expired) imeSlash = null
+        else capture.timer = setTimeout(() => finishImeSlash(capture), IME_SLASH_POLL_MS)
+        return
+      }
+      // If WKWebView skipped both compositionend and input, the textarea may briefly expose an IME
+      // preview. Require the same value on two polls before treating it as final.
+      if (!committed && !expired && text !== capture.observed) {
+        capture.observed = text
+        capture.timer = setTimeout(() => finishImeSlash(capture), IME_SLASH_POLL_MS)
+        return
+      }
+      imeSlash = null
       // The browser has finished editing the textarea but xterm sent nothing: do the write here.
       writePty(text)
       // Restore the pre-key value so a late xterm read cannot emit the same commit again.
@@ -359,7 +379,7 @@ export function TerminalView({ tab, active }: Props) {
 
     const settleImeSlash = (capture: ImeSlashCapture, delay = 0) => {
       clearImeTimer(capture)
-      capture.timer = setTimeout(() => finishImeSlash(capture), delay)
+      capture.timer = setTimeout(() => finishImeSlash(capture, true), delay)
     }
 
     const armImeSlash = (composing: boolean) => {
@@ -368,14 +388,16 @@ export function TerminalView({ tab, active }: Props) {
         startValue: term.textarea?.value ?? '',
         composing,
         timer: null,
+        startedAt: performance.now(),
+        observed: '',
       }
       imeSlash = capture
       if (composing) {
         holdImeSlash(capture)
       } else {
-        // A normal direct character/input event normally settles in the same task. This only catches
-        // the case where WKWebView reports 229 but never emits compositionend/input.
-        settleImeSlash(capture, 120)
+        // Probe immediately instead of waiting the full fallback. A real input/compositionend event
+        // still settles (and clears) this capture first, so xterm keeps winning the one-send race.
+        capture.timer = setTimeout(() => finishImeSlash(capture), IME_SLASH_POLL_MS)
       }
     }
 
@@ -408,6 +430,7 @@ export function TerminalView({ tab, active }: Props) {
         holdImeSlash(capture)
         return
       }
+      capture.composing = false
       settleImeSlash(capture)
     }
     textarea?.addEventListener('compositionstart', onCompositionStart)
