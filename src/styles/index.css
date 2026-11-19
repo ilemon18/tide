@@ -930,7 +930,7 @@
   opacity: 1;
 }
 
-/* ---- Token budget display ---- */
+/* ---- Agent context usage ---- */
 .token-budget {
   position: relative;
   display: flex;
@@ -965,8 +965,8 @@
   background: var(--c-hover);
 }
 
-.token-summary.ok {
-  color: var(--c-accent);
+.token-summary.success {
+  color: var(--c-success);
 }
 
 .token-summary.empty {
@@ -979,6 +979,15 @@
 
 .token-summary.danger {
   color: var(--c-danger);
+}
+
+.token-progress-track {
+  stroke: var(--c-border);
+}
+
+.token-progress-value {
+  stroke: currentColor;
+  transition: stroke-dasharray 160ms ease;
 }
 
 .token-summary:focus-visible {

@@ -70,6 +70,10 @@ pub struct AgentUsage {
     pub reasoning_output_tokens: u64,
     pub total_tokens: u64,
     pub cost_usd: Option<f64>,
+    /// Provider-reported context window for the current model. Missing when the CLI does not
+    /// expose one, so the UI never substitutes a fixed context limit.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context_window: Option<u64>,
 }
 
 /// One provider-neutral stream event. The frontend reducer appends text to an item id,

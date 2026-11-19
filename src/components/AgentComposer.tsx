@@ -20,7 +20,7 @@ import { COMMAND_DESCRIPTIONS, CommandChip, SkillChip, commandLabel } from './Ag
 
 type Props = {
   root: string
-  tokenBudget?: ReactNode
+  contextUsage?: ReactNode
   draft: string
   mentions: AgentMention[]
   command?: AgentCommandId
@@ -83,7 +83,7 @@ function MentionChip({
  */
 export function AgentComposer({
   root,
-  tokenBudget,
+  contextUsage,
   draft,
   mentions,
   command,
@@ -479,7 +479,7 @@ export function AgentComposer({
               <Icon name="stop" size={14} />
             </button>
           ) : null}
-          {tokenBudget}
+          {contextUsage}
           <button
             type="button"
             onClick={onSend}

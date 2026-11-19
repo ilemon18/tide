@@ -3,6 +3,7 @@ import { useAgent } from '../store/agent'
 import { useT } from '../i18n'
 import type { AgentUsage } from '../lib/ipc'
 import {
+  agentContextPercent,
   cumulativeAgentUsage,
   formatAgentTokens,
   formatAgentUsd,
@@ -14,7 +15,7 @@ type Props = {
   chatId: string
 }
 
-export function AgentTokenBudget({ chatId }: Props) {
+export function AgentContextUsage({ chatId }: Props) {
   const t = useT()
   const draft = useAgent(s => s.chatDrafts[chatId])
   const root = useAgent(s => s.chats[chatId]?.root)
@@ -26,6 +27,7 @@ export function AgentTokenBudget({ chatId }: Props) {
   const detailsId = useId()
   const cumulative = useMemo(() => (messages ? cumulativeAgentUsage(messages) : undefined), [messages])
   const latest = useMemo(() => (messages ? latestAgentUsage(messages) : undefined), [messages])
+  const contextWindow = latest?.contextWindow
 
   useEffect(() => {
     if (!root) return
@@ -55,19 +57,14 @@ export function AgentTokenBudget({ chatId }: Props) {
     }
   }, [showDetails])
 
-  if (!estimate && !cumulative) return null
-
-  const total = estimate?.total ?? 0
-  const isLarge = total > 100_000
-  const isHuge = total > 150_000
-
-  const statusClass = isHuge ? 'danger' : isLarge ? 'warning' : total > 0 ? 'ok' : 'empty'
-  const summary = cumulative
-    ? t('agent.usage.summary', {
-        tokens: formatAgentTokens(cumulative.totalTokens),
-        cost: usageCost(cumulative, t('agent.usage.costUnavailable')),
-      })
-    : t('agent.context.estimate', { count: formatAgentTokens(total) })
+  const percent = agentContextPercent(latest)
+  const statusClass =
+    percent === undefined ? 'empty' : percent < 60 ? 'success' : percent < 85 ? 'warning' : 'danger'
+  const summary = `${t('agent.context.label')} ${
+    percent === undefined
+      ? t('agent.context.unavailable')
+      : t('agent.context.percentValue', { percent })
+  }`
 
   return (
     <div ref={containerRef} className="token-budget">
@@ -81,12 +78,26 @@ export function AgentTokenBudget({ chatId }: Props) {
         aria-expanded={showDetails}
         aria-controls={showDetails ? detailsId : undefined}
       >
-        {/* No provider context limit is available: color conveys size, not a percentage. */}
         <svg width="18" height="18" viewBox="0 0 20 20" fill="none" aria-hidden="true">
-          <circle cx="10" cy="10" r="7" stroke="currentColor" strokeWidth="2.5" />
-          {isLarge && <circle cx="10" cy="10" r={isHuge ? 3 : 1.5} fill="currentColor" />}
+          <circle
+            className="token-progress-track"
+            cx="10"
+            cy="10"
+            r="7"
+            strokeWidth="2.5"
+          />
+          <circle
+            className="token-progress-value"
+            cx="10"
+            cy="10"
+            r="7"
+            pathLength="100"
+            strokeWidth="2.5"
+            strokeDasharray={`${percent ?? 0} 100`}
+            transform="rotate(-90 10 10)"
+          />
         </svg>
-        {cumulative ? <span className="token-summary-text">{summary}</span> : null}
+        <span className="token-summary-text">{summary}</span>
       </button>
 
       {showDetails && (
@@ -104,6 +115,25 @@ export function AgentTokenBudget({ chatId }: Props) {
             >
               <Icon name="close" size={12} />
             </button>
+          </div>
+          <div className="usage-section">
+            <div className="usage-section-title">{summary}</div>
+            <div className="breakdown-list">
+              <ContextRow
+                label={t('agent.context.used')}
+                value={
+                  latest ? formatAgentTokens(latest.totalTokens) : t('agent.context.unavailable')
+                }
+              />
+              <ContextRow
+                label={t('agent.context.window')}
+                value={
+                  contextWindow !== undefined
+                    ? formatAgentTokens(contextWindow)
+                    : t('agent.context.unavailable')
+                }
+              />
+            </div>
           </div>
           {cumulative ? <UsageSection title={t('agent.usage.cumulative')} usage={cumulative} /> : null}
           {latest ? <UsageSection title={t('agent.usage.latest')} usage={latest} /> : null}
@@ -127,6 +157,15 @@ export function AgentTokenBudget({ chatId }: Props) {
           ) : null}
         </div>
       )}
+    </div>
+  )
+}
+
+function ContextRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="breakdown-item">
+      <span className="label">{label}</span>
+      <span className="tokens">{value}</span>
     </div>
   )
 }

@@ -11,7 +11,7 @@ import { shortcutKey } from '../lib/keys'
 import { AgentComposer } from './AgentComposer'
 import { AssistantMessage, UserMessage } from './AgentMessage'
 import { Icon } from './Icon'
-import { AgentTokenBudget } from './AgentTokenBudget'
+import { AgentContextUsage } from './AgentContextUsage'
 import { CopyButton } from './CopyButton'
 import { elapsedSeconds, formatAgentDuration } from '../lib/agentDuration'
 
@@ -59,7 +59,7 @@ export function AgentChat({ chatId }: { chatId: string }) {
   const running = chat?.status === 'running'
   const jumpKeys = isMac() ? '⇧⌘↓' : 'Ctrl+Shift+↓'
 
-  // Esc stops the turn of the focused chat. Pickers and the token-budget popup handle Escape
+  // Esc stops the turn of the focused chat. Pickers and the context-usage popup handle Escape
   // first and stop propagation, so dismissing them must not cancel the agent.
   useEffect(() => {
     if (!focused || !running) return
@@ -364,7 +364,7 @@ export function AgentChat({ chatId }: { chatId: string }) {
             </div>
           ) : null}
           <AgentComposer
-            tokenBudget={<AgentTokenBudget chatId={chatId} />}
+            contextUsage={<AgentContextUsage chatId={chatId} />}
             root={chat.root}
             draft={draft.text}
             mentions={draft.mentions}

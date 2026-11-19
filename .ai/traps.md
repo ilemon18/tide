@@ -98,7 +98,7 @@ and 60/40 so files stay in primary. Sending runs `agent_send` (headless CLI in t
 workspace root). One turn per chat, four at once.
 
 **Escape**: only the focused running chat tab stops on Escape. Menus, composer pickers and
-the token-budget popup consume Escape first; those layers must stop propagation so dismissing
+the context-usage popup consume Escape first; those layers must stop propagation so dismissing
 one does not also cancel the turn.
 
 **Interject**: sending during a turn appends to a per-chat FIFO (`queues` in the store),

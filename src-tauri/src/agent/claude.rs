@@ -64,6 +64,17 @@ pub struct State {
     tools: HashSet<String>,
     /// Any text delta seen: the assistant event then carries the same text again
     streamed: bool,
+    /// Current session model, initially from the request and refreshed by Claude's init event.
+    model: Option<String>,
+}
+
+impl State {
+    pub fn with_model(model: Option<String>) -> Self {
+        Self {
+            model: model.filter(|model| !model.is_empty()),
+            ..Self::default()
+        }
+    }
 }
 
 fn next_text_id(seq: &mut u64) -> String {
@@ -167,7 +178,17 @@ fn has_token_count(usage: &Value) -> bool {
     .any(|key| usage.get(*key).and_then(Value::as_u64).is_some())
 }
 
-fn result_usage(value: &Value) -> Option<AgentUsage> {
+fn result_context_window(value: &Value, model: Option<&str>) -> Option<u64> {
+    let model = model?;
+    value
+        .get("modelUsage")
+        .and_then(|usage| usage.get(model))
+        .and_then(|usage| usage.get("contextWindow"))
+        .and_then(Value::as_u64)
+        .filter(|window| *window > 0)
+}
+
+fn result_usage(value: &Value, model: Option<&str>) -> Option<AgentUsage> {
     let usage = value.get("usage").filter(|usage| usage.is_object());
     let cost_usd = value
         .get("total_cost_usd")
@@ -195,6 +216,7 @@ fn result_usage(value: &Value) -> Option<AgentUsage> {
         reasoning_output_tokens,
         total_tokens,
         cost_usd,
+        context_window: result_context_window(value, model),
     })
 }
 
@@ -211,6 +233,13 @@ pub fn translate(line: &str, state: &mut State) -> Vec<AgentEvent> {
     match kind {
         "system" => {
             if value.get("subtype").and_then(Value::as_str) == Some("init") {
+                if let Some(model) = value
+                    .get("model")
+                    .and_then(Value::as_str)
+                    .filter(|model| !model.is_empty())
+                {
+                    state.model = Some(model.to_string());
+                }
                 if let Some(id) = session {
                     out.push(AgentEvent::Session {
                         session_id: id.to_string(),
@@ -351,7 +380,7 @@ pub fn translate(line: &str, state: &mut State) -> Vec<AgentEvent> {
             }
         }
         "result" => {
-            if let Some(usage) = result_usage(&value) {
+            if let Some(usage) = result_usage(&value, state.model.as_deref()) {
                 out.push(AgentEvent::Usage { usage });
             }
             let failed = value.get("is_error").and_then(Value::as_bool).unwrap_or(false)
@@ -574,6 +603,79 @@ mod tests {
         assert_eq!(usage.reasoning_output_tokens, 0);
         assert_eq!(usage.total_tokens, 540);
         assert_eq!(usage.cost_usd, Some(0.0125));
+        assert_eq!(usage.context_window, None);
+    }
+
+    #[test]
+    fn result_reads_context_window_for_current_model() {
+        let mut state = State::default();
+        translate(
+            r#"{"type":"system","subtype":"init","session_id":"abc","model":"claude-sonnet-test"}"#,
+            &mut state,
+        );
+        let events = translate(
+            r#"{"type":"result","subtype":"success","is_error":false,"usage":{"input_tokens":120},"modelUsage":{"claude-sonnet-test":{"contextWindow":200000}}}"#,
+            &mut state,
+        );
+        let usage = events
+            .iter()
+            .find_map(|event| match event {
+                AgentEvent::Usage { usage } => Some(usage),
+                _ => None,
+            })
+            .expect("result should include usage");
+        assert_eq!(usage.context_window, Some(200_000));
+    }
+
+    #[test]
+    fn result_ignores_missing_context_window() {
+        let mut state = State::with_model(Some("claude-sonnet-test".into()));
+        let events = translate(
+            r#"{"type":"result","subtype":"success","is_error":false,"usage":{"input_tokens":120}}"#,
+            &mut state,
+        );
+        let usage = events
+            .iter()
+            .find_map(|event| match event {
+                AgentEvent::Usage { usage } => Some(usage),
+                _ => None,
+            })
+            .expect("result should still include usage");
+        assert_eq!(usage.context_window, None);
+    }
+
+    #[test]
+    fn result_ignores_invalid_context_window() {
+        let mut state = State::with_model(Some("claude-sonnet-test".into()));
+        let events = translate(
+            r#"{"type":"result","subtype":"success","is_error":false,"usage":{"input_tokens":120},"modelUsage":{"claude-sonnet-test":{"contextWindow":0}}}"#,
+            &mut state,
+        );
+        let usage = events
+            .iter()
+            .find_map(|event| match event {
+                AgentEvent::Usage { usage } => Some(usage),
+                _ => None,
+            })
+            .expect("result should still include usage");
+        assert_eq!(usage.context_window, None);
+    }
+
+    #[test]
+    fn result_ignores_context_window_for_another_model() {
+        let mut state = State::with_model(Some("claude-sonnet-test".into()));
+        let events = translate(
+            r#"{"type":"result","subtype":"success","is_error":false,"usage":{"input_tokens":120},"modelUsage":{"claude-opus-test":{"contextWindow":200000}}}"#,
+            &mut state,
+        );
+        let usage = events
+            .iter()
+            .find_map(|event| match event {
+                AgentEvent::Usage { usage } => Some(usage),
+                _ => None,
+            })
+            .expect("result should still include usage");
+        assert_eq!(usage.context_window, None);
     }
 
     #[test]

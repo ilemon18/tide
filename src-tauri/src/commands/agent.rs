@@ -195,6 +195,7 @@ pub fn agent_send(
 
     let chat_id = request.chat_id.clone();
     let provider_id = request.provider.clone();
+    let claude_model = request.model.clone();
 
     if let Some(stderr) = stderr {
         let app = app.clone();
@@ -225,7 +226,7 @@ pub fn agent_send(
     std::thread::spawn(move || {
         let mut reader = BufReader::new(stdout);
         let mut line = String::new();
-        let mut claude_state = agent::claude::State::default();
+        let mut claude_state = agent::claude::State::with_model(claude_model);
         let mut codex_state = agent::codex::State::default();
         'read: loop {
             line.clear();

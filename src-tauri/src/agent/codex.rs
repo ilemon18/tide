@@ -55,6 +55,8 @@ pub struct State {
     seen: HashSet<String>,
     questions: question::Parser,
     seq: u64,
+    /// Last window reported by `token_count`; later usage-only events keep it for this turn.
+    context_window: Option<u64>,
     /// Current text item. A question closes it so trailing text starts a new item.
     text_id: Option<String>,
 }
@@ -241,9 +243,39 @@ fn usage_value(value: &Value) -> Option<&Value> {
     None
 }
 
-fn usage_from_event(value: &Value) -> Option<AgentUsage> {
+fn is_token_count_event(value: &Value) -> bool {
     let kind = value.get("type").and_then(Value::as_str).unwrap_or_default();
-    let candidate = if kind == "turn.completed" || kind == "token_count" || has_usage_fields(value) {
+    let payload_kind = value
+        .pointer("/payload/type")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    kind == "token_count" || payload_kind == "token_count"
+}
+
+fn find_context_window(value: &Value) -> Option<&Value> {
+    if let Some(window) = value.get("model_context_window") {
+        return Some(window);
+    }
+    ["payload", "info"]
+        .into_iter()
+        .find_map(|key| value.get(key).and_then(find_context_window))
+}
+
+/// `None` means this event did not report a window; `Some(None)` is an explicit invalid value.
+fn context_window(value: &Value) -> Option<Option<u64>> {
+    if !is_token_count_event(value) {
+        return None;
+    }
+    let window = find_context_window(value)?;
+    Some(window.as_u64().filter(|window| *window > 0))
+}
+
+fn usage_from_event(value: &Value, context_window: Option<u64>) -> Option<AgentUsage> {
+    let kind = value.get("type").and_then(Value::as_str).unwrap_or_default();
+    let candidate = if kind == "turn.completed"
+        || is_token_count_event(value)
+        || has_usage_fields(value)
+    {
         usage_value(value)
     } else {
         None
@@ -302,6 +334,7 @@ fn usage_from_event(value: &Value) -> Option<AgentUsage> {
         total_tokens,
         // Codex JSONL does not report a price; never turn missing cost into a fabricated zero.
         cost_usd: None,
+        context_window,
     })
 }
 
@@ -313,7 +346,10 @@ pub fn translate(line: &str, state: &mut State) -> Vec<AgentEvent> {
     let kind = value.get("type").and_then(Value::as_str).unwrap_or_default();
     let mut out = Vec::new();
 
-    if let Some(usage) = usage_from_event(&value) {
+    if let Some(window) = context_window(&value) {
+        state.context_window = window;
+    }
+    if let Some(usage) = usage_from_event(&value, state.context_window) {
         out.push(AgentEvent::Usage { usage });
     }
 
@@ -629,6 +665,79 @@ mod tests {
         assert_eq!(usage.output_tokens, 5);
         assert_eq!(usage.total_tokens, 13);
         assert_eq!(usage.cost_usd, None);
+        assert_eq!(usage.context_window, None);
+    }
+
+    #[test]
+    fn reads_model_context_window_from_token_count() {
+        let mut state = State::default();
+        let events = translate(
+            r#"{"type":"token_count","payload":{"info":{"total_token_usage":{"input_tokens":8,"output_tokens":5},"model_context_window":258400}}}"#,
+            &mut state,
+        );
+        let usage = events
+            .iter()
+            .find_map(|event| match event {
+                AgentEvent::Usage { usage } => Some(usage),
+                _ => None,
+            })
+            .expect("token count should include usage");
+        assert_eq!(usage.context_window, Some(258_400));
+    }
+
+    #[test]
+    fn reads_wrapped_token_count_context_window() {
+        let mut state = State::default();
+        let events = translate(
+            r#"{"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":8},"model_context_window":258400}}}"#,
+            &mut state,
+        );
+        let usage = events
+            .iter()
+            .find_map(|event| match event {
+                AgentEvent::Usage { usage } => Some(usage),
+                _ => None,
+            })
+            .expect("wrapped token count should include usage");
+        assert_eq!(usage.context_window, Some(258_400));
+    }
+
+    #[test]
+    fn keeps_context_window_for_later_usage_event() {
+        let mut state = State::default();
+        translate(
+            r#"{"type":"token_count","payload":{"info":{"total_token_usage":{"input_tokens":8},"model_context_window":258400}}}"#,
+            &mut state,
+        );
+        let events = translate(
+            r#"{"type":"turn.completed","usage":{"input_tokens":8,"output_tokens":5}}"#,
+            &mut state,
+        );
+        let usage = events
+            .iter()
+            .find_map(|event| match event {
+                AgentEvent::Usage { usage } => Some(usage),
+                _ => None,
+            })
+            .expect("turn completion should include usage");
+        assert_eq!(usage.context_window, Some(258_400));
+    }
+
+    #[test]
+    fn ignores_invalid_model_context_window() {
+        let mut state = State::default();
+        let events = translate(
+            r#"{"type":"token_count","payload":{"info":{"total_token_usage":{"input_tokens":8},"model_context_window":0}}}"#,
+            &mut state,
+        );
+        let usage = events
+            .iter()
+            .find_map(|event| match event {
+                AgentEvent::Usage { usage } => Some(usage),
+                _ => None,
+            })
+            .expect("token count should still include usage");
+        assert_eq!(usage.context_window, None);
     }
 
     #[test]

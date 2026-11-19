@@ -58,6 +58,12 @@ export function normalizeAgentUsage(raw: unknown): AgentUsage | undefined {
   const cacheWrite = cacheWriteInputTokens ?? 0
   const output = outputTokens ?? 0
   const reasoning = reasoningOutputTokens ?? 0
+  const contextWindow =
+    typeof value.contextWindow === 'number' &&
+    Number.isInteger(value.contextWindow) &&
+    value.contextWindow > 0
+      ? value.contextWindow
+      : undefined
   return {
     inputTokens: input,
     cachedInputTokens: cachedInput,
@@ -66,6 +72,7 @@ export function normalizeAgentUsage(raw: unknown): AgentUsage | undefined {
     reasoningOutputTokens: reasoning,
     totalTokens: reportedTotalTokens ?? input + cachedInput + cacheWrite + output,
     costUsd,
+    contextWindow,
   }
 }
 
@@ -105,6 +112,21 @@ export function latestAgentUsage(messages: AgentMessage[]): AgentUsage | undefin
     if (message.role === 'assistant') return message.usage
   }
   return undefined
+}
+
+/** Latest-turn context pressure, rounded and clamped; unavailable without a usable window. */
+export function agentContextPercent(usage: AgentUsage | undefined): number | undefined {
+  const window = usage?.contextWindow
+  if (
+    !usage ||
+    !Number.isFinite(usage.totalTokens) ||
+    window === undefined ||
+    !Number.isInteger(window) ||
+    window <= 0
+  ) {
+    return undefined
+  }
+  return Math.max(0, Math.min(100, Math.round((usage.totalTokens / window) * 100)))
 }
 
 export function formatAgentTokens(count: number): string {

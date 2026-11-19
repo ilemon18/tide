@@ -369,6 +369,8 @@ export type AgentUsage = {
   reasoningOutputTokens: number
   totalTokens: number
   costUsd: number | null
+  /** Provider-reported context window for the current model, when available. */
+  contextWindow?: number
 }
 
 /** One provider-neutral stream event; text and tool items are keyed by id */

@@ -38,7 +38,7 @@ Provider scan warms after first paint and is cached per session; Settings can re
 - `src/lib/agentEvents.ts`: the single `agent:event` listener.
 - `src/lib/agentSession.ts`: restores chat tabs, persists the open chat list, closes the bridge.
 - `src/lib/agentBridge.ts`: one-way tab-close callback (avoids a tabs ↔ agent import cycle).
-- `src/components/AgentChat.tsx`, `AgentComposer.tsx`,
+- `src/components/AgentChat.tsx`, `AgentComposer.tsx`, `AgentContextUsage.tsx`,
   `AgentMessage.tsx`, `AgentMarkdown.tsx`, `AgentPickers.tsx`, `AgentTags.tsx`.
 - `src/lib/agentDuration.ts`, `agentUsage.ts`, `clipboard.ts` and
   `src/components/CopyButton.tsx`: duration formatting, usage normalization/cumulative cost,
@@ -144,15 +144,17 @@ Add a `ProviderSpec` row in `agent/providers.rs`, an argument builder + JSONL tr
 `claude.rs`, its model catalog (or a curated one), and map its events to the same
 `AgentEvent`. Detected-but-unsupported CLIs stay in the settings list with a hint.
 
-## Token budget
+## Context usage
 
-- `src/components/AgentTokenBudget.tsx` renders a compact ring left of Send, including while running.
-  Hover shows the draft estimate; click opens cumulative/latest details; Escape/outside/close dismiss.
-- Ring color indicates estimate size: neutral at zero, accent through 100k, warning above 100k,
-  danger above 150k. A center dot also distinguishes the warning states. This is a size
-  indicator, not a model context-window percentage.
-- Compact text shows cumulative tokens/cost; details show cumulative and latest-turn input,
-  cached input, cache write, output, reasoning, total and cost.
+- `src/components/AgentContextUsage.tsx` renders `CONTEXT {percent}%` and a ring left of Send,
+  including while running. Missing usage or a missing/invalid provider window shows `CONTEXT —`.
+- The percentage is the latest assistant usage `totalTokens / contextWindow`, rounded and clamped
+  to 0–100. Drafts never contribute to it. Ring and text use success below 60%, warning at
+  60–84%, and danger at 85% or above through the theme `--c-*` tokens.
+- Click opens cumulative and latest-turn input, cached input, cache write, output, reasoning,
+  total and cost, plus context percentage, used tokens and the provider window; Escape/outside/close
+  dismiss. Codex reads `model_context_window` from `token_count`; Claude matches `modelUsage`
+  `contextWindow` to the current session model. No fixed fallback window is used.
 - Drafts debounce 300ms. `agent_estimate_tokens` includes command/skill wrappers and file sizes
   without contents; it excludes history, directory contents and CLI overhead. Stale responses are
   discarded and chat close clears estimates.
