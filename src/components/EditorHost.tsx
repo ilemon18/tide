@@ -39,8 +39,11 @@ import { Welcome } from './Welcome'
 import { SettingsView } from './SettingsView'
 import { AgentChat } from './AgentChat'
 import { DiffRuler } from './DiffRuler'
+import { MarkdownPreview } from './MarkdownPreview'
+import { Splitter } from './Splitter'
 import { useT } from '../i18n'
 import { tabTitle } from '../lib/tabTitle'
+import { isMarkdownPath } from '../lib/markdown'
 
 /**
  * Swap the state and its scroll position together: a new file starts at the top, switching back to a
@@ -113,6 +116,7 @@ function applyReveal(view: EditorView, request: RevealRequest) {
 export function EditorHost({ groupId }: { groupId: TabGroupId }) {
   const t = useT()
   const hostRef = useRef<HTMLDivElement>(null)
+  const contentRef = useRef<HTMLDivElement>(null)
   const viewRef = useRef<EditorView | null>(null)
   /** id of the tab currently mounted in the view, used to save the previous file's scroll position */
   const shownIdRef = useRef<string | null>(null)
@@ -120,6 +124,7 @@ export function EditorHost({ groupId }: { groupId: TabGroupId }) {
   const group = useTabs((s) => s.groups.find((g) => g.id === groupId))
   const activeId = group?.activeId ?? null
   const tabs = useTabs((s) => s.tabs)
+  const setMarkdownPreviewRatio = useTabs((s) => s.setMarkdownPreviewRatio)
   const reveal = useTabs((s) => s.reveal)
   const stateEpoch = useTabs((s) => s.stateEpoch)
   const palette = useSettings((s) => s.palette)
@@ -130,6 +135,11 @@ export function EditorHost({ groupId }: { groupId: TabGroupId }) {
   const activeTab = tabs.find((t) => t.id === activeId) ?? null
   const hidden = isEditorHidden(activeTab)
   const groups = useTabs((s) => s.groups)
+  const markdownPreviewRatio =
+    activeTab?.kind === 'file' && isMarkdownPath(activeTab.rel)
+      ? group?.markdownPreview?.[activeTab.id]
+      : undefined
+  const markdownPreviewOpen = markdownPreviewRatio !== undefined
   /** Mirror state for a split of the same file (the two panes cannot share one EditorState) */
   const stateKey = activeId ? editorStateKey(activeId, groupId, groups) : null
   /** Scroll positions are keyed by "pane + tab", so each pane scrolls on its own */
@@ -381,6 +391,17 @@ export function EditorHost({ groupId }: { groupId: TabGroupId }) {
     if (view) setBlameEnabled(view, inlineBlame)
   }, [inlineBlame])
 
+  // The CodeMirror host changes width when the in-pane Markdown preview opens, closes, or is resized.
+  useEffect(() => {
+    const view = viewRef.current
+    if (!view) return
+    view.requestMeasure()
+    const frame = requestAnimationFrame(() => {
+      if (viewRef.current === view && view.dom.isConnected) view.requestMeasure()
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [markdownPreviewOpen])
+
   // The editor is hidden during preview (cannot be measured), so return to text re-measures; coming back
   // from preview also hands focus to the editor, otherwise typing lands on a page with no focus.
   useEffect(() => {
@@ -411,44 +432,89 @@ export function EditorHost({ groupId }: { groupId: TabGroupId }) {
   )
   const showRuler = Boolean(activeTab?.kind === 'file' && !activeTab.preview && isGitRepo)
 
+  const ratio = markdownPreviewRatio ?? 0.5
+  const editorStyle = markdownPreviewOpen
+    ? { flexGrow: ratio, flexBasis: 0 }
+    : { flexGrow: 1, flexBasis: 0 }
+  const previewStyle = markdownPreviewOpen
+    ? { flexGrow: 1 - ratio, flexBasis: 0 }
+    : undefined
+
+  const onMarkdownSplitterDrag = (delta: number) => {
+    const width = contentRef.current?.clientWidth ?? 0
+    if (!width || !activeId) return
+    const current = useTabs
+      .getState()
+      .groups.find((g) => g.id === groupId)?.markdownPreview?.[activeId]
+    if (current === undefined) return
+    setMarkdownPreviewRatio(groupId, activeId, current + delta / width)
+  }
+
   return (
-    <>
-      <div
-        ref={hostRef}
-        onPointerDownCapture={focusGroup}
-        onFocusCapture={focusGroup}
-        className={`absolute inset-y-0 left-0 overflow-hidden ${
-          showRuler ? 'right-[10px]' : 'right-0'
-        } ${hidden ? 'invisible' : ''}`}
-      />
-      {showRuler && activeTab ? (
-        <DiffRuler
-          root={activeTab.root}
-          rel={activeTab.rel}
-          dirty={activeTab.dirty}
-          mtime={activeTab.mtime}
-          tabId={activeTab.id}
-          groupId={groupId}
+    <div ref={contentRef} className="absolute inset-0 flex min-h-0 min-w-0 overflow-hidden">
+      <div className="relative min-h-0 min-w-0 overflow-hidden" style={editorStyle}>
+        <div
+          ref={hostRef}
+          onPointerDownCapture={focusGroup}
+          onFocusCapture={focusGroup}
+          className={`absolute inset-y-0 left-0 overflow-hidden ${
+            showRuler ? 'right-[10px]' : 'right-0'
+          } ${hidden ? 'invisible' : ''}`}
         />
+        {showRuler && activeTab ? (
+          <DiffRuler
+            root={activeTab.root}
+            rel={activeTab.rel}
+            dirty={activeTab.dirty}
+            mtime={activeTab.mtime}
+            tabId={activeTab.id}
+            groupId={groupId}
+          />
+        ) : null}
+        {activeTab?.kind === 'welcome' ? <Welcome /> : null}
+        {activeTab?.kind === 'settings' ? <SettingsView /> : null}
+        {activeTab?.kind === 'chat' ? (
+          <AgentChat key={activeTab.id} chatId={activeTab.id.slice('chat:'.length)} />
+        ) : null}
+        {activeTab?.kind === 'image' ? <ImageView tab={activeTab} /> : null}
+        {activeTab?.kind === 'file' && activeTab.preview ? (
+          <ImageView tab={activeTab} svgText={svgText} />
+        ) : null}
+        {activeTab?.kind === 'diff' ? <DiffView tab={activeTab} /> : null}
+        {restoring && slowRestore ? (
+          <div className="pointer-events-none absolute left-1/2 top-2 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-line bg-panel px-2.5 py-1 text-2xs text-muted shadow-popup">
+            <Icon name="refresh" size={11} />
+            {activeTab && activeTab.kind !== 'welcome' && activeTab.kind !== 'settings'
+              ? t('editor.restoringFile', { name: tabTitle(activeTab) })
+              : t('editor.restoringState')}
+          </div>
+        ) : null}
+      </div>
+
+      {markdownPreviewOpen && activeTab ? (
+        <>
+          <Splitter
+            direction="v"
+            tone="editor"
+            onDrag={onMarkdownSplitterDrag}
+            onCommit={() => viewRef.current?.requestMeasure()}
+          />
+          <div
+            className="min-h-0 min-w-0 overflow-hidden"
+            style={previewStyle}
+            onPointerDownCapture={focusGroup}
+          >
+            <MarkdownPreview
+              key={activeTab.id}
+              root={activeTab.root}
+              rel={activeTab.rel}
+              tabId={activeTab.id}
+              stateKey={stateKey}
+              stateEpoch={stateEpoch}
+            />
+          </div>
+        </>
       ) : null}
-      {activeTab?.kind === 'welcome' ? <Welcome /> : null}
-      {activeTab?.kind === 'settings' ? <SettingsView /> : null}
-      {activeTab?.kind === 'chat' ? (
-        <AgentChat key={activeTab.id} chatId={activeTab.id.slice('chat:'.length)} />
-      ) : null}
-      {activeTab?.kind === 'image' ? <ImageView tab={activeTab} /> : null}
-      {activeTab?.kind === 'file' && activeTab.preview ? (
-        <ImageView tab={activeTab} svgText={svgText} />
-      ) : null}
-      {activeTab?.kind === 'diff' ? <DiffView tab={activeTab} /> : null}
-      {restoring && slowRestore ? (
-        <div className="pointer-events-none absolute left-1/2 top-2 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-line bg-panel px-2.5 py-1 text-2xs text-muted shadow-popup">
-          <Icon name="refresh" size={11} />
-          {activeTab && activeTab.kind !== 'welcome' && activeTab.kind !== 'settings'
-            ? t('editor.restoringFile', { name: tabTitle(activeTab) })
-            : t('editor.restoringState')}
-        </div>
-      ) : null}
-    </>
+    </div>
   )
 }

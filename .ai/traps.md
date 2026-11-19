@@ -62,6 +62,13 @@ state clears as soon as checkout succeeds; the transition keeps a short grace wi
   explicit preserves (drag to pane, save-as, diff-to-file, reopen) call `promoteTab`; undoing an edit
   must not make it temporary again. Restored and non-file virtual tabs are always non-temporary.
   Double-click promotes a tab; "Close others" remains available only from the context menu.
+- **Markdown preview**: `TabGroup.markdownPreview` is session-only; a key means the pane has that tab's
+  preview open and its value is the source-pane ratio. Keep this state through pane/tab moves, but clean
+  it on close, rename away from Markdown, replace, and merge (primary wins). The source `EditorView`
+  stays mounted; `editor/markdownDocs.ts` publishes unsaved docs independently of split mirroring, and
+  preview scroll is independent. Lazy-load the renderer, skip raw HTML, never navigate links, and allow
+  only relative workspace raster images through `lib/markdown.ts` + `api.readImage` (no remote, absolute,
+  escaping, or SVG paths); revoke Blob URLs when the preview unmounts.
 - **Agent split routing**: `useAgent.newChat` calls `tabs.openChatInRight`; the first chat split keeps
   primary tabs untouched and sets the primary share to 0.6, while an existing split keeps its ratio and
   changes to row. When secondary's active tab is a chat, ordinary opens without an explicit group route to

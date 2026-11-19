@@ -331,6 +331,8 @@ export const en = {
   'tabs.splitTip': 'Split right (⌘\\)',
   'tabs.editSource': 'Edit source',
   'tabs.viewSvg': 'View SVG image',
+  'tabs.showMarkdownPreview': 'Show Markdown preview',
+  'tabs.closeMarkdownPreview': 'Close Markdown preview',
   'tabs.pinnedSuffix': ' · pinned',
 
   // ---------------------------------------------------------------- Quick open

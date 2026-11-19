@@ -18,7 +18,7 @@ Low memory/startup are deliberate; see ceilings.
 | Layout, shortcuts, session restore, drag & drop, startup | `src/App.tsx`, `src/main.tsx`, `src/lib/keys.ts` (IME-safe), `fileDragState.ts` + `groupDrop.ts` |
 | UI components, settings sections | `src/components/` (only `EditorView` is `EditorHost.tsx`), `lib/settingsSections.ts` |
 | Diff view, conflicts, syntax colours | `src/components/DiffView.tsx`, `diffHighlight.ts`, `lib/conflictFiles.ts`, `src/theme/syntax.ts` |
-| CodeMirror | `src/editor/`: setup, stateCache, stateKeys, viewRef, openState, mirror, folding, languages, largeFile, indentGuides, blame, conflicts, highlight, importLinks, scrollMemory, signals, locale, outline |
+| CodeMirror | `src/editor/`: setup, stateCache, stateKeys, viewRef, openState, mirror, markdownDocs, folding, languages, largeFile, indentGuides, blame, conflicts, highlight, importLinks, scrollMemory, signals, locale, outline |
 | State slices (14) | `src/store/`: workspace, tabs, git, search, terminal, settings, ui, blame, watcher, fileIndex, commitHover, folderChain, update, agent |
 | Folder chain compaction | `src/store/folderChain.ts`, `resolve_dir_chain` in `src-tauri/src/commands/fs.rs`, `buildRows` in `FileTree.tsx` |
 | Built-in agent | Chat UI `src/components/Agent*.tsx`, state `src/store/agent.ts`, Rust `src-tauri/src/agent/` — [agent.md](./agent.md) |
@@ -41,6 +41,7 @@ Low memory/startup are deliberate; see ceilings.
 - **IPC only through `api.*`** (`lib/ipc.ts`). No direct `invoke` in components or slices.
 - **Subscribe with a selector** (`useTabs(s => s.activeId)`), never `useTabs()` as a whole.
 - **One `EditorView` per panel** (1, or 2 after split). Per-tab `EditorState` lives in `editor/stateCache.ts` and swaps via `view.setState`; `mirror.ts` forwards split-pane ChangeSets. **Never** hold views/states in zustand or share a state between views.
+- **Markdown preview** is per-pane/tab in `TabGroup.markdownPreview`; `editor/markdownDocs.ts` feeds unsaved docs independently of split mirroring. Keep source mounted; local relative raster images only; links never navigate.
 - **Theme, font size, blame, word wrap use `Compartment.reconfigure`** (a rebuilt state drops undo history).
 - **No hex colours**: use the `--c-*` tokens (`bg-bg`, `text-fg`, `border-line`, `bg-panel`).
 - **UI copy only through `t()` / `tp()`**, no literals (`pnpm i18n:scan` enforces it); Chinese comments are fine.

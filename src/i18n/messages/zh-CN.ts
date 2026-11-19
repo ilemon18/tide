@@ -291,6 +291,8 @@ export const zhCN: Messages = {
   'tabs.splitTip': '向右拆分（⌘\\）',
   'tabs.editSource': '编辑源码',
   'tabs.viewSvg': '查看 SVG 图片',
+  'tabs.showMarkdownPreview': '显示 Markdown 预览',
+  'tabs.closeMarkdownPreview': '关闭 Markdown 预览',
   'tabs.pinnedSuffix': ' · 已固定',
 
   'quickopen.placeholder': '搜索文件，输入 @ 查找符号，或 :行号 跳转',

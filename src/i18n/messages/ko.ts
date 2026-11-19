@@ -301,6 +301,8 @@ export const ko: Messages = {
   'tabs.splitTip': '오른쪽으로 분할 (⌘\\)',
   'tabs.editSource': '소스 편집',
   'tabs.viewSvg': 'SVG 이미지 보기',
+  'tabs.showMarkdownPreview': 'Markdown 미리보기 표시',
+  'tabs.closeMarkdownPreview': 'Markdown 미리보기 닫기',
   'tabs.pinnedSuffix': ' · 고정됨',
 
   'quickopen.placeholder': '파일 검색, @로 심볼, :줄번호로 이동',

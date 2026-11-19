@@ -31,6 +31,7 @@ import { useSettings } from './settings'
 import { isImagePath, isSvgPath } from '../lib/media'
 import { isConflictedFile } from '../lib/conflictFiles'
 import { detectTextMeta, tidyText, type Eol } from '../lib/textMeta'
+import { isMarkdownPath } from '../lib/markdown'
 import { formatWithSelectedTool } from '../lib/formatting'
 import { resolveTool, sourceLabel } from '../lib/formatters'
 import { conflictField } from '../editor/conflicts'
@@ -62,6 +63,8 @@ export type TabGroup = {
   activeId: string | null
   /** Tab ids in tab-bar order. A split file appears in both groups */
   order: string[]
+  /** Per-tab Markdown preview width ratio. Key presence means this pane has the preview open. */
+  markdownPreview?: Record<string, number>
 }
 
 /** Metadata a restored tab only learns when its content is read (see `applyRestoredMeta`) */
@@ -121,6 +124,9 @@ const RESTORE_CONCURRENCY = 6
 const SPLIT_RATIO_MIN = 0.2
 const SPLIT_RATIO_MAX = 0.8
 const SPLIT_RATIO_DEFAULT = 0.5
+const MARKDOWN_PREVIEW_RATIO_MIN = 0.2
+const MARKDOWN_PREVIEW_RATIO_MAX = 0.8
+const MARKDOWN_PREVIEW_RATIO_DEFAULT = 0.5
 /** First chat split leaves most of the editor available for code beside the conversation */
 const CHAT_SPLIT_RATIO = 0.6
 
@@ -327,6 +333,10 @@ type TabsStore = {
   setSplitRatio: (ratio: number) => void
   /** Split: move=false puts the current file in both panes (synced), move=true moves the tab over */
   split: (orientation: SplitOrientation, move: boolean) => Promise<void>
+  /** Toggle the in-pane Markdown source + rendered preview split */
+  toggleMarkdownPreview: (groupId: TabGroupId, tabId: string) => void
+  /** Persist this pane/tab Markdown preview width; clamped to 20%-80% */
+  setMarkdownPreviewRatio: (groupId: TabGroupId, tabId: string, ratio: number) => void
   /** Unsplit: merge the secondary pane's tabs back into the primary */
   unsplit: () => void
   moveTab: (groupId: TabGroupId, from: number, to: number) => void
@@ -532,15 +542,25 @@ function groupsWith(groups: TabGroup[], id: string): TabGroupId[] {
 }
 
 /** After closing, fix group order and the active id (keep it unless removed, else fall back to the last) */
+function withoutMarkdownPreview(group: TabGroup, id: string): TabGroup {
+  if (!group.markdownPreview || !Object.hasOwn(group.markdownPreview, id)) return group
+  const markdownPreview = { ...group.markdownPreview }
+  delete markdownPreview[id]
+  return { ...group, markdownPreview: Object.keys(markdownPreview).length > 0 ? markdownPreview : undefined }
+}
+
+/** After closing, fix group order and the active id (keep it unless removed, else fall back to the last) */
 function settleGroups(groups: TabGroup[], removed: Set<string>): TabGroup[] {
   return groups.map((g) => {
     const order = g.order.filter((id) => !removed.has(id))
     const activeId = g.activeId && !removed.has(g.activeId) ? g.activeId : (order[order.length - 1] ?? null)
-    return { ...g, order, activeId }
+    let next: TabGroup = { ...g, order, activeId }
+    for (const id of removed) next = withoutMarkdownPreview(next, id)
+    return next
   })
 }
 
-/** Merge panes: secondary-only tabs join the primary, shared ones once; mirror states released */
+/** Merge panes: secondary-only tabs join the primary, shared ones once; primary preview state wins. */
 function mergeGroups(groups: TabGroup[]): TabGroup[] {
   const primary = groups.find((g) => g.id === 'primary')
   const secondary = groups.find((g) => g.id === 'secondary')
@@ -550,7 +570,18 @@ function mergeGroups(groups: TabGroup[]): TabGroup[] {
     dropEditorState(mirrorKey(id))
   }
   const activeId = primary?.activeId ?? secondary?.activeId ?? null
-  return [{ id: 'primary', activeId, order: merged }]
+  const markdownPreview = {
+    ...(secondary?.markdownPreview ?? {}),
+    ...(primary?.markdownPreview ?? {}),
+  }
+  return [
+    {
+      id: 'primary',
+      activeId,
+      order: merged,
+      markdownPreview: Object.keys(markdownPreview).length > 0 ? markdownPreview : undefined,
+    },
+  ]
 }
 
 /** A pane emptied (last file closed / last tab dragged away): collapse normally, except for the chat split */
@@ -733,11 +764,14 @@ function replaceInGroup(
 ): TabGroup[] {
   return groups.map((group) => {
     if (group.id !== groupId) return group
-    return {
-      ...group,
-      order: group.order.map((id) => (id === oldId ? newId : id)),
-      activeId: newId,
-    }
+    return withoutMarkdownPreview(
+      {
+        ...group,
+        order: group.order.map((id) => (id === oldId ? newId : id)),
+        activeId: newId,
+      },
+      oldId,
+    )
   })
 }
 
@@ -1399,6 +1433,45 @@ export const useTabs = create<TabsStore>((set, get) => ({
     set({ splitRatio: Math.min(SPLIT_RATIO_MAX, Math.max(SPLIT_RATIO_MIN, ratio)) })
   },
 
+  toggleMarkdownPreview: (groupId, tabId) => {
+    const state = get()
+    const group = state.groups.find((g) => g.id === groupId)
+    const tab = state.tabs.find((t) => t.id === tabId)
+    if (!group?.order.includes(tabId) || tab?.kind !== 'file' || !isMarkdownPath(tab.rel)) return
+    const markdownPreview = { ...(group.markdownPreview ?? {}) }
+    if (Object.hasOwn(markdownPreview, tabId)) delete markdownPreview[tabId]
+    else markdownPreview[tabId] = MARKDOWN_PREVIEW_RATIO_DEFAULT
+    set({
+      groups: state.groups.map((g) =>
+        g.id === groupId
+          ? {
+              ...g,
+              markdownPreview:
+                Object.keys(markdownPreview).length > 0 ? markdownPreview : undefined,
+            }
+          : g,
+      ),
+    })
+  },
+
+  setMarkdownPreviewRatio: (groupId, tabId, ratio) => {
+    const state = get()
+    const group = state.groups.find((g) => g.id === groupId)
+    if (!group?.markdownPreview || !Object.hasOwn(group.markdownPreview, tabId)) return
+    const next = Math.min(
+      MARKDOWN_PREVIEW_RATIO_MAX,
+      Math.max(MARKDOWN_PREVIEW_RATIO_MIN, ratio),
+    )
+    if (group.markdownPreview[tabId] === next) return
+    set({
+      groups: state.groups.map((g) =>
+        g.id === groupId
+          ? { ...g, markdownPreview: { ...(g.markdownPreview ?? {}), [tabId]: next } }
+          : g,
+      ),
+    })
+  },
+
   split: async (orientation, move) => {
     const state = get()
     const primary = state.groups[0]
@@ -1434,7 +1507,10 @@ export const useTabs = create<TabsStore>((set, get) => ({
     if (move) {
       if (!targetId) return
       const order = latestPrimary.order.filter((id) => id !== targetId)
-      nextPrimary = { ...latestPrimary, order, activeId: order[order.length - 1] ?? null }
+      nextPrimary = withoutMarkdownPreview(
+        { ...latestPrimary, order, activeId: order[order.length - 1] ?? null },
+        targetId,
+      )
       secondary.order = [targetId]
       secondary.activeId = targetId
     } else if (targetId) {
@@ -1489,12 +1565,19 @@ export const useTabs = create<TabsStore>((set, get) => ({
     const at = Math.max(0, Math.min(index ?? destOrder.length, destOrder.length))
     destOrder.splice(at, 0, id)
 
+    const movedPreviewRatio = source.markdownPreview?.[id]
     const groups = state.groups.map((g) => {
-      if (g.id === target) return { ...g, order: destOrder, activeId: id }
+      if (g.id === target) {
+        const markdownPreview =
+          movedPreviewRatio !== undefined && !Object.hasOwn(g.markdownPreview ?? {}, id)
+            ? { ...(g.markdownPreview ?? {}), [id]: movedPreviewRatio }
+            : g.markdownPreview
+        return { ...g, order: destOrder, activeId: id, markdownPreview }
+      }
       if (g.id === source.id) {
         const activeId =
           g.activeId && g.activeId !== id ? g.activeId : (sourceOrder[sourceOrder.length - 1] ?? null)
-        return { ...g, order: sourceOrder, activeId }
+        return withoutMarkdownPreview({ ...g, order: sourceOrder, activeId }, id)
       }
       return g
     })
@@ -1562,7 +1645,10 @@ export const useTabs = create<TabsStore>((set, get) => ({
       const groups = state.groups.map((g) => {
         if (g.id !== groupId) return g
         const order = g.order.filter((x) => x !== id)
-        return { ...g, order, activeId: order[order.length - 1] ?? null }
+        return withoutMarkdownPreview(
+          { ...g, order, activeId: order[order.length - 1] ?? null },
+          id,
+        )
       })
       // Only one pane shows it now, so the mirror state is unneeded (the other pane uses the primary state)
       if (groups.filter((g) => g.order.includes(id)).length <= 1) {
@@ -2291,11 +2377,25 @@ export const useTabs = create<TabsStore>((set, get) => ({
       return { ...tab, id: newId, rel: newRel, name: basename(newRel) }
     })
 
-    const groups = state.groups.map((g) => ({
-      ...g,
-      order: g.order.map((id) => idMap.get(id) ?? id),
-      activeId: g.activeId ? (idMap.get(g.activeId) ?? g.activeId) : null,
-    }))
+    const nextById = new Map(next.map((tab) => [tab.id, tab]))
+    const groups = state.groups.map((g) => {
+      let markdownPreview = g.markdownPreview
+      if (markdownPreview) {
+        const migrated: Record<string, number> = {}
+        for (const [id, ratio] of Object.entries(markdownPreview)) {
+          const nextId = idMap.get(id) ?? id
+          const tab = nextById.get(nextId)
+          if (tab?.kind === 'file' && isMarkdownPath(tab.rel)) migrated[nextId] = ratio
+        }
+        markdownPreview = Object.keys(migrated).length > 0 ? migrated : undefined
+      }
+      return {
+        ...g,
+        order: g.order.map((id) => idMap.get(id) ?? id),
+        activeId: g.activeId ? (idMap.get(g.activeId) ?? g.activeId) : null,
+        markdownPreview,
+      }
+    })
     set({
       tabs: next,
       groups,
@@ -2398,7 +2498,9 @@ async function closeMany(ids: string[], force?: boolean, groupId?: TabGroupId): 
         if (g.id !== groupId) return g
         const order = g.order.filter((id) => !removed.has(id))
         const activeId = order.includes(g.activeId ?? '') ? g.activeId : (order[order.length - 1] ?? null)
-        return { ...g, order, activeId }
+        let next = { ...g, order, activeId }
+        for (const id of removed) next = withoutMarkdownPreview(next, id)
+        return next
       })
     : settleGroups(snapshot.groups, removed)
   const cursors = { ...snapshot.cursors }

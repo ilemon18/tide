@@ -11,6 +11,7 @@ import { createPortal } from 'react-dom'
 import { groupTabs, useTabs, type Tab, type TabGroupId } from '../store/tabs'
 import { isSvgPath } from '../lib/media'
 import { basename } from '../lib/paths'
+import { isMarkdownPath } from '../lib/markdown'
 import { groupUnderPointer, highlightPane, insertionIndex } from '../lib/groupDrop'
 import { lockTextSelection } from '../lib/fileDragState'
 import { ContextMenu, type MenuItem } from './ContextMenu'
@@ -152,6 +153,7 @@ export function TabBar({ groupId }: { groupId: TabGroupId }) {
   const unsplit = useTabs((s) => s.unsplit)
   const setActiveGroup = useTabs((s) => s.setActiveGroup)
   const togglePreview = useTabs((s) => s.togglePreview)
+  const toggleMarkdownPreview = useTabs((s) => s.toggleMarkdownPreview)
 
   const trackRef = useRef<HTMLDivElement>(null)
   const stripRef = useRef<HTMLDivElement>(null)
@@ -483,6 +485,13 @@ export function TabBar({ groupId }: { groupId: TabGroupId }) {
   // SVG is edited as source by default, so it alone needs a "peek at the image" exit on the tab bar's right
   const svgTab =
     groupActiveTab?.kind === 'file' && isSvgPath(groupActiveTab.rel) ? groupActiveTab : null
+  const markdownTab =
+    groupActiveTab?.kind === 'file' && isMarkdownPath(groupActiveTab.rel)
+      ? groupActiveTab
+      : null
+  const markdownPreviewOpen = markdownTab
+    ? group?.markdownPreview?.[markdownTab.id] !== undefined
+    : false
 
   return (
     <>
@@ -522,6 +531,22 @@ export function TabBar({ groupId }: { groupId: TabGroupId }) {
             })}
           </div>
         </div>
+
+        {markdownTab ? (
+          <button
+            onClick={() => toggleMarkdownPreview(groupId, markdownTab.id)}
+            data-tip={
+              markdownPreviewOpen
+                ? t('tabs.closeMarkdownPreview')
+                : t('tabs.showMarkdownPreview')
+            }
+            className={`ml-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-[var(--r-control)] transition-colors duration-fast hover:bg-hover hover:text-fg ${
+              markdownPreviewOpen ? 'text-accent' : 'text-muted'
+            }`}
+          >
+            <Icon name="eye" size={15} />
+          </button>
+        ) : null}
 
         {/* Split editor to the right: creates a second pane so two files can sit side by side (⌘\) */}
         {splitOrientation ? null : (

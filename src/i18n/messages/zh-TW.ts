@@ -290,6 +290,8 @@ export const zhTW: Messages = {
   'tabs.splitTip': '向右分割（⌘\\）',
   'tabs.editSource': '編輯原始碼',
   'tabs.viewSvg': '檢視 SVG 圖片',
+  'tabs.showMarkdownPreview': '顯示 Markdown 預覽',
+  'tabs.closeMarkdownPreview': '關閉 Markdown 預覽',
   'tabs.pinnedSuffix': ' · 已固定',
 
   'quickopen.placeholder': '搜尋檔案，輸入 @ 查找符號，或 :行號 跳轉',

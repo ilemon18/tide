@@ -12,6 +12,7 @@ import { flashExtension } from './highlight'
 import { importLinkExtension, supportsImportLinks } from './importLinks'
 import { conflictExtension, conflictRulerExtension, looksLikeConflict } from './conflicts'
 import { mirrorKey } from './stateKeys'
+import { publishMarkdownDoc } from './markdownDocs'
 
 import type { MonoFont } from '../lib/ipc'
 import { BUNDLED_MONO_FONT, SYSTEM_MONO_FONT, monoStack } from '../lib/fonts'
@@ -290,6 +291,8 @@ export async function createFileState(opts: CreateFileOpts): Promise<EditorState
         // and background reloads never overwrite unsaved content with a stale snapshot
         cacheEditorState(opts.id, update.state)
         if (update.docChanged) {
+          // Markdown previews use their own channel; split-pane mirroring stays on signals.onDocChanged.
+          publishMarkdownDoc(slot.id, update.state.doc)
           // Undoing back to the text on disk is not a modification: the tab has nothing left to save, so the
           // "unsaved" dot goes away again (and the queued auto-save is dropped by onClean)
           if (isCleanDoc(slot.id, update.state.doc)) signals.onClean(slot.id)
@@ -323,6 +326,7 @@ export async function createFileState(opts: CreateFileOpts): Promise<EditorState
   // LRU eviction) must resume where it was, not at the top
   const placed = opts.cursor ? withCaret(state, opts.cursor) : state
   states.set(opts.id, placed)
+  publishMarkdownDoc(slot.id, placed.doc)
   // A mirror state is built from the other pane's buffer, which may hold unsaved edits: only the primary state
   // (opts.tabId undefined) is known to hold exactly what is on disk, so only it resets the baseline
   if (opts.tabId === undefined) markCleanDoc(slot.id, placed.doc)

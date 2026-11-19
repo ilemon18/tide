@@ -309,6 +309,8 @@ export const es: Messages = {
   'tabs.splitTip': 'Dividir a la derecha (⌘\\)',
   'tabs.editSource': 'Editar el código',
   'tabs.viewSvg': 'Ver la imagen SVG',
+  'tabs.showMarkdownPreview': 'Mostrar vista previa de Markdown',
+  'tabs.closeMarkdownPreview': 'Cerrar vista previa de Markdown',
   'tabs.pinnedSuffix': ' · fijada',
 
   'quickopen.placeholder': 'Busca archivos, @ para símbolos o :línea para saltar',
