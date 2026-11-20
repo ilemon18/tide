@@ -628,6 +628,8 @@ export const en = {
   'error.fs.imageTooLarge':
     'The image is too large ({size}), over the {limit} limit. Use an external tool to open it.',
   'error.fs.unsupportedImage': 'Cannot preview .{ext} files yet; use an external tool',
+  'error.fs.symlinkUnsupported':
+    'This is a symbolic link. Tide cannot open it directly; open the link target instead',
   'error.fs.invalidName': '“{name}” cannot be used as a file name: {reason}',
   'error.fs.targetIsFolder': 'The target is a folder and cannot be written',
   'error.fs.targetInvalid': 'Invalid target path',

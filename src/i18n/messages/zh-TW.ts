@@ -565,6 +565,7 @@ export const zhTW: Messages = {
   'error.fs.tooLarge': '檔案過大（{size}），超過 {limit} 上限。可以用外部工具開啟。',
   'error.fs.imageTooLarge': '圖片過大（{size}），超過 {limit} 上限，可以用外部工具開啟。',
   'error.fs.unsupportedImage': '尚未支援預覽 .{ext} 格式，可以交給外部工具開啟',
+  'error.fs.symlinkUnsupported': '這是符號連結，Tide 無法直接開啟，請開啟連結指向的目標',
   'error.fs.invalidName': '「{name}」不能當作檔名：{reason}',
   'error.fs.targetIsFolder': '目標是資料夾，無法寫入',
   'error.fs.targetInvalid': '目標路徑無效',

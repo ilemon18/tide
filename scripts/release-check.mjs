@@ -2,6 +2,7 @@
 /**
  * Tide release preflight.
  *
+ *   pnpm release:check
  *   pnpm release:check 0.0.2
  *   pnpm release:check 0.0.2 --allow-dirty
  *
@@ -55,9 +56,10 @@ function fail(message, hint) {
 }
 
 function usage() {
-  console.log('Usage: pnpm release:check <version> [--allow-dirty]')
+  console.log('Usage: pnpm release:check [version] [--allow-dirty]')
   console.log('')
-  console.log('  <version>      Target tag without v, for example 0.0.2')
+  console.log('  [version]      Target tag without v, for example 0.0.2')
+  console.log('                 Defaults to the highest local semver v* tag plus one patch')
   console.log('  --allow-dirty  Keep checking after fixes; git cleanliness becomes a warning')
   console.log('')
   console.log('Read-only: no network, no tag, no push, no tracked-file writes.')
@@ -78,14 +80,39 @@ if (unknown) {
 }
 
 const positional = argv.filter((arg) => !arg.startsWith('-'))
-if (positional.length !== 1) {
-  console.error('Expected exactly one version argument')
+if (positional.length > 1) {
+  console.error('Expected at most one version argument')
   usage()
   process.exit(2)
 }
 
-const requested = positional[0].trim()
-const version = requested.replace(/^v(?=\d)/, '')
+const requested = positional[0] ? positional[0].trim() : ''
+let version
+let derivation
+if (requested) {
+  version = requested.replace(/^v(?=\d)/, '')
+} else {
+  const tags = run('git', ['tag', '--list', 'v*'])
+  if (!tags.ok) {
+    console.error('Cannot derive the next version because local tags could not be read: ' + tags.err)
+    process.exit(2)
+  }
+  const latest = tags.out
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .map((name) => name.replace(/^v/, ''))
+    .filter((name) => SEMVER.test(name))
+    .sort(compareSemver)
+    .at(-1)
+  if (latest) {
+    const parsed = parseSemver(latest)
+    version = parsed.major + '.' + parsed.minor + '.' + (parsed.patch + 1)
+    derivation = 'default from local tag v' + latest
+  } else {
+    version = '0.0.1'
+    derivation = 'default with no local semver tags'
+  }
+}
 if (!SEMVER.test(version)) {
   console.error('"' + requested + '" is not valid semver (expected MAJOR.MINOR.PATCH[-prerelease])')
   process.exit(2)
@@ -727,7 +754,9 @@ function printReport() {
   }
 }
 
-console.log('Release preflight: ' + version + (allowDirty ? ' (allow dirty)' : ''))
+console.log(
+  'Release preflight: ' + version + (derivation ? ' (' + derivation + ')' : '') + (allowDirty ? ' (allow dirty)' : ''),
+)
 const repoSlug = checkGit(version)
 checkVersions(version)
 checkTauri()

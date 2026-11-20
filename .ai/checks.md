@@ -13,26 +13,35 @@ manifest generation, or the verification/release skills.
 | `pnpm check:workflows` | Workflow shell expansions followed by non-ASCII text after `$var` |
 | `pnpm typecheck` | TypeScript types, including complete typed locale records |
 | `pnpm check:rust` | Rust types/borrows without linking |
-| `pnpm check:docs` | Paths, relative links and `pnpm` script names in all `.ai/**/*.md`, `AGENTS.md` and `CLAUDE.md` |
+| `pnpm check:docs` | AI-doc routing and skill metadata, plus paths, relative links and `pnpm` script names in `.ai/**/*.md`, root policy files and wrapper directories |
 
-`pnpm check` is the frontend guard set; `pnpm verify` adds Rust and doc checks. Outside CI, only
-[the verification skill](./skills/release-verify/SKILL.md) runs them. The doc guard is intentionally soft:
-`context.md` has the tightest limit, each other Markdown file has an 8KB warning, and the `.ai` Markdown
-total has a separate target.
+`pnpm check` is the frontend guard set and `pnpm verify` adds Rust and doc checks; outside CI only
+[the verification skill](./skills/release-verify/SKILL.md) runs them.
 
-## Test surface
+## AI docs
 
-- Run targeted Rust tests through the verification skill when test code changed or the change touches
-  update, path containment, settings migration, Git commands or agent providers. Installer changes belong
-  to the release-check/installer test surface.
-- Keep unit tests beside the owning Rust module unless the module explicitly groups integration tests.
+The doc guard hard-fails when a top-level area doc is not routed from `context.md` or lacks its
+`**Load when:**` / `**Code:**` headers. Wrappers must have frontmatter whose `name` matches their directory and
+a non-empty `description`, and must link to the canonical `.ai/skills/**/SKILL.md`; `CLAUDE.md` must import
+`AGENTS.md`. `.agents/skills` symlinks `.claude/skills`, which the guard deduplicates by real path.
+
+Size limits are warnings: `context.md` warns above 4KB, other docs above 6KB and `.ai` above 36KB. When over
+budget, delete duplicated prose before splitting a file. The root policy holds only universal rules, task
+procedures live in skills, and path, guard or behavior-contract changes update their routed docs in the same
+change.
+
+## Tests and CI
+
+- Run targeted Rust tests through the verification skill when test code changed, or when the change touches
+  update, path containment, settings migration, Git commands or agent providers; installer changes belong to
+  the release-check surface. Keep unit tests beside the owning Rust module.
 - Never weaken or delete a guard or test to make a check pass. If a guard is wrong, change the script, this
   map and the owning skill in one edit.
-
-## CI and release
-
-- `.github/workflows/ci.yml` runs frontend guard/build jobs and Rust test jobs on supported platforms.
-  Keep platform prerequisites and generated-icon assertions in workflow configuration.
-- `.github/workflows/release.yml` is tag-driven: set the version, run frontend guards, build macOS and
-  Windows bundles, generate the update manifest and upload installer assets. It does not replace
+- `.github/workflows/ci.yml` runs frontend guard/build jobs and Rust test jobs on supported platforms, with
+  platform prerequisites and generated-icon assertions kept in workflow configuration.
+  `.github/workflows/release.yml` is tag-driven: set the version, run frontend guards, build macOS and Windows
+  bundles, generate the update manifest and upload installer assets. It does not replace
   [the release-check skill](./skills/release-check/SKILL.md).
+- An omitted release-check version defaults to the highest local semver `v*` tag plus one patch (`v1.2.3` →
+  `1.2.4`, or `0.0.1` with no tags); an explicit version always overrides it. The static check remains
+  network-free.

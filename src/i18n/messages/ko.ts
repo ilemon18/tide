@@ -583,6 +583,8 @@ export const ko: Messages = {
   'error.fs.imageTooLarge':
     '이미지가 너무 큽니다({size}). {limit} 한도를 초과했습니다. 외부 도구로 여세요.',
   'error.fs.unsupportedImage': '아직 .{ext} 미리보기를 지원하지 않습니다. 외부 도구로 여세요',
+  'error.fs.symlinkUnsupported':
+    '심볼릭 링크입니다. Tide에서 직접 열 수 없으므로 링크 대상 파일이나 폴더를 여세요',
   'error.fs.invalidName': '“{name}” 은(는) 파일 이름으로 쓸 수 없습니다: {reason}',
   'error.fs.targetIsFolder': '대상이 폴더라 쓸 수 없습니다',
   'error.fs.targetInvalid': '대상 경로가 올바르지 않습니다',

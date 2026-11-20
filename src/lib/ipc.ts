@@ -8,6 +8,7 @@ export type DirEntryInfo = {
   name: string
   path: string
   isDir: boolean
+  isSymlink: boolean
   size: number
   mtime: number
   ignored: boolean

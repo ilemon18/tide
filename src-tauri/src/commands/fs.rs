@@ -59,6 +59,7 @@ pub struct DirEntryInfo {
     pub name: String,
     pub path: String,
     pub is_dir: bool,
+    pub is_symlink: bool,
     pub size: u64,
     pub mtime: i64,
     /// Whether it matches .gitignore (the frontend greys it out)
@@ -144,6 +145,47 @@ fn join_rel(rel: &str, name: &str) -> String {
     } else {
         format!("{rel}/{name}")
     }
+}
+
+fn dir_entry_info(rel: &str, entry: fs::DirEntry) -> Option<DirEntryInfo> {
+    let name = entry.file_name().to_string_lossy().to_string();
+    if name == ".DS_Store" {
+        return None;
+    }
+    // DirEntry::metadata does not follow symlinks, so linked directories remain leaf entries and
+    // directory cycles cannot be expanded from the tree.
+    let md = entry.metadata().ok();
+    let is_symlink = md
+        .as_ref()
+        .map(|m| m.file_type().is_symlink())
+        .unwrap_or(false);
+    let is_dir = md.as_ref().map(|m| m.is_dir()).unwrap_or(false);
+    let hidden = md
+        .as_ref()
+        .map(|m| paths::is_hidden(&name, m))
+        .unwrap_or(false);
+    Some(DirEntryInfo {
+        path: join_rel(rel, &name),
+        name,
+        is_dir,
+        is_symlink,
+        size: md.as_ref().map(|m| m.len()).unwrap_or(0),
+        mtime: mtime_of(md.as_ref()),
+        ignored: false,
+        hidden,
+    })
+}
+
+/// Metadata for commands that read file contents. Keep the workspace containment check first so
+/// an escaping symlink still reports `path.outsideWorkspace`, then reject a symlink at the final
+/// path component. Reads never follow links on the user's behalf.
+fn readable_metadata(root: &Path, path: &Path) -> AppResult<fs::Metadata> {
+    assert_inside(root, path)?;
+    let meta = fs::symlink_metadata(path).map_err(|e| AppError::io(path, e))?;
+    if meta.file_type().is_symlink() {
+        return Err(AppError::c("fs.symlinkUnsupported"));
+    }
+    Ok(meta)
 }
 
 fn human_size(bytes: u64) -> String {
@@ -297,27 +339,10 @@ pub fn read_dir(
             truncated = true;
             break;
         }
-        let name = entry.file_name().to_string_lossy().to_string();
-        if name == ".DS_Store" {
+        let Some(item) = dir_entry_info(&rel, entry) else {
             continue;
-        }
-        // Do not follow symlinks, avoiding directory cycles
-        let md = entry.metadata().ok();
-        let is_dir = md.as_ref().map(|m| m.is_dir()).unwrap_or(false);
-        let hidden = md
-            .as_ref()
-            .map(|m| paths::is_hidden(&name, m))
-            .unwrap_or(false);
-        let item = DirEntryInfo {
-            path: join_rel(&rel, &name),
-            name,
-            is_dir,
-            size: md.as_ref().map(|m| m.len()).unwrap_or(0),
-            mtime: mtime_of(md.as_ref()),
-            ignored: false,
-            hidden,
         };
-        if is_dir {
+        if item.is_dir {
             dirs.push(item);
         } else {
             files.push(item);
@@ -431,8 +456,7 @@ pub fn resolve_dir_chain(
 pub fn stat_file(state: State<'_, AppState>, root: String, rel: String) -> AppResult<FileStat> {
     let root_path = state.authorize(&root)?;
     let path = resolve_in_root(&root_path, &rel)?;
-    assert_inside(&root_path, &path)?;
-    let meta = fs::metadata(&path).map_err(|e| AppError::io(&path, e))?;
+    let meta = readable_metadata(&root_path, &path)?;
     Ok(FileStat {
         size: meta.len(),
         mtime: mtime_of(Some(&meta)),
@@ -443,9 +467,7 @@ pub fn stat_file(state: State<'_, AppState>, root: String, rel: String) -> AppRe
 pub fn read_text_file(state: State<'_, AppState>, root: String, rel: String) -> AppResult<FilePayload> {
     let root_path = state.authorize(&root)?;
     let path = resolve_in_root(&root_path, &rel)?;
-    assert_inside(&root_path, &path)?;
-
-    let meta = fs::metadata(&path).map_err(|e| AppError::io(&path, e))?;
+    let meta = readable_metadata(&root_path, &path)?;
     if meta.is_dir() {
         return Err(AppError::p("fs.folderAsText", [("path", path.display().to_string())]));
     }
@@ -490,7 +512,7 @@ pub fn read_image_file(
 ) -> AppResult<tauri::ipc::Response> {
     let root_path = state.authorize(&root)?;
     let path = resolve_in_root(&root_path, &rel)?;
-    assert_inside(&root_path, &path)?;
+    let meta = readable_metadata(&root_path, &path)?;
 
     let ext = path
         .extension()
@@ -500,7 +522,6 @@ pub fn read_image_file(
         return Err(AppError::p("fs.unsupportedImage", [("ext", ext.clone())]));
     }
 
-    let meta = fs::metadata(&path).map_err(|e| AppError::io(&path, e))?;
     if meta.is_dir() {
         return Err(AppError::p("fs.folderAsImage", [("path", path.display().to_string())]));
     }
@@ -837,4 +858,91 @@ pub fn reveal_in_finder(state: State<'_, AppState>, root: String, rel: String) -
         return Err(AppError::c("fs.revealStatus"));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{dir_entry_info, readable_metadata};
+    use std::path::PathBuf;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    static NEXT_DIR: AtomicU64 = AtomicU64::new(0);
+
+    struct TestDir {
+        root: PathBuf,
+    }
+
+    impl TestDir {
+        fn new() -> Self {
+            let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+            let ordinal = NEXT_DIR.fetch_add(1, Ordering::Relaxed);
+            let root = std::env::temp_dir().join(format!(
+                "tide-fs-symlink-{}-{timestamp}-{ordinal}",
+                std::process::id(),
+            ));
+            std::fs::create_dir_all(&root).unwrap();
+            Self {
+                root: crate::paths::canon(&root).unwrap(),
+            }
+        }
+    }
+
+    impl Drop for TestDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.root);
+        }
+    }
+
+    #[test]
+    fn regular_files_and_directories_pass_the_read_guard() {
+        let dir = TestDir::new();
+        let file = dir.root.join("file.txt");
+        let folder = dir.root.join("folder");
+        std::fs::write(&file, "text").unwrap();
+        std::fs::create_dir(&folder).unwrap();
+
+        assert!(readable_metadata(&dir.root, &file).unwrap().is_file());
+        assert!(readable_metadata(&dir.root, &folder).unwrap().is_dir());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlinks_are_leaf_entries_and_fail_the_read_guard() {
+        use std::os::unix::fs::symlink;
+
+        let dir = TestDir::new();
+        let outside = TestDir::new();
+        std::fs::write(dir.root.join("target.txt"), "target").unwrap();
+        std::fs::create_dir(dir.root.join("target-dir")).unwrap();
+        std::fs::write(outside.root.join("secret.txt"), "secret").unwrap();
+        symlink("target.txt", dir.root.join("file-link")).unwrap();
+        symlink("target-dir", dir.root.join("dir-link")).unwrap();
+        symlink("missing", dir.root.join("dangling-link")).unwrap();
+        symlink(outside.root.join("secret.txt"), dir.root.join("escape-link")).unwrap();
+
+        let entries: Vec<_> = std::fs::read_dir(&dir.root)
+            .unwrap()
+            .map(|entry| dir_entry_info("", entry.unwrap()).unwrap())
+            .collect();
+        let entry = |name: &str| entries.iter().find(|entry| entry.name == name).unwrap();
+
+        assert!(!entry("target.txt").is_symlink);
+        assert!(!entry("target.txt").is_dir);
+        assert!(!entry("target-dir").is_symlink);
+        assert!(entry("target-dir").is_dir);
+        for name in ["file-link", "dir-link", "dangling-link", "escape-link"] {
+            assert!(entry(name).is_symlink, "{name} should be marked as a symlink");
+            assert!(!entry(name).is_dir, "{name} should remain a leaf entry");
+        }
+
+        for name in ["file-link", "dir-link", "dangling-link"] {
+            let error = readable_metadata(&dir.root, &dir.root.join(name)).unwrap_err();
+            assert_eq!(error.code, "fs.symlinkUnsupported");
+        }
+
+        // Workspace containment stays the first security boundary, even for symlinks.
+        let error = readable_metadata(&dir.root, &dir.root.join("escape-link")).unwrap_err();
+        assert_eq!(error.code, "path.outsideWorkspace");
+    }
 }

@@ -582,6 +582,8 @@ export const ja: Messages = {
   'error.fs.imageTooLarge':
     '画像が大きすぎます（{size}）。上限は {limit} です。外部ツールで開いてください。',
   'error.fs.unsupportedImage': '拡張子 .{ext} のプレビューは未対応です。外部ツールで開いてください',
+  'error.fs.symlinkUnsupported':
+    'これはシンボリックリンクです。Tide から直接開けないため、リンク先を開いてください',
   'error.fs.invalidName': '「{name}」はファイル名として使えません：{reason}',
   'error.fs.targetIsFolder': '書き込み先がフォルダーのため書き込めません',
   'error.fs.targetInvalid': '書き込み先のパスが不正です',

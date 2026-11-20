@@ -566,6 +566,7 @@ export const zhCN: Messages = {
   'error.fs.tooLarge': '文件过大（{size}），超过 {limit} 上限。可以用外部工具打开它。',
   'error.fs.imageTooLarge': '图片过大（{size}），超过 {limit} 上限，可以用外部工具打开它。',
   'error.fs.unsupportedImage': '暂不支持预览 .{ext} 格式，可以交给外部工具打开',
+  'error.fs.symlinkUnsupported': '这是符号链接，Tide 无法直接打开，请打开链接指向的目标',
   'error.fs.invalidName': '“{name}” 不能用作文件名：{reason}',
   'error.fs.targetIsFolder': '目标是文件夹，无法写入',
   'error.fs.targetInvalid': '目标路径无效',

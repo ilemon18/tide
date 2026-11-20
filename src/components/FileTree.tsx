@@ -171,6 +171,7 @@ type Row =
       start: string
       name: string
       isDir: boolean
+      isSymlink: boolean
       depth: number
       ignored: boolean
     }
@@ -214,6 +215,7 @@ function buildRows(
           start: entry.path,
           name: compact ? compactName(entry.name, entry.path, target) : entry.name,
           isDir: entry.isDir,
+          isSymlink: entry.isSymlink,
           depth,
           ignored: entry.ignored,
         })
@@ -264,6 +266,7 @@ export function FileTree() {
     root: string
     rel: string
     isDir: boolean
+    isSymlink: boolean
   } | null>(null)
   const [scrollTop, setScrollTop] = useState(remembered.top)
   const [viewportH, setViewportH] = useState(600)
@@ -601,6 +604,10 @@ export function FileTree() {
       void loadMore(row.root, row.rel)
       return
     }
+    if (row.isSymlink) {
+      useUi.getState().toast(t('error.fs.symlinkUnsupported'), 'error')
+      return
+    }
     if (row.isDir) void toggleDir(row.root, row.rel)
     else void openFile(row.root, row.rel)
   }
@@ -608,7 +615,7 @@ export function FileTree() {
   /** Row icon and double-click share one entry; the timestamp also absorbs click + dblclick */
   const lastAgentOpen = useRef<{ key: string; at: number } | null>(null)
   const openAgentForRow = (row: Row) => {
-    if (row.kind !== 'node' || !agentEnabled) return
+    if (row.kind !== 'node' || row.isSymlink || !agentEnabled) return
     const now = Date.now()
     const last = lastAgentOpen.current
     if (last && last.key === row.key && now - last.at < 400) return
@@ -784,7 +791,13 @@ export function FileTree() {
                   setSelected(row.key)
                   beginFilePointerDrag(
                     e,
-                    { root: row.root, rel: row.rel, name: row.name, isDir: row.isDir },
+                    {
+                      root: row.root,
+                      rel: row.rel,
+                      name: row.name,
+                      isDir: row.isDir,
+                      isSymlink: row.isSymlink,
+                    },
                     {
                       // Released over a folder row: move the file there instead of opening it
                       onDropDir: (target) => {
@@ -804,6 +817,7 @@ export function FileTree() {
                       e.detail === 2 &&
                       row.kind === 'node' &&
                       !row.isDir &&
+                      !row.isSymlink &&
                       !(e.target as HTMLElement).closest('button, input, [data-tree-chevron]')
                     ) {
                       openAgentForRow(row)
@@ -816,7 +830,7 @@ export function FileTree() {
                   openRow(row)
                 }}
                 onDoubleClick={(e) => {
-                  if (row.kind !== 'node' || row.isDir) return
+                  if (row.kind !== 'node' || row.isDir || row.isSymlink) return
                   if ((e.target as HTMLElement).closest('button, input, [data-tree-chevron]')) return
                   openAgentForRow(row)
                 }}
@@ -824,7 +838,14 @@ export function FileTree() {
                   e.preventDefault()
                   if (row.kind !== 'node') return
                   setSelected(row.key)
-                  setMenu({ x: e.clientX, y: e.clientY, root: row.root, rel: row.rel, isDir: row.isDir })
+                  setMenu({
+                    x: e.clientX,
+                    y: e.clientY,
+                    root: row.root,
+                    rel: row.rel,
+                    isDir: row.isDir,
+                    isSymlink: row.isSymlink,
+                  })
                 }}
                 className={`tree-row group relative flex cursor-default items-center gap-1.5 pr-2 text-sm ${
                   selected === row.key ? 'text-fg' : 'text-fg/90'
@@ -928,7 +949,7 @@ export function FileTree() {
           onClose={() => setMenu(null)}
           items={
             [
-                  ...(agentEnabled
+                  ...(agentEnabled && !menu.isSymlink
                     ? [
                         {
                           label: t('titlebar.agentTip'),

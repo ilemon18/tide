@@ -18,6 +18,8 @@ export type FileDragStart = {
   name?: string
   /** A folder can only be moved inside the tree, never opened in an editor pane */
   isDir?: boolean
+  /** Symlinks can move inside the tree, but opening their target is unsupported */
+  isSymlink?: boolean
 }
 
 type Ghost = { x: number; y: number; name: string } | null
@@ -106,6 +108,7 @@ export function beginFilePointerDrag(
   const name = payload.name ?? rel.split('/').pop() ?? rel
   const startX = event.clientX
   const startY = event.clientY
+  const canOpenInPane = !payload.isDir && !payload.isSymlink
   let started = false
   let grabX = 10
   let grabY = 16
@@ -155,15 +158,14 @@ export function beginFilePointerDrag(
     // Never offer the current folder, the item itself, or one of its own subfolders
     const valid = Boolean(dir) && dir!.root === root && !isBadDropTarget(rel, dir!.rel)
     setHoverRow(valid ? dir!.el : null)
-    highlightPane(valid || payload.isDir ? null : groupUnderPointer(ev.clientX, ev.clientY))
+    highlightPane(valid || !canOpenInPane ? null : groupUnderPointer(ev.clientX, ev.clientY))
   }
 
   const onUp = (ev: PointerEvent) => {
     const dir = started && options?.onDropDir ? dirTargetAt(ev.clientX, ev.clientY) : null
     const dirDrop =
       dir && dir.root === root && !isBadDropTarget(rel, dir.rel) ? dir : null
-    const group =
-      started && !dirDrop && !payload.isDir ? groupUnderPointer(ev.clientX, ev.clientY) : null
+    const group = started && !dirDrop && canOpenInPane ? groupUnderPointer(ev.clientX, ev.clientY) : null
     const index = group ? normalizeDropIndex(insertionIndex(group, ev.clientX, ev.clientY)) : undefined
     stop()
     // Never dragged (just a click) or released outside a target: do nothing, so a

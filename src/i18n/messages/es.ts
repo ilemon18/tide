@@ -593,6 +593,8 @@ export const es: Messages = {
     'La imagen es demasiado grande ({size}); supera el límite de {limit}. Ábrela con una herramienta externa.',
   'error.fs.unsupportedImage':
     'Todavía no se pueden previsualizar archivos .{ext}; usa una herramienta externa',
+  'error.fs.symlinkUnsupported':
+    'Es un enlace simbólico. Tide no puede abrirlo directamente; abre el destino del enlace',
   'error.fs.invalidName': '“{name}” no sirve como nombre de archivo: {reason}',
   'error.fs.targetIsFolder': 'El destino es una carpeta y no se puede escribir en ella',
   'error.fs.targetInvalid': 'La ruta de destino no es válida',
