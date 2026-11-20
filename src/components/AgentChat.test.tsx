@@ -18,7 +18,7 @@ vi.mock('../store/ui', () => ({ useUi: { getState: () => ({}) } }))
 vi.mock('../lib/actions', () => ({ openSettings: vi.fn() }))
 vi.mock('../i18n', () => ({ useT: () => (key: string) => key }))
 vi.mock('./AgentComposer', () => ({ AgentComposer: () => <div data-testid="composer" /> }))
-vi.mock('./AgentMessage', () => ({ AssistantMessage: () => <div>Latest output</div>, UserMessage: () => null }))
+vi.mock('./AgentMessage', () => ({ AssistantMessage: ({ root }: { root: string }) => <div data-root={root}>Latest output</div>, UserMessage: () => null }))
 vi.mock('./AgentContextUsage', () => ({ AgentContextUsage: () => null }))
 vi.mock('./AgentPickers', () => ({ ModelPicker: () => null }))
 vi.mock('./CopyButton', () => ({ CopyButton: () => null }))
@@ -31,4 +31,14 @@ it('keeps the transcript before the composer without a separate running strip', 
   expect(screen.queryByText('agent.status.running')).toBeNull()
   expect(output.compareDocumentPosition(screen.getByTestId('composer')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   expect(container.querySelector('.overflow-y-auto')?.contains(output)).toBe(true)
+  expect(output.getAttribute('data-root')).toBe('/repo')
+})
+
+it('keeps the conversation title and provider without a duplicate result label', () => {
+  state.chats.chat.status = 'error'
+  render(<AgentChat chatId="chat" />)
+  expect(screen.getByText('Example')).toBeTruthy()
+  expect(screen.getByText('codex')).toBeTruthy()
+  expect(screen.queryByText('agent.status.failed')).toBeNull()
+  state.chats.chat.status = 'running'
 })

@@ -58,8 +58,9 @@ scope:
 
 ## Markdown preview
 
-The tab bar uses the chat provider icon beside agent titles, including the cross-pane drag ghost. Provider
-lookup is live from the agent store and has a generic fallback while a session is loading.
+Chat tabs/drag ghosts show provider icon + Agent + optional execution icon. Provider lookup is live with
+a generic loading fallback. `tabTitle` returns Agent; tooltips and chat headers retain conversation titles.
+Agent reply file links reuse openFile/openAt with the owning root and a normalized relative path.
 
 Preview state is per pane/tab in `TabGroup.markdownPreview` and records the source-pane ratio: preserve it
 through pane/tab moves and clear it on close, rename away from Markdown, replacement or merge (primary wins).

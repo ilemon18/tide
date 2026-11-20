@@ -131,14 +131,14 @@ export function runUpdateAction(kind: UpdateActionKind): void {
     case 'install':
       void install()
       return
-    // A failed download retries from the asset whose URL we know; with no usable release
-    // in hand, the only useful answer is a fresh check
+    // A failed download retries from the asset whose URL we know; with no usable asset in hand,
+    // the only useful answer is a fresh check.
     case 'retry':
       if (info?.available && info.downloadUrl) void download()
-      else void check(true)
+      else void check(true, true)
       return
     case 'check':
-      void check(true)
+      void check(true, true)
       return
     default:
       return

@@ -212,7 +212,6 @@ export const ja: Messages = {
   'settings.about.repository': 'リポジトリ',
   'settings.about.updates': 'アップデート',
   'settings.about.checkUpdates': 'アップデートを確認',
-  'settings.about.checkLatest': '最新を確認',
   'settings.about.checking': '確認中…',
   'settings.about.download': 'アップデートをダウンロード',
   'settings.about.restartUpdate': '再起動して更新',
@@ -741,6 +740,7 @@ export const ja: Messages = {
 
   'settings.section.agent.label': 'エージェント',
   'titlebar.agentTip': 'エージェントに質問',
+  'agent.tabLabel': 'Agent',
   'agent.newChat': '新しいチャット',
   'agent.noWorkspace': 'フォルダーを開くとエージェントを使えます',
   'agent.noAgents': 'エージェント CLI が見つかりません',

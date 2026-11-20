@@ -75,8 +75,9 @@ scope:
   startup check, but download and install require an explicit user action. Only HTTPS GitHub URLs are
   accepted, and artifact byte count plus `latest.json` SHA-256 must match before use; never commit generated
   `latest.json`.
-- Settings → About has a secondary **Check latest** action mapped to `checkLatest()` / `update_check { force:
-  true }`. It skips `update-cache.json`, sends `Cache-Control: no-cache` on every lookup, never falls back to
-  an old cache on failure, and writes a successful answer back to the cache. When an installer is available
-  it starts the existing download/ready/restart flow immediately; a ready package for the same version is
-  preserved. The title bar and the primary update action continue to read this one state machine.
+- Settings → About has one state-driven update action. Its initial manual check maps to
+  `check(true, true)` / `update_check { force: true }`: it skips `update-cache.json`, sends
+  `Cache-Control: no-cache` on every lookup, never falls back to an old cache on failure, and writes a
+  successful answer back to the cache. When an installer is available the action changes to **Download
+  update**; downloading and restarting remain separate explicit steps. The title bar and Settings continue
+  to read this one state machine.

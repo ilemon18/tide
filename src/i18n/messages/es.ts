@@ -214,7 +214,6 @@ export const es: Messages = {
   'settings.about.repository': 'Repositorio',
   'settings.about.updates': 'Actualizaciones',
   'settings.about.checkUpdates': 'Buscar actualizaciones',
-  'settings.about.checkLatest': 'Buscar la última',
   'settings.about.checking': 'Comprobando…',
   'settings.about.download': 'Descargar actualización',
   'settings.about.restartUpdate': 'Reiniciar para actualizar',
@@ -759,6 +758,7 @@ export const es: Messages = {
 
   'settings.section.agent.label': 'Agente',
   'titlebar.agentTip': 'Preguntar al agente',
+  'agent.tabLabel': 'Agent',
   'agent.newChat': 'Nuevo chat',
   'agent.noWorkspace': 'Abre una carpeta para usar el agente',
   'agent.noAgents': 'No se encontró ningún CLI de agente',

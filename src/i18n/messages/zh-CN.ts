@@ -209,7 +209,6 @@ export const zhCN: Messages = {
   'settings.about.repository': '代码仓库',
   'settings.about.updates': '更新',
   'settings.about.checkUpdates': '检查更新',
-  'settings.about.checkLatest': '检查最新',
   'settings.about.checking': '正在检查…',
   'settings.about.download': '下载更新',
   'settings.about.restartUpdate': '重启更新',
@@ -722,6 +721,7 @@ export const zhCN: Messages = {
 
   'settings.section.agent.label': '智能体',
   'titlebar.agentTip': '询问智能体',
+  'agent.tabLabel': 'Agent',
   'agent.newChat': '新对话',
   'agent.noWorkspace': '打开一个文件夹后即可使用智能体',
   'agent.noAgents': '未找到智能体命令行工具',

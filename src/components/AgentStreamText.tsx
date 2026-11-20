@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { AgentMarkdown } from './AgentMarkdown'
 
 /** Animate only newly received suffixes. Storage/copy always use the untouched source. */
-export function AgentStreamText({ text, live }: { text: string; live: boolean }) {
+export function AgentStreamText({ text, live, root }: { text: string; live: boolean; root?: string }) {
   const [display, setDisplay] = useState(text)
   const shown = useRef(text)
   useEffect(() => {
@@ -23,5 +23,5 @@ export function AgentStreamText({ text, live }: { text: string; live: boolean })
     }, 24)
     return () => clearInterval(timer)
   }, [text, live])
-  return <AgentMarkdown text={display} />
+  return <AgentMarkdown text={display} root={root} />
 }

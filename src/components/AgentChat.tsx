@@ -174,13 +174,6 @@ export function AgentChat({ chatId }: { chatId: string }) {
     providerInfo?.name ?? (chat.provider || t('agent.noAgents'))
 
 
-  const status =
-    chat.status === 'error' ? (
-      <span className="text-2xs text-danger">{t('agent.status.failed')}</span>
-    ) : chat.status === 'cancelled' ? (
-      <span className="text-2xs text-muted">{t('agent.status.stopped')}</span>
-    ) : null
-
   return (
     <div className="absolute inset-0 flex flex-col bg-bg">
       <div className="flex h-9 shrink-0 items-center gap-1.5 border-b border-line bg-bg px-2.5">
@@ -194,7 +187,6 @@ export function AgentChat({ chatId }: { chatId: string }) {
           {providerLabel}
         </span>
         <div className="ml-auto flex shrink-0 items-center gap-1.5">
-          {status}
           <button
             type="button"
             data-tip={t('agent.newChat')}
@@ -249,6 +241,7 @@ export function AgentChat({ chatId }: { chatId: string }) {
                   <AssistantMessage
                     key={message.id}
                     chatId={chatId}
+                    root={chat.root}
                     message={message}
                     running={running && message.id === last?.id}
                     pendingQuestionId={pendingQuestion?.item.id ?? null}

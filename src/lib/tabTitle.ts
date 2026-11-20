@@ -9,13 +9,13 @@ import { t } from '../i18n'
 export function tabTitle(tab: Pick<Tab, 'kind' | 'name' | 'seq'>): string {
   if (tab.kind === 'welcome') return t('app.welcome')
   if (tab.kind === 'settings') return t('app.settings')
-  if (tab.kind === 'chat') return tab.name || t('agent.newChat')
+  if (tab.kind === 'chat') return t('agent.tabLabel')
   if (tab.kind === 'untitled') return t('tab.untitledName', { count: tab.seq ?? 1 })
   return tab.name
 }
 
 /** Full tab tooltip (including pinned state) */
 export function tabTooltip(tab: Pick<Tab, 'kind' | 'rel' | 'name' | 'pinned' | 'seq'>): string {
-  const base = tab.kind === 'file' ? tab.rel : tabTitle(tab)
+  const base = tab.kind === 'file' ? tab.rel : tab.kind === 'chat' ? tab.name || t('agent.newChat') : tabTitle(tab)
   return tab.pinned ? `${base}${t('tabs.pinnedSuffix')}` : base
 }

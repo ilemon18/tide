@@ -353,10 +353,12 @@ function QuestionCard({
 
 function PlanCard({
   chatId,
+  root,
   item,
   running,
 }: {
   chatId: string
+  root: string
   item: AgentItem
   running: boolean
 }) {
@@ -387,7 +389,7 @@ function PlanCard({
           <div className="text-xs font-medium text-fg/90">{t('agent.plan.header')}</div>
           {item.text ? (
             <div className="whitespace-pre-wrap break-words text-sm leading-relaxed text-fg/85">
-              <AgentStreamText text={item.text} live={running && !item.complete} />
+              <AgentStreamText root={root} text={item.text} live={running && !item.complete} />
             </div>
           ) : null}
         </div>
@@ -443,12 +445,14 @@ function PlanCard({
 
 function Item({
   chatId,
+  root,
   item,
   running,
   pendingQuestionId,
   items,
 }: {
   chatId: string
+  root: string
   item: AgentItem
   running: boolean
   pendingQuestionId: string | null
@@ -468,12 +472,12 @@ function Item({
               className={itemControlClass}
             />
           </div>
-          <AgentStreamText text={item.text} live={running && !item.complete} />
+          <AgentStreamText root={root} text={item.text} live={running && !item.complete} />
         </div>
       )
     case 'thinking':
       return <div className="group/item border-l-2 border-line pl-2 text-xs text-muted">
-        <AgentStreamText text={item.text} live={running && !item.complete} />
+        <AgentStreamText root={root} text={item.text} live={running && !item.complete} />
       </div>
     case 'permission':
       return <PermissionCard chatId={chatId} item={item} running={running} />
@@ -493,6 +497,7 @@ function Item({
     case 'plan':
       return (
         <PlanCard
+          root={root}
           chatId={chatId}
           item={item}
           running={running}
@@ -594,11 +599,13 @@ export const UserMessage = memo(function UserMessage({
 
 export const AssistantMessage = memo(function AssistantMessage({
   chatId,
+  root = '',
   message,
   running,
   pendingQuestionId,
 }: {
   chatId: string
+  root?: string
   message: Message
   running: boolean
   pendingQuestionId: string | null
@@ -623,7 +630,7 @@ export const AssistantMessage = memo(function AssistantMessage({
             className={replyControlClass}
           />
         </div>
-        {items.map(item => <Item key={item.id} chatId={chatId} item={item}
+        {items.map(item => <Item root={root} key={item.id} chatId={chatId} item={item}
           running={running} pendingQuestionId={pendingQuestionId} items={items} />)}
         <AgentTurnStatus message={message} running={running} startedAt={startedAt} />
       </div>

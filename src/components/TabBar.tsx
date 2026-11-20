@@ -21,6 +21,7 @@ import { useT } from '../i18n'
 import { tabTitle, tabTooltip } from '../lib/tabTitle'
 import { useAgent } from '../store/agent'
 import { AgentProviderIcon } from './AgentProviderIcon'
+import { AgentTabStatus } from './AgentTabStatus'
 
 const GAP = 2
 /** Position estimate only, until the intrinsic tab width has been measured. */
@@ -109,6 +110,7 @@ const TabItem = memo(function TabItem({
       {/* Pinned tabs show the file name like normal ones; only the right slot becomes a pin
          (no close button to avoid accidental closes; unpin via the context menu). Same look as VSCode. */}
       <span className={`min-w-0 truncate ${tab.temporary ? 'italic' : ''}`}>{tabTitle(tab)}</span>
+      {tab.kind === 'chat' ? <AgentTabStatus chatId={tab.id.slice('chat:'.length)} /> : null}
       {tab.dirty ? (
         <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" data-tip={t('tabs.unsavedTip')} />
       ) : null}
@@ -611,6 +613,7 @@ export function TabBar({ groupId }: { groupId: TabGroupId }) {
                       <FileIcon name={basename(tab.rel)} size={14} className="shrink-0" />
                     )}
                     <span className="truncate">{tabTitle(tab)}</span>
+                    {tab.kind === 'chat' ? <AgentTabStatus chatId={tab.id.slice('chat:'.length)} /> : null}
                   </>
                 )
               })()}

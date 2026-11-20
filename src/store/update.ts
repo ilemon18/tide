@@ -45,9 +45,8 @@ type UpdateStore = {
   installedTo: string
   /** `update.log`: go look when install fails instead of guessing */
   logPath: string
-  check: (manual?: boolean) => Promise<void>
-  /** Ignore the local cache, ask GitHub again, and start downloading a newer installer immediately */
-  checkLatest: () => Promise<void>
+  /** Check for updates; a forced manual check bypasses the local cache and cached fallback. */
+  check: (manual?: boolean, force?: boolean) => Promise<void>
   download: () => Promise<void>
   install: () => Promise<void>
   /** Opens the release page in the browser (the step after a release without an installer) */
@@ -76,11 +75,6 @@ function clearInstallTimer() {
   installTimer = null
 }
 
-/** The same release is already on disk: a forced check must not throw that package away. */
-function isSamePendingUpdate(previous: UpdateInfo | null, next: UpdateInfo): boolean {
-  return Boolean(previous?.available && next.available && previous.latest === next.latest)
-}
-
 /**
  * Flush this window's work to disk before install: settings / session (400ms debounced) and unsaved edits.
  * Other windows do the same via the Rust `update:flush` broadcast (see `App.tsx`).
@@ -101,7 +95,7 @@ export const useUpdate = create<UpdateStore>((set, get) => ({
   installedTo: '',
   logPath: '',
 
-  check: async (manual = false) => {
+  check: async (manual = false, force = false) => {
     const state = get()
     if (!manual && state.debugBuild === true) return
     if (
@@ -118,7 +112,7 @@ export const useUpdate = create<UpdateStore>((set, get) => ({
     set({ status: 'checking', manual, error: null })
     const toast = useUi.getState().toast
     try {
-      const info = await updateApi.check(manual)
+      const info = await updateApi.check(manual, force)
       set({ info })
       // The fresh check failed and the answer came from the cache: say that instead of presenting
       // an older result as today's
@@ -140,59 +134,6 @@ export const useUpdate = create<UpdateStore>((set, get) => ({
       // A failed background check is noise: the next start retries
       set({ status: manual ? 'error' : 'idle', error: message })
       if (manual) toast(message, 'error')
-    }
-  },
-
-  checkLatest: async () => {
-    const state = get()
-    if (
-      state.status === 'checking' ||
-      state.status === 'downloading' ||
-      state.status === 'installing'
-    ) {
-      return
-    }
-
-    const previousStatus = state.status
-    const keepOnFailure = previousStatus === 'available' || previousStatus === 'ready'
-    set({ status: 'checking', manual: true, error: null })
-    const toast = useUi.getState().toast
-    try {
-      const info = await updateApi.check(true, true)
-      if (info.available) {
-        set({ info })
-        // A ready package for the same release is already the correct result. Keep it instead of
-        // deleting it and downloading the same bytes again.
-        if (previousStatus === 'ready' && isSamePendingUpdate(state.info, info)) {
-          set({ status: 'ready', error: null })
-          toast(t('update.available', { version: info.latest }))
-          return
-        }
-
-        set({ status: 'available' })
-        toast(t('update.available', { version: info.latest }))
-        // "Check latest" is the explicit "get it now" action: no second click to download.
-        if (info.downloadUrl) await get().download()
-        return
-      }
-
-      set({ status: 'uptodate', info })
-      toast(t('settings.about.upToDate', { version: info.current }))
-    } catch (err) {
-      const message = errorText(err)
-      // This was a deliberate network check, so never replace a known usable package with an
-      // error state just because GitHub was unreachable this time.
-      if (keepOnFailure) {
-        set({
-          status: previousStatus,
-          info: state.info,
-          percent: state.percent,
-          error: state.error,
-        })
-      } else {
-        set({ status: 'error', error: message })
-      }
-      toast(message, 'error')
     }
   },
 

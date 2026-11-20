@@ -233,7 +233,6 @@ export const en = {
   'settings.about.repository': 'Repository',
   'settings.about.updates': 'Updates',
   'settings.about.checkUpdates': 'Check for updates',
-  'settings.about.checkLatest': 'Check latest',
   'settings.about.checking': 'Checking…',
   'settings.about.download': 'Download update',
   'settings.about.restartUpdate': 'Restart to update',
@@ -791,6 +790,7 @@ export const en = {
 
   'settings.section.agent.label': 'Agent',
   'titlebar.agentTip': 'Ask the agent',
+  'agent.tabLabel': 'Agent',
   'agent.newChat': 'New chat',
   'agent.noWorkspace': 'Open a folder to use the agent',
   'agent.noAgents': 'No agent CLI found',

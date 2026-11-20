@@ -9,7 +9,7 @@ vi.mock('../store/agent', () => ({ useAgent: Object.assign((select: (state: unkn
 vi.mock('../store/tabs', () => ({ useTabs: { getState: () => ({}) } }))
 vi.mock('../lib/actions', () => ({ revealInExplorer: vi.fn() }))
 vi.mock('../i18n', () => ({ useT: () => (key: string) => key }))
-vi.mock('./AgentMarkdown', () => ({ AgentMarkdown: ({ text }: { text: string }) => <div>{text}</div> }))
+vi.mock('./AgentMarkdown', () => ({ AgentMarkdown: ({ text, root }: { text: string; root?: string }) => <div data-root={root}>{text}</div> }))
 vi.mock('./AgentTags', () => ({ CommandChip: () => null, SkillChip: () => null }))
 vi.mock('./CopyButton', () => ({ CopyButton: ({ text, className, label }: { text: string; className: string; label: string }) => label === 'agent.copy.userTurn' ? <button data-testid="user-copy" data-copy={text} className={className} /> : null }))
 vi.mock('./FileIcon', () => ({ FileIcon: () => null }))
@@ -28,6 +28,16 @@ const view = (message = planMessage(), running = false) => (
 )
 beforeEach(() => { resolvePlanAction.mockReset(); resolvePlanAction.mockResolvedValue(true) })
 afterEach(cleanup)
+
+it('passes the conversation workspace to text, reasoning and plan Markdown', () => {
+  const message: AgentMessage = { id: 'reply', role: 'assistant', at: 1, items: [
+    { id: 'text', type: 'text', text: 'Reply' },
+    { id: 'thinking', type: 'thinking', text: 'Reasoning' },
+    { id: 'plan', type: 'plan', text: 'Plan', resolved: true },
+  ] }
+  render(<AssistantMessage chatId="chat" root="/owning-repo" message={message} running={false} pendingQuestionId={null} />)
+  for (const text of ['Reply', 'Reasoning', 'Plan']) expect(screen.getByText(text).getAttribute('data-root')).toBe('/owning-repo')
+})
 
 it('shows the plan once followed by three next actions and optional instructions', () => {
   render(view())

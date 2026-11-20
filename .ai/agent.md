@@ -67,16 +67,19 @@ Claude/Codex CLIs own auth, models and tools; Rust owns one bidirectional stdio 
 
 ## UI, usage and storage
 
-Tabs/drag ghosts share `AgentProviderIcon` and the chat provider, with generic unknown/loading fallback;
-never duplicate provider state in tabs. Titles stay conversation titles through runs/completion/cancellation/
-failure; elapsed time belongs only to the assistant tail.
+Tabs/drag ghosts: live provider icon + Agent + `AgentTabStatus`, no duplicated tab state.
+Running/error/cancelled override completion; idle success requires latest-page assistant completion.
+Unknown/new/history-only omit results. Stored titles stay stable for headers/tooltips; time stays at tail.
+
+- Replies: GFM, code copying, skip HTML/image loads. Blue underlined file links use owning chat root via
+  openFile/openAt. `agentLinks.ts` resolves relative/contained absolute paths and `:line:col`/`#LlineCcol`,
+  rejects escapes/schemes; native reads enforce containment. Links never navigate the WebView.
 
 - Entry points respect agentEnabled; tree double-click opens/toggles normally. Chats use an empty editor
   or secondary row. Run only installed/supported providers; additions need a spec/event translator.
 - Loading/tool indicators use a dedicated SVG spinner with fixed transform box, linear timing and compositor hint.
-- Right-aligned user bubbles shrink to content; body preserves left alignment/whitespace. Absolute copy
-  appears on the hovered/focused message or content item only, includes references and consumes no text
-  column; nested item hover scopes must not reveal sibling controls.
+- User bubbles shrink/right-align with left-aligned whitespace-preserving text. Absolute copy includes
+  references without consuming text width; hover/focus reveals only the owning message/item control.
 - Items retain source order without tool groups/detail wrappers. Commands show two lines, results three;
   segments keep arrival positions across permissions/text and reconcile final snapshots. Long/wrapped
   content has expand-all retained across deltas; prefer parsed command/path over JSON. Copy uses all bytes.
@@ -94,5 +97,5 @@ failure; elapsed time belongs only to the assistant tail.
 - Pages: initially 80 records/512 KiB, then 40/load. Window: 160 records/1 MiB, oversized record alone.
   Persist before eviction/navigation; keep earlier/later links and visible anchor. Exclusive before/after
   cursors reject missing/ambiguous boundaries; pending-card metadata scans full history.
-- Primary tabs persist in agent/tabs.json; hidden/unload flush patches. AgentChat hooks precede early returns.
-  Tests cannot establish native scrolling or real-account compatibility.
+- Primary tabs persist in agent/tabs.json; hidden/unload flush patches. AgentChat hooks precede returns.
+  Tests cannot establish native scrolling/account compatibility.

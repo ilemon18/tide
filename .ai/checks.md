@@ -21,7 +21,7 @@ scope:
 | `pnpm i18n` | Locale key/placeholder/plural parity and error-code coverage |
 | `pnpm i18n:scan` | Hardcoded CJK UI literals; named IME/Unicode test-data files and other non-UI files are explicitly allowlisted |
 | `pnpm check:workflows` | Workflow shell expansions followed by non-ASCII text after `$var` |
-| `pnpm test:frontend` | Vitest/React Testing Library: local commands, context usage, composer chips, plan completion/actions, persistent Plan/permissions, isolated plan handoff, compact/fork, usage replacement, bounded history, stream flushing, IME send/completion priority, ordered tool previews, native permission decisions, completion persistence, terminal maximize geometry/resident PTYs, tree/watch races, diff scrolling and restoration, provider tab icons and grouped branch search |
+| `pnpm test:frontend` | Vitest/React Testing Library: local commands, context usage, composer chips, plan completion/actions, persistent Plan/permissions, isolated plan handoff, compact/fork, usage replacement, bounded history, stream flushing, IME send/completion priority, ordered tool previews, native permission decisions, completion persistence, terminal maximize geometry/resident PTYs, tree/watch races, diff scrolling and restoration, provider tab icons/results, Agent GFM/file links and grouped branch search |
 | `pnpm typecheck` | TypeScript types, missing runtime imports (including root React hooks), and complete typed locale records |
 | `pnpm check:rust` | Rust types/borrows without linking |
 | `pnpm docs:route` | Select only area docs whose scope matches the supplied touched paths |
@@ -81,11 +81,16 @@ Path, guard or behavior-contract changes update their routed docs in the same ch
   established by these tests.
 - Agent store tests cover exclusive cursors, byte budgets, unknown fields, concurrent patches, preserving
   files after failed writes, and stable chat tab titles during runs and after completion/cancellation/failure.
+- Agent Markdown/link tests cover semantic GFM, incomplete stream syntax, code copying, owning-root file
+  opening/positions, escapes/schemes and blocked navigation/remote content. Tab tests cover fixed Agent
+  labels, title tooltips, running/success/failure/stopped and missing/historical results.
 - Run targeted Rust tests through the verification skill when test code changed, or when the change touches
   update, path containment, settings migration, Git commands or agent providers; installer changes belong to
   the release-check surface. Keep unit tests beside the owning Rust module.
 - Update tests must keep startup/manual cache freshness unchanged, prove forced checks bypass a fresh cache
-  and forbid cached fallback, and assert forced lookup requests carry `Cache-Control: no-cache`.
+  and forbid cached fallback, and assert forced lookup requests carry `Cache-Control: no-cache`. Frontend
+  update coverage must also keep the single action's check → download → ready/install progression explicit:
+  a forced check discovers an update without starting its download, and retry uses the same forced check path.
 - Never weaken or delete a guard or test to make a check pass. If a guard is wrong, change the script, this
   map and the owning skill in one edit.
 - `.github/workflows/ci.yml` runs frontend guard/build jobs and Rust test jobs on supported platforms, with

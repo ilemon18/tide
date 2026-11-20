@@ -67,7 +67,7 @@ export const updateApi = {
   isDebugBuild: () => invoke<boolean>('is_debug_build'),
   /**
    * `manual` = the user clicked: re-checks the network, while startup may answer from the cache.
-   * `force` = "check latest": bypasses the local cache and forbids a cached fallback.
+   * `force` = a fresh manual check: bypasses the local cache and forbids a cached fallback.
    */
   check: (manual: boolean, force = false) => invoke<UpdateInfo>('update_check', { manual, force }),
   download: (url: string, fileName: string, checksum: string) =>

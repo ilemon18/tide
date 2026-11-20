@@ -212,7 +212,6 @@ export const ko: Messages = {
   'settings.about.repository': '저장소',
   'settings.about.updates': '업데이트',
   'settings.about.checkUpdates': '업데이트 확인',
-  'settings.about.checkLatest': '최신 확인',
   'settings.about.checking': '확인 중…',
   'settings.about.download': '업데이트 다운로드',
   'settings.about.restartUpdate': '재시작하여 업데이트',
@@ -741,6 +740,7 @@ export const ko: Messages = {
 
   'settings.section.agent.label': '에이전트',
   'titlebar.agentTip': '에이전트에게 묻기',
+  'agent.tabLabel': 'Agent',
   'agent.newChat': '새 채팅',
   'agent.noWorkspace': '폴더를 열면 에이전트를 사용할 수 있습니다',
   'agent.noAgents': '에이전트 CLI를 찾지 못했습니다',
