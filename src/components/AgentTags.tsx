@@ -82,7 +82,7 @@ export function SkillChip({
       className="flex max-w-[260px] items-center gap-1 rounded-[var(--r-row)] border border-line-soft bg-panel-alt py-0.5 pl-1 pr-0.5 text-2xs text-fg/80"
     >
       <Icon name="sparkle" size={11} className="shrink-0 text-accent" />
-      <span className="min-w-0 truncate font-mono text-[11px]">{skill.name}</span>
+      <span className={`min-w-0 font-mono text-[11px] ${onRemove ? 'truncate' : 'whitespace-pre-wrap break-all'}`}>{skill.name}</span>
       {onRemove ? (
         <button
           type="button"

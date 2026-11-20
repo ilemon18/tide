@@ -43,6 +43,9 @@ scope:
 - Debug builds must not report updates, run quiet checks or show the title-bar update badge, in either
   frontend or backend; `app:open-file` still has no listener, so do not assume it is consumed.
 
+- The right editor region owns terminal geometry; maximize hides the resident editor wrapper without
+  unmounting it or touching the sidebar. See [terminal.md](./terminal.md) for drag/restore ownership.
+
 ## Memory and settings
 
 - Settings keep helper text for non-obvious effects (such as reloads and per-file defaults); format-auto

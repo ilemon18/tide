@@ -1,3 +1,4 @@
+import { dragTerminalHeight, terminalAvailableHeight } from './lib/terminalLayout'
 import { Suspense, lazy, useCallback, useEffect, useState } from 'react'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
 import { listen } from '@tauri-apps/api/event'
@@ -72,11 +73,28 @@ export function App() {
   const patchSettings = useSettings((s) => s.patch)
   const activeTabId = useTabs((s) => s.activeId)
   const terminalVisible = useTerminal((s) => s.visible)
+  const panelVisible = panelVisibleSetting && terminalVisible
   const terminalCount = useTerminal((s) => s.tabs.length)
   const activityView = useUi((s) => s.activityView)
   const setActivityView = useUi((s) => s.setActivityView)
   const [searchOpen, setSearchOpen] = useState(false)
   /** Bumped on every ⌘F: an already open find bar takes focus back (and selects) instead of ignoring the key */
+  const editorRegionRef = useRef<HTMLDivElement>(null)
+  const [editorRegionHeight, setEditorRegionHeight] = useState(0)
+  const terminalMaximized = useTerminal(state => state.maximized)
+  const normalPanelHeight = useSettings(state => state.panelHeight)
+  useEffect(() => {
+    const region = editorRegionRef.current
+    if (!region) return
+    const measure = () => setEditorRegionHeight(region.getBoundingClientRect().height)
+    const observer = new ResizeObserver(measure)
+    observer.observe(region)
+    measure()
+    return () => observer.disconnect()
+  })
+  useEffect(() => {
+    if (!panelVisible) useTerminal.getState().setMaximized(false)
+  }, [panelVisible])
   const [searchFocus, setSearchFocus] = useState(0)
   /** Same for the sidebar's search view (⌘⇧F / title bar button): land in the query box, not just on the list */
   const [panelSearchFocus, setPanelSearchFocus] = useState(0)
@@ -559,7 +577,6 @@ export function App() {
   const hasRoots = useWorkspace((s) => s.roots.length > 0)
   // The structure view has its own empty state and does not need a project.
   const sidebarVisible = sidebarVisibleSetting && (hasRoots || activityView === 'structure')
-  const panelVisible = panelVisibleSetting && terminalVisible
   const sidebarTitle =
     activityView === 'explorer'
       ? t('sidebar.explorer')
@@ -632,7 +649,8 @@ export function App() {
           </>
         ) : null}
 
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <div ref={editorRegionRef} className="relative flex min-h-0 min-w-0 flex-1 flex-col">
+          <div className={terminalMaximized && panelVisible ? 'hidden' : 'flex min-h-0 flex-1 flex-col'}>
           <ErrorBoundary label={t('app.editor')}>
             <EditorArea
               searchOpen={searchOpen}
@@ -641,18 +659,16 @@ export function App() {
             />
           </ErrorBoundary>
 
+          </div>
           {panelVisible ? (
             <Splitter
               direction="h"
-              onDrag={(dy) =>
-                patchSettings({
-                  panelHeight: clamp(
-                    useSettings.getState().panelHeight - dy,
-                    120,
-                    Math.max(200, window.innerHeight - 260),
-                  ),
-                })
-              }
+              onDrag={(dy) => {
+                const next = dragTerminalHeight(useSettings.getState().panelHeight,
+                  useTerminal.getState().maximized, dy, editorRegionRef.current?.getBoundingClientRect().height ?? 0)
+                useTerminal.getState().setMaximized(next.maximized)
+                if (!next.maximized) patchSettings({ panelHeight: next.height })
+              }}
             />
           ) : null}
 
@@ -662,7 +678,7 @@ export function App() {
           {terminalCount > 0 ? (
             <div className={panelVisible ? 'shrink-0 overflow-hidden' : 'hidden'}>
               <Suspense fallback={null}>
-                <TerminalPanel />
+                <TerminalPanel height={terminalMaximized ? terminalAvailableHeight(editorRegionHeight) : Math.min(normalPanelHeight, terminalAvailableHeight(editorRegionHeight))} />
               </Suspense>
             </div>
           ) : null}

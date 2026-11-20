@@ -366,6 +366,7 @@ fn main() {
             commands::agent::agent_skills,
             commands::agent::agent_send,
             commands::agent::agent_cancel,
+            commands::agent::agent_permission_respond,
             commands::agent::agent_chat_open,
             commands::agent::agent_chat_page,
             commands::agent::agent_chat_apply,

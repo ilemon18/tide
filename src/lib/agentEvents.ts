@@ -5,6 +5,7 @@ import { useAgent } from '../store/agent'
 /** Keep adjacent deltas in source order; structural events always flush before delivery. */
 export function createAgentEventBuffer(deliver: (event: AgentEventPayload) => void) {
   const pending = new Map<string, AgentEventPayload>()
+  const seen = new Map<string, { sequence: number; finished: boolean }>()
   let timer: ReturnType<typeof setTimeout> | undefined
   const flush = () => {
     if (timer) clearTimeout(timer)
@@ -16,7 +17,13 @@ export function createAgentEventBuffer(deliver: (event: AgentEventPayload) => vo
   return {
     push(payload: AgentEventPayload) {
       const event = payload.event
-      if (event.kind !== 'textDelta' && event.kind !== 'thinking') {
+      const key = `${payload.chatId}\0${payload.runId}`
+      const watermark = seen.get(key)
+      if (watermark && (watermark.finished || payload.sequence <= watermark.sequence)) return
+      seen.set(key, { sequence: payload.sequence, finished: event.kind === 'done' })
+      // Keep recent runs bounded; the store still rejects events for an evicted/stale run ID.
+      if (seen.size > 256) seen.delete(seen.keys().next().value!)
+      if (event.kind !== 'textDelta' && event.kind !== 'thinking' && event.kind !== 'toolOutputDelta') {
         flush()
         deliver(payload)
         return

@@ -25,11 +25,10 @@ vi.mock('./CopyButton', () => ({ CopyButton: () => null }))
 vi.mock('./Icon', () => ({ Icon: () => null }))
 import { AgentChat } from './AgentChat'
 afterEach(cleanup)
-it('places running activity after the latest transcript output and before the composer', () => {
+it('keeps the transcript before the composer without a separate running strip', () => {
   const { container } = render(<AgentChat chatId="chat" />)
   const output = screen.getByText('Latest output')
-  const status = screen.getByText('agent.status.running')
-  expect(output.compareDocumentPosition(status) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-  expect(status.compareDocumentPosition(screen.getByTestId('composer')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-  expect(container.querySelector('.overflow-y-auto')?.contains(status)).toBe(true)
+  expect(screen.queryByText('agent.status.running')).toBeNull()
+  expect(output.compareDocumentPosition(screen.getByTestId('composer')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  expect(container.querySelector('.overflow-y-auto')?.contains(output)).toBe(true)
 })

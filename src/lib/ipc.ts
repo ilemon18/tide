@@ -361,7 +361,7 @@ export type AgentSkillInfo = {
 }
 
 export type AgentSessionAction = 'new' | 'resume' | 'fork'
-export type AgentPermissionMode = 'read-only' | 'workspace-write'
+export type AgentPermissionMode = 'read-only' | 'workspace-write' | 'full-access'
 export type AgentPlanAction =
   | 'implement-current'
   | 'implement-fresh'
@@ -382,6 +382,7 @@ export type AgentTurnRequest = {
   mentions: AgentMention[]
   /** Planning turns and their question-answer follow-ups cannot modify the workspace. */
   readOnly: boolean
+  permissionMode: AgentPermissionMode
 }
 
 /** Provider-reported usage for one assistant turn. `null` cost means the provider omitted it. */
@@ -406,6 +407,10 @@ export type AgentEvent =
   | { kind: 'thinking'; itemId: string; text: string }
   | { kind: 'toolStart'; itemId: string; title: string }
   | { kind: 'toolDetail'; itemId: string; detail: string }
+  | { kind: 'toolOutputDelta'; itemId: string; text: string }
+  | { kind: 'itemComplete'; itemId: string; text?: string }
+  | { kind: 'permissionRequest'; itemId: string; requestId: string; operation: string; detail: string; reason: string }
+  | { kind: 'permissionResolved'; requestId: string; allowed: boolean }
   | { kind: 'toolEnd'; itemId: string; ok: boolean; output: string | null }
   | {
       kind: 'question'
@@ -416,10 +421,11 @@ export type AgentEvent =
       options: AgentQuestionOption[]
     }
   | { kind: 'questionInvalid'; text: string }
+  | { kind: 'failure'; error: CodedError }
   | { kind: 'notice'; text: string }
   | { kind: 'stderr'; text: string }
   | { kind: 'usage'; usage: AgentUsage; sessionUsage?: AgentUsage }
-  | { kind: 'done'; ok: boolean; cancelled: boolean; code: number | null }
+  | { kind: 'done'; ok: boolean; cancelled: boolean; code: number | null; durationMs?: number; completedAt?: number }
 
 export type AgentEventPayload = { chatId: string; runId: string; sequence: number; event: AgentEvent }
 
@@ -461,6 +467,8 @@ export type TokenEstimate = {
 }
 
 export const api = {
+  agentPermissionRespond: (chatId: string, runId: string, requestId: string, allow: boolean) =>
+    invoke<void>('agent_permission_respond', { chatId, runId, requestId, allow }),
   // ---- File system ----
   openFolder: (path: string) => invoke<WorkspaceInfo>('open_folder', { path }),
   closeFolder: (root: string) => invoke<void>('close_folder', { root }),

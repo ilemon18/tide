@@ -14,7 +14,6 @@ import { Icon } from './Icon'
 import { ModelPicker } from './AgentPickers'
 import { AgentContextUsage } from './AgentContextUsage'
 import { CopyButton } from './CopyButton'
-import { elapsedSeconds, formatAgentDuration } from '../lib/agentDuration'
 
 /** Queued prompt plus the metadata that will be sent with it. */
 function serializeQueuedMessage(item: AgentDraft): string {
@@ -26,23 +25,6 @@ function serializeQueuedMessage(item: AgentDraft): string {
   return parts.join('\n')
 }
 
-/** The elapsed clock lives here so a running turn does not re-render the whole transcript each second. */
-function RunningStatus({ startedAt }: { startedAt: number | undefined }) {
-  const t = useT()
-  const [, update] = useState(0)
-  useEffect(() => {
-    if (!startedAt) return
-    const id = setInterval(() => update((value) => value + 1), 1000)
-    return () => clearInterval(id)
-  }, [startedAt])
-  const duration = startedAt ? formatAgentDuration(elapsedSeconds(startedAt)) : '0s'
-  return (
-    <span className="shrink-0 text-2xs text-muted">
-      {t('agent.status.running', { duration })}
-    </span>
-  )
-}
-
 /** A chat tab: transcript, per-chat options and the composer. */
 export function AgentChat({ chatId }: { chatId: string }) {
   const t = useT()
@@ -50,7 +32,6 @@ export function AgentChat({ chatId }: { chatId: string }) {
   const page = useAgent(s => s.pages[chatId])
   const pageLoading = useAgent(s => s.pageLoading[chatId])
   const loading = useAgent((s) => s.loadingChats[chatId])
-  const startedAt = useAgent((s) => s.running[chatId])
   const focusRequest = useAgent(s => s.focusRequests[chatId] ?? 0)
   const localPicker = useAgent(s => s.localPicker?.chatId === chatId ? s.localPicker : null)
   const draftState = useAgent((s) => s.chatDrafts[chatId])
@@ -159,21 +140,14 @@ export function AgentChat({ chatId }: { chatId: string }) {
     if (el) el.scrollTop = el.scrollHeight
   }, [signature, chat?.status, atBottom])
 
-  // What the CLI is doing right now: a running tool beats the tail item, so the strip does
-  // not keep saying “writing” while a long command runs.
-  const activity = useMemo(() => {
-    const items = last?.items ?? []
-    for (let index = items.length - 1; index >= 0; index -= 1) {
-      const item = items[index]
-      if (item.type === 'tool' && item.status === 'running') {
-        return { kind: 'tool' as const, name: item.title ?? '' }
-      }
-    }
-    const tail = items[items.length - 1]
-    if (tail?.type === 'thinking') return { kind: 'thinking' as const, name: '' }
-    if (tail?.type === 'text') return { kind: 'writing' as const, name: '' }
-    return { kind: 'starting' as const, name: '' }
-  }, [last])
+  useEffect(() => {
+    const el = scrollRef.current
+    const content = el?.firstElementChild
+    if (!el || !content || !atBottom || typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(() => { el.scrollTop = el.scrollHeight })
+    observer.observe(content)
+    return () => observer.disconnect()
+  }, [chatId, Boolean(chat), atBottom])
 
   if (!chat) {
     return (
@@ -198,14 +172,7 @@ export function AgentChat({ chatId }: { chatId: string }) {
     providers !== null && (!providerInfo || !providerInfo.installed || !providerInfo.supported)
   const providerLabel =
     providerInfo?.name ?? (chat.provider || t('agent.noAgents'))
-  const activityLabel =
-    activity.kind === 'tool'
-      ? t('agent.activity.tool', { name: activity.name || t('agent.tool') })
-      : activity.kind === 'thinking'
-        ? t('agent.activity.thinking')
-        : activity.kind === 'writing'
-          ? t('agent.activity.writing')
-          : t('agent.activity.starting')
+
 
   const status =
     chat.status === 'error' ? (
@@ -243,6 +210,12 @@ export function AgentChat({ chatId }: { chatId: string }) {
       <div className="relative min-h-0 flex-1">
         <div
           ref={scrollRef}
+          onClickCapture={event => {
+            if ((event.target as HTMLElement).closest('button[aria-expanded]')) {
+              captureAnchor()
+              setAtBottom(false)
+            }
+          }}
           onScroll={(e) => {
             const el = e.currentTarget
             setAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 40)
@@ -284,18 +257,7 @@ export function AgentChat({ chatId }: { chatId: string }) {
                 </div>,
               )
             )}
-          {running ? (
-            <div className="flex h-7 items-center gap-2 rounded-[var(--r-row)] border border-line-soft bg-accent/10 px-2">
-              <Icon name="spinner" size={11} className="shrink-0 animate-spin text-accent" />
-              <RunningStatus startedAt={startedAt} />
-              <span
-                data-tip={activityLabel}
-                className="min-w-0 flex-1 truncate text-2xs text-fg/75"
-              >
-                {activityLabel}
-              </span>
-            </div>
-          ) : null}
+
             {page?.hasLater ? (
               <button disabled={running || pageLoading} onClick={() => navigate('later')} className="text-xs text-accent">
                 {t('agent.history.later')}
@@ -425,11 +387,11 @@ export function AgentChat({ chatId }: { chatId: string }) {
                   useAgent.getState().setChatOptions(chatId, { model })
                   useAgent.setState({ localPicker: null })
                 }} />
-              ) : ['read-only', 'workspace-write'].map(mode => (
+              ) : (['read-only', 'workspace-write', 'full-access'] as const).map(mode => (
                 <button key={mode} className="text-left text-xs hover:text-accent" onClick={() => {
                   useAgent.setState({ localPicker: null })
-                  void useAgent.getState().sendMessage(chatId, { text: `/permissions ${mode}`, mentions: [] })
-                }}>{mode === 'read-only' ? t('agent.mode.readOnly') : t('agent.mode.write')}</button>
+                  useAgent.getState().setPermissionMode(chatId, mode)
+                }}>{t(`agent.permission.${mode}`)}</button>
               ))}
             </div>
           ) : null}
@@ -443,6 +405,8 @@ export function AgentChat({ chatId }: { chatId: string }) {
             provider={chat.provider}
             model={chat.model}
             effort={chat.effort}
+            permissionMode={chat.permissionMode}
+            onPermission={mode => useAgent.getState().setPermissionMode(chatId, mode)}
             running={running}
             disabled={!enabled}
             blocked={providerMissing}

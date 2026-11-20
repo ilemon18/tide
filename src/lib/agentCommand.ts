@@ -137,13 +137,13 @@ export function buildAgentPrompt(
  * `/command` is stripped and sent as the wrapped tag.
  */
 export function normalizeAgentDraft(draft: AgentDraft): AgentDraft {
-  const text = draft.text.trim()
+  const text = draft.text
   if (draft.command) return { ...draft, text }
-  const match = /^\/([a-z][a-z-]*)(?:\s+|$)/.exec(text)
+  const match = /^\/([a-z][a-z-]*)(?:[ \t]|\r?\n|$)/.exec(text)
   if (!match || !isAgentPromptCommandId(match[1])) return { ...draft, text }
   return {
     ...draft,
-    text: text.slice(match[0].length).trimStart(),
+    text: text.slice(match[0].length),
     command: match[1],
   }
 }

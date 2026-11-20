@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useLayoutEffect, useRef, useState } from 'react'
 import type { AgentItem, AgentMessage as Message } from '../store/agent'
 import type { AgentMention, AgentPlanAction } from '../lib/ipc'
 import { useTabs } from '../store/tabs'
@@ -6,7 +6,8 @@ import { useAgent } from '../store/agent'
 import { revealInExplorer } from '../lib/actions'
 import { basename } from '../lib/paths'
 import { useT } from '../i18n'
-import { AgentMarkdown } from './AgentMarkdown'
+import { AgentStreamText } from './AgentStreamText'
+import { AgentTurnStatus } from './AgentTurnStatus'
 import { CommandChip, SkillChip } from './AgentTags'
 import { CopyButton } from './CopyButton'
 import { FileIcon } from './FileIcon'
@@ -29,7 +30,7 @@ function MentionRow({ root, mentions }: { root: string; mentions: AgentMention[]
           className="flex max-w-[280px] items-center gap-1 rounded-[var(--r-row)] border border-line-soft bg-panel-alt px-1 py-0.5 text-2xs text-fg/80 transition-colors duration-fast hover:bg-hover hover:text-fg"
         >
           <FileIcon name={basename(mention.rel)} isDir={mention.isDir} size={12} />
-          <span className="truncate font-mono text-[11px]">{mention.rel}</span>
+          <span className="min-w-0 whitespace-pre-wrap break-all font-mono text-[11px]">{mention.rel}</span>
         </button>
       ))}
     </div>
@@ -53,7 +54,9 @@ export function serializeAssistantMessage(message: Message): string {
     if (item.type === 'tool') {
       if (item.title) parts.push(item.title)
       if (item.detail) parts.push(item.detail)
-      if (item.output) parts.push(item.output)
+      if (item.output && !message.items?.some(part => part.type === 'tool-output' && part.toolId === item.id)) parts.push(item.output)
+    } else if (item.type === 'permission') {
+      parts.push([item.title, item.detail, item.text, item.permissionState].filter(Boolean).join('\n'))
     } else if (item.type === 'question') {
       const question: string[] = []
       if (item.header) question.push(item.header)
@@ -85,152 +88,110 @@ function ToolStatus({ status }: { status?: AgentItem['status'] }) {
 }
 
 const itemControlClass =
-  'h-5 w-5 opacity-0 transition-opacity duration-fast group-hover/item:opacity-100 group-focus-within/item:opacity-100'
+  'h-5 w-5 pointer-events-none group-hover/item:pointer-events-auto group-focus-within/item:pointer-events-auto opacity-0 transition-opacity duration-fast group-hover/item:opacity-100 group-focus-within/item:opacity-100'
 
-function ToolCard({ item }: { item: AgentItem }) {
-  const t = useT()
-  const title = item.title ?? t('agent.tool')
-  return (
-    <details className="group group/item overflow-hidden rounded-[var(--r-popup)] border border-line-soft bg-panel">
-      <summary className="flex h-7 cursor-pointer list-none items-center gap-2 px-2.5 text-xs text-fg/80 hover:bg-hover">
-        <ToolStatus status={item.status} />
-        <span className="min-w-0 flex-1 truncate font-mono text-[11px]">{title}</span>
-        <CopyButton
-          text={title}
-          label={t('agent.copy.toolTitle')}
-          tip={t('agent.copy.toolTitle')}
-          iconOnly
-          className={itemControlClass}
-        />
-        <Icon
-          name="chevron-right"
-          size={11}
-          className="shrink-0 text-muted transition-transform group-open:rotate-90"
-        />
-      </summary>
-      <div className="flex flex-col gap-2 border-t border-line-soft px-2.5 py-2">
-        {item.detail ? (
-          <div className="group/item">
-            <div className="mb-0.5 flex min-h-5 items-center gap-1 text-2xs text-muted">
-              <span className="flex-1">{t('agent.toolInput')}</span>
-              <CopyButton
-                text={item.detail}
-                label={t('agent.copy.toolInput')}
-                tip={t('agent.copy.toolInput')}
-                iconOnly
-                className={itemControlClass}
-              />
-            </div>
-            <pre className="max-h-[220px] overflow-auto whitespace-pre-wrap break-words rounded-[3px] bg-bg px-2 py-1 font-mono text-[11px] leading-relaxed text-fg/80">
-              {item.detail}
-            </pre>
-          </div>
-        ) : null}
-        {item.output ? (
-          <div className="group/item">
-            <div className="mb-0.5 flex min-h-5 items-center gap-1 text-2xs text-muted">
-              <span className="flex-1">{t('agent.toolOutput')}</span>
-              <CopyButton
-                text={item.output}
-                label={t('agent.copy.toolOutput')}
-                tip={t('agent.copy.toolOutput')}
-                iconOnly
-                className={itemControlClass}
-              />
-            </div>
-            <pre className="max-h-[320px] overflow-auto whitespace-pre-wrap break-words rounded-[3px] bg-bg px-2 py-1 font-mono text-[11px] leading-relaxed text-fg/80">
-              {item.output}
-            </pre>
-          </div>
-        ) : null}
-      </div>
-    </details>
-  )
+/** Prefer the executable command/path over the provider's generic tool name or JSON input. */
+export function toolCommand(item: AgentItem): string {
+  if (item.detail) {
+    try {
+      const input = JSON.parse(item.detail) as Record<string, unknown>
+      for (const key of ['command', 'file_path', 'path', 'filePath', 'query']) {
+        if (typeof input[key] === 'string') return input[key]
+      }
+    } catch { if (!item.detail.trimStart().startsWith('{')) return item.detail }
+  }
+  return item.title ?? ''
 }
 
-type AssistantEntry =
-  | { kind: 'item'; item: AgentItem }
-  | { kind: 'tools'; key: string; items: AgentItem[] }
-
-/** Consecutive tool items form one component-local group; every other item cuts the run. */
-function groupAssistantItems(items: AgentItem[]): AssistantEntry[] {
-  const entries: AssistantEntry[] = []
-  let tools: AgentItem[] = []
-  const flush = () => {
-    if (tools.length === 0) return
-    entries.push({ kind: 'tools', key: tools[0].id, items: tools })
-    tools = []
-  }
-  for (const item of items) {
-    if (item.type === 'tool') {
-      tools.push(item)
-    } else {
-      flush()
-      entries.push({ kind: 'item', item })
-    }
-  }
-  flush()
-  return entries
+export function toolPreview(text: string, lines: number): { text: string; clipped: boolean } {
+  const all = text.split('\n')
+  const chars = Array.from(all.slice(0, lines).join('\n'))
+  const clipped = all.length > lines || chars.length > lines * 180
+  return { text: chars.slice(0, lines * 180).join('') + (clipped ? '\n…' : ''), clipped }
 }
 
-function ToolGroup({ items }: { items: AgentItem[] }) {
+function ToolCard({ item, separateOutput = false }: { item: AgentItem; separateOutput?: boolean }) {
   const t = useT()
-  const anyRunning = items.some((item) => item.status === 'running')
-  const status = items.some((item) => item.status === 'error')
-    ? 'error'
-    : anyRunning
-      ? 'running'
-      : 'ok'
-  const statusLabel =
-    status === 'error'
-      ? t('agent.toolGroup.status.error')
-      : status === 'running'
-        ? t('agent.toolGroup.status.running')
-        : t('agent.toolGroup.status.ok')
-  const [open, setOpen] = useState(anyRunning)
-  const manual = useRef(false)
-  const wasRunning = useRef(anyRunning)
-
-  useEffect(() => {
-    const previous = wasRunning.current
-    wasRunning.current = anyRunning
-    if (manual.current) return
-    if (anyRunning) setOpen(true)
-    else if (previous) setOpen(false)
-  }, [anyRunning])
-
-  return (
-    <div className="overflow-hidden rounded-[var(--r-popup)] border border-line-soft bg-panel-alt/40">
-      <button
-        type="button"
-        aria-expanded={open}
-        data-tip={open ? t('agent.toolGroup.collapse') : t('agent.toolGroup.expand')}
-        onClick={() => {
-          manual.current = true
-          setOpen((value) => !value)
-        }}
-        className="flex h-8 w-full items-center gap-2 px-2.5 text-left text-xs text-fg/80 hover:bg-hover"
-      >
-        <ToolStatus status={status} />
-        <span className="min-w-0 flex-1 truncate font-medium">
-          {t('agent.toolGroup.count', { count: items.length })}
-        </span>
-        <span className="shrink-0 text-2xs text-muted">{statusLabel}</span>
-        <Icon
-          name={open ? 'chevron-down' : 'chevron-right'}
-          size={11}
-          className="shrink-0 text-muted"
-        />
-      </button>
-      {open ? (
-        <div className="flex flex-col gap-1 border-t border-line-soft bg-bg/30 p-1">
-          {items.map((item) => (
-            <ToolCard key={item.id} item={item} />
-          ))}
-        </div>
-      ) : null}
+  const [expanded, setExpanded] = useState(false)
+  const commandRef = useRef<HTMLPreElement>(null)
+  const outputRef = useRef<HTMLPreElement>(null)
+  const [wrapped, setWrapped] = useState({ input: false, output: false })
+  useLayoutEffect(() => {
+    if (expanded) return
+    const measure = () => setWrapped({
+      input: Boolean(commandRef.current && commandRef.current.scrollHeight > commandRef.current.clientHeight + 1),
+      output: Boolean(outputRef.current && outputRef.current.scrollHeight > outputRef.current.clientHeight + 1),
+    })
+    measure()
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(measure)
+    if (commandRef.current) observer.observe(commandRef.current)
+    if (outputRef.current) observer.observe(outputRef.current)
+    return () => observer.disconnect()
+  }, [item.detail, item.title, item.output, expanded])
+  const command = toolCommand(item) || t('agent.tool')
+  const input = toolPreview(command, 2)
+  const output = toolPreview(separateOutput ? '' : item.output ?? '', 3)
+  const canExpand = input.clipped || output.clipped || wrapped.input || wrapped.output || Boolean(item.detail && item.detail !== command)
+  return <div className="group/item min-w-0 border-l border-line pl-2.5 text-xs">
+    <div className="flex items-start gap-2">
+      <ToolStatus status={item.status} />
+      <pre ref={commandRef} className="min-w-0 flex-1 whitespace-pre-wrap break-words font-mono text-[11px] text-fg/85"
+        style={expanded ? undefined : { display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{expanded ? command : input.text.replace(/\n…$/, '')}</pre>
+      <CopyButton text={[command, item.detail, item.output].filter(Boolean).join('\n\n')}
+        label={t('agent.copy.toolInput')} tip={t('agent.copy.toolInput')} iconOnly className={itemControlClass} />
     </div>
-  )
+    {!expanded && (input.clipped || wrapped.input) ? <div className="text-muted">…</div> : null}
+    {expanded && item.detail && item.detail !== command ? <pre className="mt-1 whitespace-pre-wrap break-words font-mono text-[11px] text-muted">{item.detail}</pre> : null}
+    {!separateOutput && item.output ? <pre ref={outputRef} className="mt-1 whitespace-pre-wrap break-words font-mono text-[11px] text-muted"
+      style={expanded ? undefined : { display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{expanded ? item.output : output.text.replace(/\n…$/, '')}</pre> : null}
+    {!expanded && (output.clipped || wrapped.output) ? <div className="text-muted">…</div> : null}
+    {canExpand ? <button type="button" aria-expanded={expanded} onClick={() => setExpanded(value => !value)}
+      className="mt-1 text-2xs text-accent">{t(expanded ? 'agent.output.collapse' : 'agent.output.expand')}</button> : null}
+  </div>
+}
+
+function ToolOutputCard({ item, fullOutput }: { item: AgentItem; fullOutput?: string }) {
+  const t = useT()
+  const [expanded, setExpanded] = useState(false)
+  const ref = useRef<HTMLPreElement>(null)
+  const [wrapped, setWrapped] = useState(false)
+  const preview = toolPreview(item.text, 3)
+  useLayoutEffect(() => {
+    if (expanded) return
+    const measure = () => setWrapped(Boolean(ref.current && ref.current.scrollHeight > ref.current.clientHeight + 1))
+    measure()
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(measure)
+    if (ref.current) observer.observe(ref.current)
+    return () => observer.disconnect()
+  }, [item.text, expanded])
+  if (!item.text) return null
+  return <div className="group/item min-w-0 border-l border-line pl-2.5 text-xs text-muted">
+    <div className="flex items-start gap-2">
+      <pre ref={ref} className="min-w-0 flex-1 whitespace-pre-wrap break-words font-mono text-[11px]"
+        style={expanded ? undefined : { display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{expanded ? item.text : preview.text.replace(/\n…$/, '')}</pre>
+      <CopyButton text={fullOutput ?? item.text} label={t('agent.copy.toolOutput')} tip={t('agent.copy.toolOutput')} iconOnly className={itemControlClass} />
+    </div>
+    {!expanded && (preview.clipped || wrapped) ? <div>…</div> : null}
+    {preview.clipped || wrapped ? <button type="button" aria-expanded={expanded} onClick={() => setExpanded(value => !value)}
+      className="mt-1 text-2xs text-accent">{t(expanded ? 'agent.output.collapse' : 'agent.output.expand')}</button> : null}
+  </div>
+}
+
+function PermissionCard({ chatId, item, running }: { chatId: string; item: AgentItem; running: boolean }) {
+  const t = useT()
+  const pending = running && item.permissionState === 'pending'
+  return <div className="rounded border border-line bg-panel p-2 text-xs">
+    <div className="font-medium">{item.title === 'command' ? t('agent.permission.command') : item.title === 'fileChange' ? t('agent.permission.fileChange') : item.title === 'permissions' ? t('agent.local.permissions.label') : item.title}</div>
+    <pre className="my-1 whitespace-pre-wrap break-words font-mono">{item.detail}</pre>
+    <div className="whitespace-pre-wrap text-muted">{item.text}</div>
+    {item.title === 'permissions' ? <div className="mt-1 text-muted">{t('agent.permission.turnScope')}</div> : null}
+    {pending ? <div className="mt-2 flex gap-3">
+      <button onClick={() => void useAgent.getState().respondPermission(chatId, item.requestId!, true)} className="text-accent">{t('agent.permission.allow')}</button>
+      <button onClick={() => void useAgent.getState().respondPermission(chatId, item.requestId!, false)}>{t('agent.permission.deny')}</button>
+    </div> : <div className="mt-1 text-muted">{t(`agent.permission.${item.permissionState === 'submitting' ? 'waiting' : item.permissionState === 'allowed' ? 'allowed' : item.permissionState === 'denied' ? 'denied' : 'expired'}`)}</div>}
+  </div>
 }
 
 function QuestionCard({
@@ -420,7 +381,7 @@ function PlanCard({
           <div className="text-xs font-medium text-fg/90">{t('agent.plan.header')}</div>
           {item.text ? (
             <div className="whitespace-pre-wrap break-words text-sm leading-relaxed text-fg/85">
-              <AgentMarkdown text={item.text} />
+              <AgentStreamText text={item.text} live={running && !item.complete} />
             </div>
           ) : null}
         </div>
@@ -479,11 +440,13 @@ function Item({
   item,
   running,
   pendingQuestionId,
+  items,
 }: {
   chatId: string
   item: AgentItem
   running: boolean
   pendingQuestionId: string | null
+  items: AgentItem[]
 }) {
   const t = useT()
   switch (item.type) {
@@ -499,30 +462,19 @@ function Item({
               className={itemControlClass}
             />
           </div>
-          <AgentMarkdown text={item.text} />
+          <AgentStreamText text={item.text} live={running && !item.complete} />
         </div>
       )
     case 'thinking':
-      return (
-        <details className="group/item text-xs text-muted">
-          <summary className="flex cursor-pointer list-none items-center gap-1 hover:text-fg/80">
-            <Icon name="info" size={11} />
-            <span className="flex-1">{t('agent.thinking')}</span>
-            <CopyButton
-              text={item.text}
-              label={t('agent.copy.reasoning')}
-              tip={t('agent.copy.reasoning')}
-              iconOnly
-              className={itemControlClass}
-            />
-          </summary>
-          <div className="mt-1 whitespace-pre-wrap break-words border-l-2 border-line pl-2 text-[12px] leading-relaxed">
-            {item.text}
-          </div>
-        </details>
-      )
+      return <div className="group/item border-l-2 border-line pl-2 text-xs text-muted">
+        <AgentStreamText text={item.text} live={running && !item.complete} />
+      </div>
+    case 'permission':
+      return <PermissionCard chatId={chatId} item={item} running={running} />
     case 'tool':
-      return <ToolCard item={item} />
+      return <ToolCard item={item} separateOutput={items.some(part => part.type === 'tool-output' && part.toolId === item.id)} />
+    case 'tool-output':
+      return <ToolOutputCard item={item} fullOutput={items.find(part => part.id === item.toolId)?.output} />
     case 'question':
       return (
         <QuestionCard
@@ -602,9 +554,9 @@ export const UserMessage = memo(function UserMessage({
   const t = useT()
   const copyValue = serializeUserMessage(message)
   return (
-    <div className="group/reply group/item flex max-w-[85%] flex-col gap-1.5 self-end rounded-[var(--r-popup)] border border-line-soft bg-panel px-3 py-2">
-      <div className="flex items-start gap-2">
-        <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+    <div className="group/reply group/item relative ml-auto flex w-fit min-w-0 max-w-[85%] flex-col gap-1.5 text-left rounded-[var(--r-popup)] border border-line-soft bg-panel px-3 py-2">
+      <div className="min-w-0">
+        <div className="flex min-w-0 flex-col gap-1.5">
           {message.command || (message.skills && message.skills.length > 0) ? (
             <div className="flex flex-wrap gap-1">
               {message.command ? <CommandChip id={message.command} /> : null}
@@ -627,7 +579,7 @@ export const UserMessage = memo(function UserMessage({
           label={t('agent.copy.userTurn')}
           tip={t('agent.copy.userTurn')}
           iconOnly
-          className={itemControlClass}
+          className={`${itemControlClass} absolute right-1 top-1 bg-panel shadow-sm`}
         />
       </div>
     </div>
@@ -647,7 +599,7 @@ export const AssistantMessage = memo(function AssistantMessage({
 }) {
   const t = useT()
   const items = message.items ?? []
-  const entries = useMemo(() => groupAssistantItems(items), [items])
+  const startedAt = useAgent(state => state.running[chatId])
   const copyValue = serializeAssistantMessage(message)
   return (
     <div className="group/reply group/item flex gap-2">
@@ -665,25 +617,9 @@ export const AssistantMessage = memo(function AssistantMessage({
             className={itemControlClass}
           />
         </div>
-        {items.length === 0 && running ? (
-          <div className="flex min-h-[22px] items-center gap-1.5 text-xs text-muted">
-            <Icon name="spinner" size={12} className="animate-spin" />
-            {t('agent.working')}
-          </div>
-        ) : null}
-        {entries.map((entry) =>
-          entry.kind === 'tools' ? (
-            <ToolGroup key={entry.key} items={entry.items} />
-          ) : (
-            <Item
-              key={entry.item.id}
-              chatId={chatId}
-              item={entry.item}
-              running={running}
-              pendingQuestionId={pendingQuestionId}
-            />
-          ),
-        )}
+        {items.map(item => <Item key={item.id} chatId={chatId} item={item}
+          running={running} pendingQuestionId={pendingQuestionId} items={items} />)}
+        <AgentTurnStatus message={message} running={running} startedAt={startedAt} />
       </div>
     </div>
   )

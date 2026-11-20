@@ -44,11 +44,13 @@ export type AgentItemType =
   | 'text'
   | 'thinking'
   | 'tool'
+  | 'tool-output'
   | 'question'
   | 'error'
   | 'notice'
   | 'log'
   | 'plan'
+  | 'permission'
 
 export type AgentItem = {
   id: string
@@ -56,6 +58,11 @@ export type AgentItem = {
   text: string
   /** Tool card heading; command, path or MCP tool name */
   title?: string
+  complete?: boolean
+  requestId?: string
+  toolId?: string
+  runId?: string
+  permissionState?: 'pending' | 'submitting' | 'allowed' | 'denied' | 'expired'
   /** Tool input / argument summary (JSON text, or a command) */
   detail?: string
   status?: 'running' | 'ok' | 'error'
@@ -94,6 +101,9 @@ export type AgentMessage = {
   compact?: boolean
   planActionId?: string
   launchAccepted?: boolean
+  completion?: 'completed' | 'failed' | 'stopped'
+  completedAt?: number
+  durationMs?: number
 }
 
 export type AgentChatStatus = 'idle' | 'running' | 'error' | 'cancelled'
@@ -159,7 +169,39 @@ const MAX_LOG = 4_000
 
 function clipTail(value: string, limit: number): string {
   if (value.length <= limit) return value
-  return '…' + value.slice(value.length - limit)
+  let start = value.length - limit
+  const code = value.charCodeAt(start)
+  if (code >= 0xdc00 && code <= 0xdfff) start += 1
+  return '…' + value.slice(start)
+}
+
+/** Place result segments where output actually arrives, including after permission/question cards. */
+export function applyToolOutput(items: AgentItem[], toolId: string, text: string, sequence: number, snapshot = false): AgentItem[] {
+  const next = items.slice()
+  const segments = next.filter(item => item.type === 'tool-output' && item.toolId === toolId)
+  const received = segments.map(item => item.text).join('')
+  let suffix = text
+  if (snapshot) {
+    if (!text.startsWith(received)) {
+      // A provider may correct bytes in its final snapshot. Keep existing chronological slots.
+      const points = Array.from(text)
+      let offset = 0
+      for (let i = 0; i < segments.length; i++) {
+        const segment = segments[i]
+        const end = i === segments.length - 1 ? points.length : offset + Array.from(segment.text).length
+        const index = next.findIndex(item => item.id === segment.id)
+        next[index] = { ...segment, text: points.slice(offset, end).join('') }
+        offset = end
+      }
+      if (segments.length) return next
+    } else suffix = text.slice(received.length)
+  }
+  if (!suffix) return next
+  const tail = next.at(-1)
+  if (tail?.type === 'tool-output' && tail.toolId === toolId) {
+    next[next.length - 1] = { ...tail, text: tail.text + suffix }
+  } else next.push({ id: `${toolId}-output-${sequence}`, type: 'tool-output', toolId, text: suffix })
+  return next
 }
 
 type Running = Record<string, number>
@@ -209,6 +251,8 @@ type AgentStore = {
   stop: (chatId: string) => Promise<void>
   applyEvent: (payload: AgentEventPayload) => void
   setChatProvider: (chatId: string, provider: string) => void
+  setPermissionMode: (chatId: string, mode: AgentPermissionMode) => void
+  respondPermission: (chatId: string, requestId: string, allow: boolean) => Promise<void>
   setChatOptions: (chatId: string, patch: { model?: string; effort?: string }) => void
   setChatDraft: (chatId: string, patch: Partial<AgentDraft>) => void
   newChatFrom: (chatId: string) => void
@@ -382,7 +426,7 @@ function normalizeChat(raw: unknown, recover = false): AgentChat | null {
         const usage = normalizeAgentUsage(message.usage)
         const readOnly = message.readOnly === true ? true : undefined
         message = { ...message, items: message.items?.map(item => recover && item.type === 'plan' && item.actionState === 'launching'
-          ? { ...item, resolved: false, actionState: 'failed' as const } : item) }
+          ? { ...item, resolved: false, actionState: 'failed' as const } : recover && item.type === 'permission' && ['pending', 'submitting'].includes(item.permissionState ?? '') ? { ...item, permissionState: 'expired' as const } : item) }
         return usage ? { ...message, usage, readOnly } : { ...message, usage: undefined, readOnly }
       }
       const command = isAgentPromptCommandId(message.command) ? message.command : undefined
@@ -407,7 +451,7 @@ function normalizeChat(raw: unknown, recover = false): AgentChat | null {
     sessionCost: value.sessionCost && Number.isFinite(value.sessionCost.knownUsd) && value.sessionCost.knownUsd >= 0 &&
       Number.isInteger(value.sessionCost.unpricedTurns) && value.sessionCost.unpricedTurns >= 0 ? value.sessionCost : undefined,
     currentContext: normalizeAgentUsage(value.currentContext),
-    permissionMode: value.permissionMode === 'read-only' || (value.permissionMode === undefined && messages.at(-1)?.readOnly) ? 'read-only' : 'workspace-write',
+    permissionMode: value.permissionMode === 'read-only' || (value.permissionMode === undefined && messages.at(-1)?.readOnly) ? 'read-only' : value.permissionMode === 'full-access' ? 'full-access' : 'workspace-write',
     planning: value.planning === true || (value.planning === undefined && messages.at(-1)?.readOnly === true),
     compactSummary: typeof value.compactSummary === 'string' ? value.compactSummary : undefined,
     compactPending: false,
@@ -485,7 +529,7 @@ export const useAgent = create<AgentStore>((set, get) => {
       })
     }
     const planning = !compact && (draft.command === 'plan' || (readOnlyOverride !== false && chat.planning === true))
-    const readOnly = readOnlyOverride ?? (planning || chat.permissionMode === 'read-only')
+    const readOnly = planning || readOnlyOverride === true || (readOnlyOverride !== false && chat.permissionMode === 'read-only')
     const assistantId = agentUid('a')
     const runId = agentUid('run')
     messages.push({
@@ -509,7 +553,7 @@ export const useAgent = create<AgentStore>((set, get) => {
           messages,
           status: 'running',
           planning: compact ? chat.planning : planning,
-          permissionMode: compact ? chat.permissionMode : readOnly ? 'read-only' : 'workspace-write',
+          permissionMode: readOnlyOverride === false && chat.permissionMode === 'read-only' ? 'workspace-write' : chat.permissionMode,
           compactPending: compact,
           activeRunId: runId,
           eventSequence: 0,
@@ -538,6 +582,7 @@ export const useAgent = create<AgentStore>((set, get) => {
           compact ? draft.text : buildAgentPrompt(planning ? { ...draft, command: 'plan' } : draft, readOnly)].filter(Boolean).join('\n\n'),
         mentions: draft.mentions,
         readOnly,
+        permissionMode: readOnly ? 'read-only' : chat.permissionMode === 'full-access' ? 'full-access' : 'workspace-write',
       })
       if (actionItemId) {
         const current = get().chats[chatId]
@@ -560,6 +605,8 @@ export const useAgent = create<AgentStore>((set, get) => {
       if (last && last.role === 'assistant' && last.id === assistantId) {
         nextMessages[nextMessages.length - 1] = {
           ...last,
+          completion: 'failed',
+          completedAt: Date.now(),
           items: [
             ...(last.items ?? []),
             { id: agentUid('e'), type: 'error' as const, text },
@@ -965,9 +1012,8 @@ export const useAgent = create<AgentStore>((set, get) => {
           }
           if (local.id === 'permissions') {
             if (!local.args) { set({ localPicker: { chatId, kind: 'permissions' } }); return }
-            if (!['read-only', 'workspace-write'].includes(local.args)) throw new Error(t('agent.local.invalidArgs'))
-            set({ chats: { ...get().chats, [chatId]: { ...chat, permissionMode: local.args as AgentPermissionMode, planning: false } } })
-            schedulePersist(chatId)
+            if (!['read-only', 'workspace-write', 'full-access'].includes(local.args)) throw new Error(t('agent.local.invalidArgs'))
+            get().setPermissionMode(chatId, local.args as AgentPermissionMode)
             return
           }
           if (local.id === 'resume') {
@@ -1249,7 +1295,7 @@ export const useAgent = create<AgentStore>((set, get) => {
               ? t('agent.exitCode', { code: event.code })
               : t('agent.turnFailed')
         let next = patchLastAssistant(chat, (message) => {
-          const items = (message.items ?? []).slice()
+          const items = (message.items ?? []).map(item => item.type === 'permission' && ['pending', 'submitting'].includes(item.permissionState ?? '') ? { ...item, permissionState: 'expired' as const } : item.status === 'running' ? { ...item, status: event.ok ? 'ok' as const : 'error' as const } : item)
           if (!event.ok && !event.cancelled) {
             const hasError = items.some((item) => item.type === 'error')
             if (!hasError) {
@@ -1279,7 +1325,11 @@ export const useAgent = create<AgentStore>((set, get) => {
           }
           return items
         })
-        next = { ...next, status, error: failure, compactPending: false, updatedAt: Date.now() }
+        next = { ...next, status, error: failure, compactPending: false, updatedAt: Date.now(),
+          messages: next.messages.map((message, index) => index === next.messages.length - 1 ? {
+            ...message, completion: event.cancelled ? 'stopped' : event.ok ? 'completed' : 'failed',
+            completedAt: event.completedAt, durationMs: event.durationMs,
+          } : message) }
         if (chat.compactPending && event.ok && !event.cancelled) {
           const last = next.messages.at(-1)
           const summary = last?.items?.filter(item => item.type === 'text').map(item => item.text).join('\n\n').trim()
@@ -1327,6 +1377,24 @@ export const useAgent = create<AgentStore>((set, get) => {
               () => ({ id: event.itemId, type: 'thinking', text: '' }),
               (item) => ({ ...item, text: item.text + event.text }),
             )
+          case 'itemComplete':
+            return upsert(message, event.itemId,
+              () => ({ id: event.itemId, type: 'text', text: '' }),
+              item => ({ ...item, complete: true, text: event.text ?? item.text }))
+          case 'toolOutputDelta': {
+            const items = upsert(message, event.itemId,
+              () => ({ id: event.itemId, type: 'tool', text: '', status: 'running' }),
+              item => ({ ...item, output: (item.output ?? '') + event.text }))
+            return applyToolOutput(items, event.itemId, event.text, sequence)
+          }
+          case 'permissionRequest':
+            return upsert(message, event.itemId,
+              () => ({ id: event.itemId, type: 'permission', text: event.reason }),
+              item => ({ ...item, title: event.operation, detail: event.detail, requestId: event.requestId,
+                runId, permissionState: item.permissionState ?? 'pending' }))
+          case 'permissionResolved':
+            return (message.items ?? []).map(item => item.requestId === event.requestId
+              ? { ...item, permissionState: event.allowed ? 'allowed' : 'denied' } : item)
           case 'toolStart':
             return upsert(
               message,
@@ -1353,8 +1421,8 @@ export const useAgent = create<AgentStore>((set, get) => {
               }),
               (item) => ({ ...item, detail: event.detail }),
             )
-          case 'toolEnd':
-            return upsert(
+          case 'toolEnd': {
+            const items = upsert(
               message,
               event.itemId,
               () => ({
@@ -1370,6 +1438,8 @@ export const useAgent = create<AgentStore>((set, get) => {
                 output: event.output ?? item.output,
               }),
             )
+            return event.output === null ? items : applyToolOutput(items, event.itemId, event.output, sequence, true)
+          }
           case 'question':
             return upsert(
               message,
@@ -1396,6 +1466,8 @@ export const useAgent = create<AgentStore>((set, get) => {
               ...(message.items ?? []),
               { id: agentUid('n'), type: 'notice', text: t('agent.question.invalid') },
             ]
+          case 'failure':
+            return [...(message.items ?? []), { id: agentUid('e'), type: 'error', text: errorText(event.error) }]
           case 'notice':
             return [
               ...(message.items ?? []),
@@ -1476,6 +1548,38 @@ export const useAgent = create<AgentStore>((set, get) => {
           agentDefaultModel: model,
           agentDefaultEffort: effort,
         })
+      }
+    },
+
+    setPermissionMode: (chatId, mode) => {
+      const chat = get().chats[chatId]
+      if (!chat || chat.status === 'running' || get().queues[chatId]?.length ||
+        findPendingQuestion(chat.messages) || findPendingPlanAction(chat.messages) ||
+        get().pages[chatId]?.hasPendingQuestion || get().pages[chatId]?.hasUnhandledPlanAction) return
+      set({ chats: { ...get().chats, [chatId]: { ...chat, permissionMode: mode, planning: false } } })
+      schedulePersist(chatId)
+    },
+
+    respondPermission: async (chatId, requestId, allow) => {
+      const chat = get().chats[chatId]
+      const item = chat?.messages.at(-1)?.items?.find(item => item.requestId === requestId)
+      if (!chat || chat.status !== 'running' || !chat.activeRunId || item?.runId !== chat.activeRunId || item.permissionState !== 'pending') return
+      const runId = chat.activeRunId
+      const next = patchLastAssistant(chat, message => (message.items ?? []).map(entry => entry === item
+        ? { ...entry, permissionState: 'submitting', answer: allow ? 'allow' : 'deny' } : entry))
+      set({ chats: { ...get().chats, [chatId]: next } })
+      try {
+        // Persist the user's decision before forwarding it to the live native request.
+        await queueChatSave(chatId, next)
+        await api.agentPermissionRespond(chatId, runId, requestId, allow)
+      } catch (error) {
+        const current = get().chats[chatId]
+        if (!current || current.activeRunId !== runId) return
+        const recovered = patchLastAssistant(current, message => (message.items ?? []).map(entry =>
+          entry.requestId === requestId && entry.permissionState === 'submitting'
+            ? { ...entry, permissionState: current.status === 'running' ? 'pending' : 'expired' } : entry))
+        set({ chats: { ...get().chats, [chatId]: { ...recovered, error: errorText(error) } } })
+        schedulePersist(chatId)
       }
     },
 

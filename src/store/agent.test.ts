@@ -1,7 +1,7 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
 import { api, type AgentPlanAction } from '../lib/ipc'
 vi.mock('../lib/ipc', () => ({ api: { agentChatOpen: vi.fn(), agentChatApply: vi.fn(), agentSend: vi.fn(),
-  agentChatPage: vi.fn(), agentChatList: vi.fn(), agentChatClone: vi.fn(), agentCancel: vi.fn() }, errorText: (error: unknown) => error instanceof Error ? error.message : String(error) }))
+  agentChatPage: vi.fn(), agentChatList: vi.fn(), agentChatClone: vi.fn(), agentCancel: vi.fn(), agentPermissionRespond: vi.fn() }, errorText: (error: unknown) => error instanceof Error ? error.message : String(error) }))
 vi.mock('../i18n', () => ({ t: (key: string) => key }))
 vi.mock('./settings', () => ({ useSettings: { getState: () => ({ agentEnabled: true, flush: vi.fn() }) } }))
 vi.mock('./tabs', () => ({ useTabs: { getState: () => ({ setTabName: vi.fn(), openChat: vi.fn(), openChatInRight: vi.fn() }) } }))
@@ -489,4 +489,86 @@ it('restores a dequeued prompt after a failed provider resume without consuming 
   await vi.advanceTimersByTimeAsync(0)
   expect(useAgent.getState().queues['chat-test'].map(item => item.text)).toEqual(['queued first', 'queued second'])
   expect(useAgent.getState().chats['chat-test'].sessionId).toBe('session-1')
+})
+
+describe('streaming permissions and completion records', () => {
+  it('persists full access explicitly while planning sends a read-only override', async () => {
+    useAgent.getState().setPermissionMode('chat-test', 'full-access')
+    await useAgent.getState().sendMessage('chat-test', { text: 'run', mentions: [] })
+    expect(api.agentSend).toHaveBeenLastCalledWith(expect.objectContaining({ permissionMode: 'full-access', readOnly: false }))
+    const active = useAgent.getState().chats['chat-test']
+    useAgent.getState().applyEvent({ chatId: active.id, runId: active.activeRunId!, sequence: 1,
+      event: { kind: 'done', ok: true, cancelled: false, code: null, durationMs: 1200, completedAt: 9000 } })
+    const completed = useAgent.getState().chats['chat-test'].messages.at(-1)!
+    expect(completed).toMatchObject({ completion: 'completed', durationMs: 1200, completedAt: 9000 })
+    await useAgent.getState().sendMessage('chat-test', { text: '/plan propose changes', mentions: [] })
+    expect(api.agentSend).toHaveBeenLastCalledWith(expect.objectContaining({ permissionMode: 'read-only', readOnly: true }))
+    expect(useAgent.getState().chats['chat-test'].permissionMode).toBe('full-access')
+  })
+
+  it('persists a permission decision before IPC and blocks duplicate clicks and stale runs', async () => {
+    await useAgent.getState().sendMessage('chat-test', { text: 'run', mentions: [] })
+    const active = useAgent.getState().chats['chat-test']
+    useAgent.getState().applyEvent({ chatId: active.id, runId: active.activeRunId!, sequence: 1,
+      event: { kind: 'permissionRequest', itemId: 'p', requestId: 'native-1', operation: 'Write', detail: '/outside', reason: 'Need access' } })
+    const first = useAgent.getState().respondPermission(active.id, 'native-1', true)
+    const second = useAgent.getState().respondPermission(active.id, 'native-1', true)
+    await Promise.all([first, second])
+    expect(api.agentPermissionRespond).toHaveBeenCalledTimes(1)
+    expect(api.agentPermissionRespond).toHaveBeenCalledWith(active.id, active.activeRunId, 'native-1', true)
+    expect(vi.mocked(api.agentChatApply).mock.calls.some(([, patch]) => patch.upserts.some(message =>
+      Array.isArray(message.items) && message.items.some((item: { permissionState?: string }) => item.permissionState === 'submitting')))).toBe(true)
+    useAgent.getState().applyEvent({ chatId: active.id, runId: active.activeRunId!, sequence: 2,
+      event: { kind: 'done', ok: false, cancelled: true, code: null } })
+    expect(useAgent.getState().chats[active.id].messages.at(-1)?.items?.find(item => item.id === 'p')?.permissionState).toBe('expired')
+    await useAgent.getState().respondPermission(active.id, 'native-1', true)
+    expect(api.agentPermissionRespond).toHaveBeenCalledTimes(1)
+  })
+
+  it('replaces final snapshots without appending them and keeps tool/text ordering', async () => {
+    await useAgent.getState().sendMessage('chat-test', { text: 'run', mentions: [] })
+    const active = useAgent.getState().chats['chat-test']
+    const events = [
+      { kind: 'textDelta', itemId: 'a', text: 'Before' },
+      { kind: 'toolStart', itemId: 'cmd', title: 'pwd' },
+      { kind: 'toolOutputDelta', itemId: 'cmd', text: '中文🙂' },
+      { kind: 'toolEnd', itemId: 'cmd', ok: true, output: '中文🙂 complete' },
+      { kind: 'textDelta', itemId: 'b', text: 'Aft' },
+      { kind: 'itemComplete', itemId: 'b', text: 'After' },
+    ] as const
+    events.forEach((event, index) => useAgent.getState().applyEvent({ chatId: active.id, runId: active.activeRunId!, sequence: index + 1, event }))
+    const items = useAgent.getState().chats[active.id].messages.at(-1)!.items!
+    expect(items.map(item => item.id)).toEqual(['a', 'cmd', 'cmd-output-3', 'b'])
+    expect(items[1].output).toBe('中文🙂 complete')
+    expect(items[2].text).toBe('中文🙂 complete')
+    expect(items[3].text).toBe('After')
+  })
+
+  it('hydrates old permissions conservatively and invalidates unfinished authorizations', async () => {
+    vi.mocked(api.agentChatOpen).mockResolvedValueOnce({ ...page(), header: { ...chat(), permissionMode: 'workspace-write' },
+      messages: [{ id: 'a', role: 'assistant', at: 1, items: [{ id: 'p', type: 'permission', text: '', permissionState: 'pending' }] }] })
+    useAgent.setState({ chats: {} })
+    await useAgent.getState().loadChat('chat-test')
+    const restored = useAgent.getState().chats['chat-test']
+    expect(restored.permissionMode).toBe('workspace-write')
+    expect(restored.messages[0].items![0].permissionState).toBe('expired')
+    expect(restored.messages[0].durationMs).toBeUndefined()
+  })
+})
+
+it('keeps tool results after an intervening permission card and later text in event order', async () => {
+  await useAgent.getState().sendMessage('chat-test', { text: 'run', mentions: [] })
+  const active = useAgent.getState().chats['chat-test']
+  const events = [
+    { kind: 'toolStart', itemId: 'cmd', title: 'pwd' },
+    { kind: 'permissionRequest', itemId: 'p', requestId: 'p', operation: 'command', detail: 'pwd', reason: '' },
+    { kind: 'toolOutputDelta', itemId: 'cmd', text: 'first' },
+    { kind: 'textDelta', itemId: 'comment', text: 'Meanwhile' },
+    { kind: 'toolOutputDelta', itemId: 'cmd', text: ' second' },
+    { kind: 'toolEnd', itemId: 'cmd', ok: true, output: 'first second' },
+  ] as const
+  events.forEach((event, i) => useAgent.getState().applyEvent({ chatId: active.id, runId: active.activeRunId!, sequence: i + 1, event }))
+  const items = useAgent.getState().chats[active.id].messages.at(-1)!.items!
+  expect(items.map(item => item.id)).toEqual(['cmd', 'p', 'cmd-output-3', 'comment', 'cmd-output-5'])
+  expect(items.filter(item => item.type === 'tool-output').map(item => item.text).join('')).toBe('first second')
 })

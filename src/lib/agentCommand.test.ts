@@ -22,3 +22,9 @@ it('keeps a permissions-only read-only query on the requested topic', () => {
   expect(prompt).toContain('Explain this function')
   expect(prompt).not.toContain('return the final decision-ready plan')
 })
+
+it('preserves user whitespace and indentation when normalizing plain text and command bodies', () => {
+  const text = '  first\n    nested\n'
+  expect(normalizeAgentDraft({ text, mentions: [] }).text).toBe(text)
+  expect(normalizeAgentDraft({ text: '/plan\n' + text, mentions: [] }).text).toBe(text)
+})

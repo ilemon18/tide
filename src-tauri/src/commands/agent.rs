@@ -4,13 +4,13 @@
 //! window, quitting, disabling the feature or pressing Stop always reaps it.
 
 use std::collections::HashMap;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{sync_channel, RecvTimeoutError};
+use std::sync::mpsc::{sync_channel, RecvTimeoutError, SyncSender};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use tauri::{AppHandle, Emitter, Manager, State};
 
@@ -51,31 +51,31 @@ pub struct AgentTurn {
     run_id: String,
     pid: Option<u32>,
     pub cancelled: Arc<AtomicBool>,
+    transport: Arc<parking_lot::Mutex<agent::transport::Transport>>,
+    events: SyncSender<AgentEvent>,
 }
 
 impl AgentTurn {
     pub fn kill(&self) {
-        let Some(pid) = self.pid else {
-            return;
-        };
-        #[cfg(unix)]
-        unsafe {
-            // The CLI is the session leader (setsid), so its process group id is its pid.
-            // A wrapper such as a node shim starts children that must go too.
-            let pgid = -(pid as i32);
-            libc::kill(pgid, libc::SIGHUP);
-            libc::kill(pgid, libc::SIGTERM);
-            libc::kill(pgid, libc::SIGKILL);
-        }
-        #[cfg(windows)]
-        {
-            let _ = crate::proc::command("taskkill")
-                .args(["/T", "/F", "/PID", &pid.to_string()])
-                .stdin(Stdio::null())
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .status();
-        }
+        if let Some(mut transport) = self.transport.try_lock() { transport.interrupt(); }
+        if let Some(pid) = self.pid { kill_process_group(pid); }
+    }
+}
+
+fn kill_process_group(pid: u32) {
+    #[cfg(unix)]
+    unsafe {
+        // setsid makes the CLI the group leader; wrappers' children must be reaped too.
+        let pgid = -(pid as i32);
+        libc::kill(pgid, libc::SIGHUP);
+        libc::kill(pgid, libc::SIGTERM);
+        libc::kill(pgid, libc::SIGKILL);
+    }
+    #[cfg(windows)]
+    {
+        let _ = crate::proc::command("taskkill")
+            .args(["/T", "/F", "/PID", &pid.to_string()])
+            .stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status();
     }
 }
 
@@ -165,7 +165,7 @@ pub fn agent_send(
     if matches!(request.session_action, agent::AgentSessionAction::Fork)
         && !providers::supports_fork(Path::new(&command), &request.provider)
     {
-        return Err(AppError::c("agent.unsupported"));
+        return Err(AppError::p("agent.protocolUpgrade", [("provider", request.provider.clone()), ("detail", "Native fork is unavailable.".into())]));
     }
     let launch = match request.provider.as_str() {
         "claude" => agent::claude::launch(Path::new(&command), &request, &root),
@@ -211,11 +211,12 @@ pub fn agent_send(
         }
     }
 
+    let started = Instant::now();
     let mut child = cmd
         .spawn()
         .map_err(|e| AppError::p("agent.spawnFailed", [("error", e.to_string())]))?;
     let pid = Some(child.id());
-    let mut stdin = child
+    let stdin = child
         .stdin
         .take()
         .ok_or_else(|| AppError::p("agent.spawnFailed", [("error", "stdio".into())]))?;
@@ -225,6 +226,13 @@ pub fn agent_send(
         .ok_or_else(|| AppError::p("agent.spawnFailed", [("error", "stdio".into())]))?;
     let stderr = child.stderr.take();
 
+    let transport = Arc::new(parking_lot::Mutex::new(agent::transport::Transport::new(stdin, request.clone(), prompt)));
+    if let Err(error) = transport.lock().start() {
+        kill_process_group(child.id());
+        let _ = child.wait();
+        return Err(error);
+    }
+    let (tx, rx) = sync_channel::<AgentEvent>(256);
     let cancelled = Arc::new(AtomicBool::new(false));
     turns.insert(
         request.chat_id.clone(),
@@ -233,14 +241,11 @@ pub fn agent_send(
             run_id: request.run_id.clone(),
             pid,
             cancelled: cancelled.clone(),
+            transport: transport.clone(),
+            events: tx.clone(),
         }),
     );
     drop(turns);
-
-    // The prompt goes over stdin: no argv limit, and nothing visible in the process list.
-    let _ = stdin.write_all(prompt.as_bytes());
-    let _ = stdin.flush();
-    drop(stdin);
 
     let chat_id = request.chat_id.clone();
     let provider_id = request.provider.clone();
@@ -253,7 +258,7 @@ pub fn agent_send(
         sequence: Arc::new(parking_lot::Mutex::new(0)),
     };
     if let Some(stderr) = stderr {
-        let events = events.clone();
+        let stderr_tx = tx.clone();
         std::thread::spawn(move || {
             let reader = BufReader::new(stderr);
             let mut emitted = 0usize;
@@ -264,18 +269,30 @@ pub fn agent_send(
                     continue;
                 }
                 emitted += 1;
-                events.emit(AgentEvent::Stderr { text: line });
+                if stderr_tx.send(AgentEvent::Stderr { text: line }).is_err() { break; }
             }
         });
     }
 
-    let (tx, rx) = sync_channel::<AgentEvent>(256);
+    // Bound handshake hangs without imposing a deadline on long model/tool executions.
+    let (watchdog_stop_tx, watchdog_stop_rx) = sync_channel::<()>(1);
+    let watchdog_transport = Arc::downgrade(&transport);
+    let watchdog_turn = state.agent_turns.lock().get(&request.chat_id).map(Arc::downgrade);
+    std::thread::spawn(move || {
+        if watchdog_stop_rx.recv_timeout(Duration::from_secs(60)).is_ok() { return; }
+        if let (Some(transport), Some(turn)) = (watchdog_transport.upgrade(), watchdog_turn.and_then(|turn| turn.upgrade())) {
+            let timed_out = { let control = transport.lock(); !control.ready && control.finished.is_none() };
+            if timed_out { turn.kill(); }
+        }
+    });
+    let turn = state.agent_turns.lock().get(&request.chat_id).cloned();
     let cancel_flag = cancelled.clone();
     std::thread::spawn(move || {
         let mut reader = BufReader::new(stdout);
         let mut line = String::new();
         let mut claude_state = agent::claude::State::with_model(claude_model);
         let mut codex_state = agent::codex::State::default();
+        let parsed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         'read: loop {
             line.clear();
             match reader.read_line(&mut line) {
@@ -285,20 +302,38 @@ pub fn agent_send(
                     if text.is_empty() {
                         continue;
                     }
+                    let value = serde_json::from_str::<serde_json::Value>(text).ok();
+                    if let Some(value) = value.as_ref() {
+                        let control = transport.lock().receive(value);
+                        match control {
+                            Ok(events) => {
+                                if !events.is_empty() {
+                                    let buffered = if provider_id == "claude" { agent::claude::flush(&mut claude_state) } else { agent::codex::flush(&mut codex_state) };
+                                    for event in buffered { if tx.send(event).is_err() { break 'read; } }
+                                }
+                                for event in events { if tx.send(event).is_err() { break 'read; } }
+                            },
+                            Err(error) => {
+                                let _ = tx.send(AgentEvent::Failure { error: serde_json::to_value(error).unwrap_or_default() });
+                                break 'read;
+                            }
+                        }
+                    }
                     let events = if provider_id == "claude" {
                         agent::claude::translate(text, &mut claude_state)
                     } else {
                         agent::codex::translate(text, &mut codex_state)
                     };
                     for event in events {
-                        if tx.send(event).is_err() {
-                            break 'read;
-                        }
+                        if tx.send(event).is_err() { break 'read; }
                     }
+                    if transport.lock().finished.is_some() { break 'read; }
                 }
                 Err(_) => break,
             }
         }
+        }));
+        if parsed.is_err() { transport.lock().finished = Some(false); }
         let events = if provider_id == "claude" {
             agent::claude::flush(&mut claude_state)
         } else {
@@ -309,21 +344,31 @@ pub fn agent_send(
                 break;
             }
         }
+        let native_result = transport.lock().finished;
+        if native_result.is_none() && !cancel_flag.load(Ordering::Relaxed) {
+            let error = AppError::p("agent.protocolUpgrade", [("provider", provider_id.clone()),
+                ("detail", "Stream ended before a final turn result; update the local CLI and retry.".into())]);
+            let _ = tx.send(AgentEvent::Failure { error: serde_json::to_value(error).unwrap_or_default() });
+        }
+        let duration_ms = started.elapsed().as_millis().min(u64::MAX as u128) as u64;
+        let completed_at = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis().min(u64::MAX as u128) as u64;
+        let _ = watchdog_stop_tx.send(());
+        // EOF lets the provider flush native session state; a bounded grace period still reaps wrappers.
+        transport.lock().close();
+        let shutdown = Instant::now();
+        while shutdown.elapsed() < Duration::from_millis(500) {
+            if !matches!(child.try_wait(), Ok(None)) { break; }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        if let Some(turn) = turn { turn.kill(); }
         let status = child.wait();
-        let ok = status
-            .as_ref()
-            .map(|status| status.success())
-            .unwrap_or(false);
         let cancelled = cancel_flag.load(Ordering::Relaxed);
-        let code = if ok {
-            None
-        } else {
-            status.ok().and_then(|status| status.code())
-        };
         let _ = tx.send(AgentEvent::Done {
-            ok: ok && !cancelled,
+            ok: native_result == Some(true) && !cancelled,
             cancelled,
-            code,
+            code: if native_result.is_some() { None } else { status.ok().and_then(|status| status.code()) },
+            duration_ms,
+            completed_at,
         });
     });
 
@@ -366,6 +411,7 @@ pub fn agent_send(
                         release_turn(&app_for_events, &chat_id, &events.run_id);
                     }
                     events.emit(event);
+                    if saw_done { break; }
                 }
                 Err(RecvTimeoutError::Timeout) => emit_pending(&mut pending),
                 Err(RecvTimeoutError::Disconnected) => break,
@@ -379,6 +425,8 @@ pub fn agent_send(
                 ok: false,
                 cancelled: false,
                 code: None,
+                duration_ms: started.elapsed().as_millis().min(u64::MAX as u128) as u64,
+                completed_at: SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis().min(u64::MAX as u128) as u64,
             });
         }
         // Done already released this turn before notifying the view. Never remove a newer turn.
@@ -388,13 +436,32 @@ pub fn agent_send(
 }
 
 #[tauri::command]
-pub fn agent_cancel(state: State<'_, AppState>, chat_id: String) -> AppResult<()> {
+pub fn agent_cancel(window: tauri::Window, state: State<'_, AppState>, chat_id: String) -> AppResult<()> {
     let turn = state.agent_turns.lock().get(&chat_id).cloned();
     if let Some(turn) = turn {
+        if turn.owner != window.label() { return Err(AppError::c("agent.permissionExpired")); }
         turn.cancelled.store(true, Ordering::Relaxed);
         turn.kill();
     }
     Ok(())
+}
+
+fn validate_permission_owner(owner: &str, active_run: &str, cancelled: bool, window: &str, run_id: &str) -> AppResult<()> {
+    if owner != window || active_run != run_id || cancelled { Err(AppError::c("agent.permissionExpired")) } else { Ok(()) }
+}
+
+#[tauri::command(async)]
+pub fn agent_permission_respond(
+    window: tauri::Window, state: State<'_, AppState>, chat_id: String,
+    run_id: String, request_id: String, allow: bool,
+) -> AppResult<()> {
+    let turn = state.agent_turns.lock().get(&chat_id).cloned()
+        .ok_or_else(|| AppError::c("agent.permissionExpired"))?;
+    validate_permission_owner(&turn.owner, &turn.run_id, turn.cancelled.load(Ordering::Relaxed), window.label(), &run_id)?;
+    // Keep the reader behind this decision until the ordered event is queued.
+    let mut control = turn.transport.lock();
+    let event = control.respond(&request_id, allow)?;
+    turn.events.send(event).map_err(|_| AppError::c("agent.permissionExpired"))
 }
 
 #[tauri::command(async)]
@@ -525,4 +592,16 @@ pub fn agent_estimate_tokens(
         .iter()
         .fold(0usize, |total, item| total.saturating_add(item.tokens));
     Ok(TokenEstimate { total, breakdown })
+}
+
+#[cfg(test)]
+mod permission_tests {
+    use super::validate_permission_owner;
+    #[test]
+    fn responses_require_the_owning_window_and_current_uncancelled_run() {
+        assert!(validate_permission_owner("window-a", "run-1", false, "window-a", "run-1").is_ok());
+        assert!(validate_permission_owner("window-a", "run-1", false, "window-b", "run-1").is_err());
+        assert!(validate_permission_owner("window-a", "run-1", false, "window-a", "run-old").is_err());
+        assert!(validate_permission_owner("window-a", "run-1", true, "window-a", "run-1").is_err());
+    }
 }

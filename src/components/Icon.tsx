@@ -9,6 +9,8 @@ export type IconName =
   | 'terminal-panel'
   | 'search'
   | 'eye'
+  | 'edit'
+  | 'unlock'
   | 'home'
   | 'chevron-right'
   | 'chevron-down'
@@ -143,6 +145,8 @@ const shapes: Record<IconName, ReactNode> = {
       <path d="M15.5 15.5 20 20" />
     </>
   ),
+  edit: <><path d="m15 4 5 5M4 20l4-1L20 7a2 2 0 0 0-5-5L3 14z" /></>,
+  unlock: <><rect x="4" y="10" width="16" height="11" rx="2" /><path d="M8 10V6a4 4 0 0 1 8 0M12 14v3" /></>,
   eye: (
     <>
       <path d="M2.8 12S6.4 6.4 12 6.4 21.2 12 21.2 12 17.6 17.6 12 17.6 2.8 12 2.8 12Z" />

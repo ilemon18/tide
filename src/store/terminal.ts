@@ -21,6 +21,8 @@ type TerminalStore = {
   tabs: TerminalTab[]
   activeId: string | null
   visible: boolean
+  maximized: boolean
+  setMaximized: (maximized: boolean) => void
 
   open: (root?: string | null, rel?: string) => string
   /** Close a terminal tab: the UI goes away, shell and its process group end with it */
@@ -120,6 +122,8 @@ export const useTerminal = create<TerminalStore>((set, get) => ({
   tabs: [],
   activeId: null,
   visible: false,
+  maximized: false,
+  setMaximized: (maximized) => set({ maximized }),
 
   open: (root, rel = '') => {
     // No root means "open in the current project"; only an explicit null means no project
@@ -145,7 +149,7 @@ export const useTerminal = create<TerminalStore>((set, get) => ({
     const tabs = get().tabs.filter((t) => t.id !== id)
     const activeId = get().activeId === id ? (tabs[tabs.length - 1]?.id ?? null) : get().activeId
     // Closing the last terminal collapses the panel instead of leaving an empty shell
-    if (tabs.length === 0) set({ tabs, activeId: null, visible: false })
+    if (tabs.length === 0) set({ tabs, activeId: null, visible: false, maximized: false })
     else set({ tabs, activeId })
 
     if (tab?.ptyId) {
@@ -169,12 +173,12 @@ export const useTerminal = create<TerminalStore>((set, get) => ({
         api.ptyClose(ptyId).catch((e) => console.error(errorText(e)))
       }, 0)
     }
-    set({ tabs: [], activeId: null, visible: false })
+    set({ tabs: [], activeId: null, visible: false, maximized: false })
   },
 
   activate: (id) => set({ activeId: id }),
 
-  setVisible: (visible) => set({ visible }),
+  setVisible: (visible) => set({ visible, ...(visible ? {} : { maximized: false }) }),
 
   toggle: () => {
     const state = get()
@@ -184,7 +188,7 @@ export const useTerminal = create<TerminalStore>((set, get) => ({
     } else {
       // Collapsing only hides it: the shell keeps running and the xterm instance stays mounted,
       // so reopening shows the same screen (use the tab's × to end the process)
-      set({ visible: false })
+      set({ visible: false, maximized: false })
     }
   },
 

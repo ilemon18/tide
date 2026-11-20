@@ -4,9 +4,10 @@ import { useUi } from '../store/ui'
 import { t, useT } from '../i18n'
 import { AgentProviderIcon } from './AgentProviderIcon'
 import { ContextMenu, type MenuItem } from './ContextMenu'
+import type { AgentPermissionMode } from '../lib/ipc'
 import { Icon } from './Icon'
 
-export type PickerOption = { id: string; label: string }
+export type PickerOption = { id: string; label: string; description?: string }
 
 /** Reasoning-level ids are the CLIs' own vocabulary; translate the levels we know. */
 const EFFORT_KEYS = {
@@ -56,6 +57,7 @@ export function Picker({
   const current = options.find((option) => option.id === value)
   const items: MenuItem[] = options.map((option) => ({
     label: option.label,
+    description: option.description,
     disabled: option.id === value,
     onClick: () => onPick(option.id),
   }))
@@ -153,6 +155,7 @@ export function ModelPicker({
   return (
     <Picker
       label={t('agent.picker.model')}
+      hideLabel
       tip={t('agent.picker.modelTip')}
       value={value}
       options={options}
@@ -205,6 +208,7 @@ export function EffortPicker({
   return (
     <Picker
       label={t('agent.picker.complexity')}
+      hideLabel
       tip={t('agent.picker.complexityTip')}
       value={value}
       options={options}
@@ -212,4 +216,16 @@ export function EffortPicker({
       disabled={disabled}
     />
   )
+}
+
+export function PermissionPicker({ provider, value, onPick, disabled }: {
+  provider: string; value: AgentPermissionMode; onPick: (mode: AgentPermissionMode) => void; disabled?: boolean
+}) {
+  const t = useT()
+  const modes = ['read-only', 'workspace-write', 'full-access'] as const
+  return <Picker label={t('agent.local.permissions.label')} value={value}
+    buttonLabel={t(`agent.permission.${value}`)}
+    trigger={<Icon name={value === 'read-only' ? 'eye' : value === 'full-access' ? 'unlock' : 'edit'} size={15} />}
+    options={modes.map(mode => ({ id: mode, label: t(`agent.permission.${mode}`), description: t(`agent.permission.${provider === 'claude' ? 'claude' : 'codex'}.${mode}`) }))}
+    onPick={mode => onPick(mode as AgentPermissionMode)} disabled={disabled} />
 }

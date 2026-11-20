@@ -1,9 +1,6 @@
-//! Codex over `codex exec --json` (JSONL events), one process per user turn.
-//!
-//! A follow-up resumes the thread id the first turn printed. Sandbox and approval policy are
-//! config overrides, which both `exec` and `exec resume` accept.
+//! Codex app-server notifications. Legacy JSONL fixtures remain readable for compatibility tests.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use serde_json::Value;
@@ -11,53 +8,22 @@ use serde_json::Value;
 use super::question::{self, Piece};
 use super::{AgentEvent, AgentSessionAction, AgentTurnRequest, AgentUsage, Launch};
 
-pub fn launch(program: &Path, request: &AgentTurnRequest, root: &Path) -> Launch {
-    let session = request.session_id.as_deref().filter(|id| !id.is_empty());
-    let mut args: Vec<String> = vec!["exec".into()];
-    let existing_session = match request.session_action {
-        AgentSessionAction::New => None,
-        AgentSessionAction::Resume => session.map(|thread| ("resume", thread)),
-        AgentSessionAction::Fork => session.map(|thread| ("fork", thread)),
+pub fn launch(program: &Path, request: &AgentTurnRequest, _root: &Path) -> Launch {
+    let mode = match request.permission() {
+        super::AgentPermissionMode::ReadOnly => "read-only",
+        super::AgentPermissionMode::WorkspaceWrite => "workspace-write",
+        super::AgentPermissionMode::FullAccess => "danger-full-access",
     };
-    if let Some((action, thread)) = existing_session {
-        args.push(action.into());
-        args.push(thread.to_string());
-    }
-    args.push("--json".into());
-    // Accepted by both `exec` and `exec resume`; a workspace does not have to be a git repo
-    args.push("--skip-git-repo-check".into());
-    if existing_session.is_none() {
-        // `exec resume` takes the cwd from the process and does not accept -C
-        args.push("-C".into());
-        args.push(root.to_string_lossy().to_string());
-    }
-    if let Some(model) = request.model.as_deref().filter(|m| !m.is_empty()) {
-        args.push("-m".into());
-        args.push(model.to_string());
-    }
-    if let Some(effort) = request.effort.as_deref().filter(|e| !e.is_empty()) {
-        args.push("-c".into());
-        args.push(format!("model_reasoning_effort=\"{effort}\""));
-    }
-    args.push("-c".into());
-    args.push(if request.read_only {
-        "sandbox_mode=\"read-only\"".into()
-    } else {
-        "sandbox_mode=\"workspace-write\"".into()
-    });
-    args.push("-c".into());
-    args.push("approval_policy=\"never\"".into());
-    // Prompt over stdin: no argv length limit, and it does not show up in `ps`
-    args.push("-".into());
-    Launch {
-        program: program.to_path_buf(),
-        args,
-    }
+    Launch { program: program.to_path_buf(), args: vec!["app-server".into(), "--listen".into(), "stdio://".into(),
+        "-c".into(), format!("sandbox_mode=\"{mode}\"")] }
 }
 
 #[derive(Default)]
 pub struct State {
     seen: HashSet<String>,
+    raw_text: HashMap<String, String>,
+    output_bytes: HashMap<String, usize>,
+    completed: HashSet<String>,
     questions: question::Parser,
     seq: u64,
     /// Last window reported by `token_count`; later usage-only events keep it for this turn.
@@ -137,7 +103,7 @@ fn clip(value: &str) -> String {
     while end > 0 && !value.is_char_boundary(end) {
         end -= 1;
     }
-    format!("{}…", &value[..end])
+    format!("{}\n… [output truncated at 64 KiB]", &value[..end])
 }
 
 fn item_title(item: &Value) -> String {
@@ -392,6 +358,15 @@ fn usage_from_event(value: &Value, state: &mut State) -> Option<(AgentUsage, Opt
 }
 
 pub fn translate(line: &str, state: &mut State) -> Vec<AgentEvent> {
+    if let Ok(value) = serde_json::from_str::<Value>(line) {
+        if value.get("method").is_some() || value.get("id").is_some() {
+            return translate_server(&value, state);
+        }
+    }
+    translate_legacy(line, state)
+}
+
+fn translate_legacy(line: &str, state: &mut State) -> Vec<AgentEvent> {
     let value: Value = match serde_json::from_str(line) {
         Ok(value) => value,
         Err(_) => return vec![AgentEvent::Stderr { text: line.to_string() }],
@@ -516,6 +491,120 @@ pub fn translate(line: &str, state: &mut State) -> Vec<AgentEvent> {
     out
 }
 
+/// Public text/reasoning and command output are consumed as deltas; completed snapshots replace them.
+fn translate_server(value: &Value, state: &mut State) -> Vec<AgentEvent> {
+    let method = value["method"].as_str().unwrap_or_default();
+    let p = &value["params"];
+    let id = p["itemId"].as_str().unwrap_or_default();
+    let delta = p["delta"].as_str().unwrap_or_default();
+    let mut out = Vec::new();
+    match method {
+        "item/agentMessage/delta" => {
+            if state.completed.contains(id) { return out; }
+            if !state.raw_text.contains_key(id) {
+                out.extend(flush(state));
+                state.text_id = Some(id.into());
+            }
+            state.raw_text.entry(id.into()).or_default().push_str(delta);
+            let pieces = state.questions.push(delta);
+            out.extend(piece_events(pieces, id, state));
+        }
+        "item/reasoning/summaryTextDelta" | "item/reasoning/textDelta" => {
+            if state.completed.contains(id) { return out; }
+            out.extend(flush(state));
+            let summary = method.contains("summary");
+            let index = p[if summary { "summaryIndex" } else { "contentIndex" }].as_u64().unwrap_or(0);
+            let key = format!("{id}-{}-{index}", if summary { "summary" } else { "content" });
+            state.raw_text.entry(key.clone()).or_default().push_str(delta);
+            out.push(AgentEvent::Thinking { item_id: key, text: delta.into() });
+        }
+        "item/commandExecution/outputDelta" | "item/fileChange/outputDelta" => {
+            if state.completed.contains(id) { return out; }
+            out.extend(flush(state));
+            let bytes = state.output_bytes.entry(id.into()).or_default();
+            if *bytes < 64 * 1024 {
+                let mut end = delta.len().min(64 * 1024 - *bytes);
+                while !delta.is_char_boundary(end) { end -= 1; }
+                *bytes += end;
+                let text = if end < delta.len() { *bytes = 64 * 1024; format!("{}\n… [output truncated at 64 KiB]", &delta[..end]) } else { delta.into() };
+                out.push(AgentEvent::ToolOutputDelta { item_id: id.into(), text });
+            }
+        }
+        "item/started" | "item/completed" => {
+            let item = &p["item"];
+            let id = item["id"].as_str().unwrap_or_default();
+            let kind = item["type"].as_str().unwrap_or_default();
+            let completed = method == "item/completed";
+            if id.is_empty() || state.completed.contains(id) { return out; }
+            if !matches!(kind, "agentMessage" | "plan") { out.extend(flush(state)); }
+            match kind {
+                "agentMessage" | "plan" => {
+                    if completed {
+                        let text = item["text"].as_str().unwrap_or_default();
+                        let previous = state.raw_text.remove(id).unwrap_or_default();
+                        if previous.is_empty() { state.text_id = Some(id.into()); }
+                        if let Some(suffix) = text.strip_prefix(&previous) {
+                            let pieces = state.questions.push(suffix);
+                            out.extend(piece_events(pieces, id, state));
+                            out.extend(flush(state));
+                        }
+                        // Questions split a source item into multiple ordered UI items; don't restore markers.
+                        let has_marker = text.contains(question::QUESTION_START) || previous.contains(question::QUESTION_START);
+                        out.push(AgentEvent::ItemComplete { item_id: id.into(), text: (!has_marker).then(|| text.into()) });
+                        state.text_id = None;
+                    }
+                }
+                "reasoning" => {
+                    if completed {
+                        for field in ["summary", "content"] {
+                            if let Some(parts) = item[field].as_array() {
+                                for (index, part) in parts.iter().enumerate() {
+                                    let key = format!("{id}-{field}-{index}");
+                                    let text = part.as_str().unwrap_or_default();
+                                    if !state.raw_text.contains_key(&key) { out.push(AgentEvent::Thinking { item_id: key.clone(), text: text.into() }); }
+                                    out.push(AgentEvent::ItemComplete { item_id: key, text: Some(text.into()) });
+                                }
+                            }
+                        }
+                    }
+                }
+                "userMessage" => {}
+                _ => {
+                    let title = item["command"].as_str().or_else(|| item["path"].as_str())
+                        .or_else(|| item["changes"][0]["path"].as_str()).or_else(|| item["tool"].as_str())
+                        .or_else(|| item["query"].as_str()).unwrap_or(kind).to_string();
+                    if state.seen.insert(id.into()) { out.push(AgentEvent::ToolStart { item_id: id.into(), title }); }
+                    if let Some(input) = item.get("arguments").or_else(|| item.get("changes")) {
+                        out.push(AgentEvent::ToolDetail { item_id: id.into(), detail: clip(&input.to_string()) });
+                    }
+                    if completed {
+                        let output = item["aggregatedOutput"].as_str().map(clip).or_else(||
+                            item.get("result").filter(|v| !v.is_null()).or_else(|| item.get("error").filter(|v| !v.is_null())).map(|v| clip(&v.to_string())));
+                        let ok = !matches!(item["status"].as_str(), Some("failed" | "declined")) && item["exitCode"].as_i64().unwrap_or(0) == 0;
+                        out.push(AgentEvent::ToolEnd { item_id: id.into(), ok, output });
+                    }
+                }
+            }
+            if completed { state.completed.insert(id.into()); }
+        }
+        "thread/tokenUsage/updated" => {
+            let usage = &p["tokenUsage"];
+            let window = usage["modelContextWindow"].as_u64().filter(|v| *v > 0);
+            let context = usage["last"]["totalTokens"].as_u64();
+            out.push(AgentEvent::Usage { usage: usage_from_tokens(&usage["last"], context, window),
+                session_usage: Some(usage_from_tokens(&usage["total"], None, window)) });
+        }
+        "turn/completed" | "error" => {
+            out.extend(flush(state));
+            if let Some(error) = p["turn"]["error"]["message"].as_str().or_else(|| p["error"]["message"].as_str()) {
+                out.push(AgentEvent::Notice { text: error.into() });
+            }
+        }
+        _ => {}
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -534,6 +623,7 @@ mod tests {
             prompt: "hi".into(),
             mentions: Vec::new(),
             read_only,
+            permission_mode: super::super::AgentPermissionMode::WorkspaceWrite,
         }
     }
 
@@ -551,6 +641,36 @@ mod tests {
             r#"{"header":"Decision","question":"Which option?","multiSelect":true,"options":[{"label":"A","description":"First"},{"label":"B","description":"Second"}]}"#,
             question::QUESTION_END
         )
+    }
+
+    #[test]
+    fn app_server_deltas_precede_snapshots_without_duplicate_text() {
+        let mut state = State::default();
+        let delta = translate(r#"{"method":"item/agentMessage/delta","params":{"itemId":"a","delta":"你好🙂"}}"#, &mut state);
+        assert!(matches!(&delta[0], AgentEvent::TextDelta { text, .. } if text == "你好🙂"));
+        let snapshot = r#"{"method":"item/completed","params":{"item":{"id":"a","type":"agentMessage","text":"你好🙂!"}}}"#;
+        let events = translate(snapshot, &mut state);
+        assert!(events.iter().any(|e| matches!(e, AgentEvent::TextDelta { text, .. } if text == "!")));
+        assert!(events.iter().any(|e| matches!(e, AgentEvent::ItemComplete { text: Some(text), .. } if text == "你好🙂!")));
+        assert!(translate(snapshot, &mut state).is_empty());
+    }
+
+    #[test]
+    fn app_server_streams_reasoning_and_command_output_and_calibrates_final_output() {
+        let mut state = State::default();
+        let events = translate(r#"{"method":"item/reasoning/summaryTextDelta","params":{"itemId":"r","summaryIndex":0,"delta":"Inspect"}}"#, &mut state);
+        assert!(matches!(&events[0], AgentEvent::Thinking { text, .. } if text == "Inspect"));
+        let events = translate(r#"{"method":"item/commandExecution/outputDelta","params":{"itemId":"cmd","delta":"first\n"}}"#, &mut state);
+        assert!(matches!(&events[0], AgentEvent::ToolOutputDelta { text, .. } if text == "first\n"));
+        let events = translate(r#"{"method":"item/completed","params":{"item":{"id":"cmd","type":"commandExecution","command":"pwd","status":"completed","exitCode":0,"aggregatedOutput":"first\nlast"}}}"#, &mut state);
+        assert!(events.iter().any(|e| matches!(e, AgentEvent::ToolEnd { output: Some(text), ok: true, .. } if text == "first\nlast")));
+    }
+
+    #[test]
+    fn app_server_usage_keeps_explicit_zero_context() {
+        let mut state = State::default();
+        let events = translate(r#"{"method":"thread/tokenUsage/updated","params":{"tokenUsage":{"last":{"totalTokens":0,"inputTokens":0},"total":{"totalTokens":100},"modelContextWindow":200000}}}"#, &mut state);
+        assert!(matches!(&events[0], AgentEvent::Usage { usage, .. } if usage.context_tokens == Some(0) && usage.context_window == Some(200000)));
     }
 
     #[test]
@@ -583,7 +703,7 @@ mod tests {
             &session_request(AgentSessionAction::New, Some("old-thread")),
             Path::new("/tmp"),
         );
-        assert_eq!(&launch.args[..2], ["exec", "--json"]);
+        assert_eq!(&launch.args[..3], ["app-server", "--listen", "stdio://"]);
         assert!(!launch.args.iter().any(|arg| arg == "resume" || arg == "fork"));
     }
 
@@ -594,7 +714,8 @@ mod tests {
             &session_request(AgentSessionAction::Resume, Some("thread-1")),
             Path::new("/tmp"),
         );
-        assert_eq!(&launch.args[..3], ["exec", "resume", "thread-1"]);
+        assert_eq!(super::super::transport::thread_request(&session_request(AgentSessionAction::Resume, Some("thread-1")))["method"], "thread/resume");
+        assert_eq!(launch.args[0], "app-server");
     }
 
     #[test]
@@ -604,7 +725,8 @@ mod tests {
             &session_request(AgentSessionAction::Fork, Some("thread-1")),
             Path::new("/tmp"),
         );
-        assert_eq!(&launch.args[..3], ["exec", "fork", "thread-1"]);
+        assert_eq!(super::super::transport::thread_request(&session_request(AgentSessionAction::Fork, Some("thread-1")))["method"], "thread/fork");
+        assert_eq!(launch.args[0], "app-server");
     }
 
     #[test]

@@ -4,6 +4,7 @@ export type MenuItem =
   | {
       type?: 'item'
       label: string
+      description?: string
       shortcut?: string
       danger?: boolean
       disabled?: boolean
@@ -74,13 +75,13 @@ export function ContextMenu({ x, y, items, onClose, maxHeight }: Props) {
               onClose()
               item.onClick()
             }}
-            className={`mx-1 flex h-6 w-[calc(100%_-_8px)] items-center justify-between gap-6 rounded-[var(--r-row)] px-2 text-left text-sm transition-colors duration-fast ${
+            className={`mx-1 flex ${item.description ? 'min-h-6 max-w-[340px] py-1.5' : 'h-6'} w-[calc(100%_-_8px)] items-center justify-between gap-6 rounded-[var(--r-row)] px-2 text-left text-sm transition-colors duration-fast ${
               item.disabled
                 ? 'cursor-default text-muted/50'
                 : `hover:bg-hover ${item.danger ? 'text-danger' : 'text-fg'}`
             }`}
           >
-            <span className="truncate">{item.label}</span>
+            <span className="min-w-0"><span className="block truncate">{item.label}</span>{item.description ? <span className="block whitespace-normal text-xs text-muted">{item.description}</span> : null}</span>
             {item.shortcut ? <span className="shrink-0 text-xs text-muted/70">{item.shortcut}</span> : null}
           </button>
         )

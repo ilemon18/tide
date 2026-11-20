@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 import React from 'react'
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
-vi.mock('../store/agent', () => ({ useAgent: (select: (state: unknown) => unknown) => select({ skillsByRoot: {}, skillsLoading: {} }) }))
-vi.mock('../store/fileIndex', () => ({ useFileIndex: Object.assign((select: (state: unknown) => unknown) => select({ byRoot: {}, indexing: {} }), { getState: () => ({ ensure: vi.fn() }) }) }))
+vi.mock('../store/agent', () => ({ useAgent: Object.assign((select: (state: unknown) => unknown) => select({ skillsByRoot: { '/repo': [{ name: 'audit', path: 'skills/audit', source: 'project', description: 'Inspect' }] }, skillsLoading: {} }), { getState: () => ({ loadSkills: vi.fn() }) }) }))
+vi.mock('../store/fileIndex', () => ({ useFileIndex: Object.assign((select: (state: unknown) => unknown) => select({ byRoot: { '/repo': { files: ['src/a.ts'] } }, indexing: {} }), { getState: () => ({ ensure: vi.fn() }) }) }))
 vi.mock('../store/settings', () => ({
   AGENT_COMPOSER_MAX_HEIGHT: 480, AGENT_COMPOSER_MIN_HEIGHT: 60,
   useSettings: (select: (state: unknown) => unknown) => select({ agentComposerHeight: 60 }),
@@ -24,4 +24,80 @@ it('orders context, stop and send and allows a standalone plan toggle', () => {
   expect(buttons.indexOf(screen.getByLabelText('agent.stop'))).toBeLessThan(buttons.indexOf(screen.getByLabelText('agent.queue.send')))
   expect((screen.getByLabelText('agent.queue.send') as HTMLButtonElement).disabled).toBe(false)
   vi.unstubAllGlobals()
+})
+
+function composer(overrides: Partial<React.ComponentProps<typeof AgentComposer>> = {}) {
+  const onSend = vi.fn(), onCommand = vi.fn(), onMentions = vi.fn(), onDraft = vi.fn()
+  render(<AgentComposer root="/repo" draft="hello" mentions={[]} skills={[]} provider="codex" model="" effort=""
+    running={false} onDraft={onDraft} onMentions={onMentions} onCommand={onCommand}
+    onSkills={vi.fn()} onProvider={vi.fn()} onModel={vi.fn()} onEffort={vi.fn()} onStop={vi.fn()}
+    onSend={onSend} {...overrides} />)
+  return { input: screen.getByRole('textbox'), onSend, onCommand, onMentions, onDraft }
+}
+
+it('sends Enter and modifier Enter, keeps Shift+Enter, and ignores repeated Enter', () => {
+  const { input, onSend } = composer()
+  fireEvent.keyDown(input, { key: 'Enter' })
+  fireEvent.keyDown(input, { key: 'Enter', ctrlKey: true })
+  fireEvent.keyDown(input, { key: 'Enter', metaKey: true })
+  fireEvent.keyDown(input, { key: 'Enter', shiftKey: true })
+  fireEvent.keyDown(input, { key: 'Enter', repeat: true })
+  expect(onSend).toHaveBeenCalledTimes(3)
+})
+
+it.each(['中文', '日本語'])('prioritizes %s composition over sends and tag removal including WebKit end ordering', text => {
+  const { input, onSend, onMentions } = composer({ draft: 'hello', mentions: [{ rel: 'a.ts', isDir: false }] })
+  fireEvent.compositionStart(input)
+  fireEvent.change(input, { target: { value: text } })
+  fireEvent.keyDown(input, { key: 'Enter', ctrlKey: true })
+  fireEvent.keyDown(input, { key: 'Backspace' })
+  expect(onMentions).not.toHaveBeenCalled()
+  fireEvent.compositionEnd(input)
+  fireEvent.keyDown(input, { key: 'Enter', metaKey: true })
+  fireEvent.keyDown(input, { key: 'Enter', keyCode: 229 })
+  expect(onSend).not.toHaveBeenCalled()
+})
+
+it('selects a command candidate on Enter before sending', () => {
+  const { input, onSend, onCommand } = composer({ draft: '/plan' })
+  fireEvent.change(input, { target: { value: '/pla', selectionStart: 4 } })
+  fireEvent.keyDown(input, { key: 'Enter' })
+  expect(onCommand).toHaveBeenCalledWith('plan')
+  expect(onSend).not.toHaveBeenCalled()
+  fireEvent.keyDown(input, { key: 'Enter' })
+  expect(onSend).toHaveBeenCalledOnce()
+})
+
+it.each([{ draft: '  ' }, { pendingQuestion: true }, { pendingPlan: true }])('keeps empty and pending-card send guards: %j', options => {
+  const { input, onSend } = composer(options)
+  fireEvent.keyDown(input, { key: 'Enter' })
+  expect(onSend).not.toHaveBeenCalled()
+})
+
+it('uses the same send action to enqueue while running', () => {
+  const { input, onSend } = composer({ running: true })
+  fireEvent.keyDown(input, { key: 'Enter' })
+  expect(onSend).toHaveBeenCalledOnce()
+})
+
+it('ignores native composition flags and keyCode 229 even without composition lifecycle events', () => {
+  const { input, onSend } = composer()
+  fireEvent.keyDown(input, { key: 'Enter', isComposing: true, ctrlKey: true })
+  fireEvent.keyDown(input, { key: 'Enter', keyCode: 229, metaKey: true })
+  expect(onSend).not.toHaveBeenCalled()
+})
+it('does not delete reference tags while composing into an empty draft', () => {
+  const { input, onMentions } = composer({ draft: '', mentions: [{ rel: 'a.ts', isDir: false }] })
+  fireEvent.compositionStart(input)
+  fireEvent.keyDown(input, { key: 'Backspace' })
+  expect(onMentions).not.toHaveBeenCalled()
+})
+it.each(['@src', '$au'])('commits %s completion before sending', value => {
+  const { input, onSend, onMentions } = composer({ draft: value })
+  fireEvent.change(input, { target: { value: value + 'd', selectionStart: value.length } })
+  // Put the caret after the original query to exercise the nearest-token contract.
+  fireEvent.change(input, { target: { value, selectionStart: value.length } })
+  fireEvent.keyDown(input, { key: 'Enter' })
+  expect(onSend).not.toHaveBeenCalled()
+  if (value.startsWith('@')) expect(onMentions).toHaveBeenCalledWith([{ rel: 'src/a.ts', isDir: false }])
 })

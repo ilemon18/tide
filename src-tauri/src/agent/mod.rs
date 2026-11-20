@@ -1,12 +1,9 @@
 //! Built-in agent runtimes.
 //!
-//! Tide does not speak the agents' protocols itself: each turn is a short-lived headless
-//! invocation of a local CLI (`claude -p` / `codex exec`), with a resume id for follow-ups.
-//! That keeps the backend small, survives restarts, and lets the CLIs own auth, models and
-//! their tool loops. The modules here only build arguments, translate their JSONL into one
-//! provider-neutral event stream, and store transcripts.
+//! Rust owns one bidirectional local CLI process per turn, including native approvals.
 
 pub mod claude;
+pub mod transport;
 pub mod codex;
 pub mod providers;
 pub mod question;
@@ -41,6 +38,15 @@ pub struct AgentMention {
     pub is_dir: bool,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum AgentPermissionMode {
+    ReadOnly,
+    #[default]
+    WorkspaceWrite,
+    FullAccess,
+}
+
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentTurnRequest {
@@ -61,6 +67,7 @@ pub struct AgentTurnRequest {
     /// Planning and its question-answer follow-ups must not be able to modify the workspace.
     #[serde(default)]
     pub read_only: bool,
+    pub permission_mode: AgentPermissionMode,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -123,6 +130,31 @@ pub enum AgentEvent {
         item_id: String,
         detail: String,
     },
+    ToolOutputDelta {
+        #[serde(rename = "itemId")]
+        item_id: String,
+        text: String,
+    },
+    ItemComplete {
+        #[serde(rename = "itemId")]
+        item_id: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        text: Option<String>,
+    },
+    PermissionRequest {
+        #[serde(rename = "itemId")]
+        item_id: String,
+        #[serde(rename = "requestId")]
+        request_id: String,
+        operation: String,
+        detail: String,
+        reason: String,
+    },
+    PermissionResolved {
+        #[serde(rename = "requestId")]
+        request_id: String,
+        allowed: bool,
+    },
     ToolEnd {
         #[serde(rename = "itemId")]
         item_id: String,
@@ -142,6 +174,7 @@ pub enum AgentEvent {
         /// Original marker text, also restored separately as ordinary assistant text.
         text: String,
     },
+    Failure { error: serde_json::Value },
     Notice {
         text: String,
     },
@@ -159,6 +192,10 @@ pub enum AgentEvent {
         cancelled: bool,
         /// Process exit code; absent when a signal terminated it
         code: Option<i32>,
+        #[serde(rename = "durationMs")]
+        duration_ms: u64,
+        #[serde(rename = "completedAt")]
+        completed_at: u64,
     },
 }
 
@@ -276,5 +313,11 @@ mod tests {
         assert!(serde_json::from_str::<AgentTurnRequest>(
             r#"{"chatId":"chat-1","runId":"run-1","root":"/tmp","provider":"codex","sessionId":"existing","prompt":"hi"}"#
         ).is_err());
+    }
+}
+
+impl AgentTurnRequest {
+    pub fn permission(&self) -> AgentPermissionMode {
+        if self.read_only { AgentPermissionMode::ReadOnly } else { self.permission_mode }
     }
 }

@@ -5,16 +5,16 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { AgentMessage } from '../store/agent'
 
 const { resolvePlanAction } = vi.hoisted(() => ({ resolvePlanAction: vi.fn() }))
-vi.mock('../store/agent', () => ({ useAgent: { getState: () => ({ resolvePlanAction }) } }))
+vi.mock('../store/agent', () => ({ useAgent: Object.assign((select: (state: unknown) => unknown) => select({ running: {} }), { getState: () => ({ resolvePlanAction }) }) }))
 vi.mock('../store/tabs', () => ({ useTabs: { getState: () => ({}) } }))
 vi.mock('../lib/actions', () => ({ revealInExplorer: vi.fn() }))
 vi.mock('../i18n', () => ({ useT: () => (key: string) => key }))
 vi.mock('./AgentMarkdown', () => ({ AgentMarkdown: ({ text }: { text: string }) => <div>{text}</div> }))
 vi.mock('./AgentTags', () => ({ CommandChip: () => null, SkillChip: () => null }))
-vi.mock('./CopyButton', () => ({ CopyButton: () => null }))
+vi.mock('./CopyButton', () => ({ CopyButton: ({ text, className, label }: { text: string; className: string; label: string }) => label === 'agent.copy.userTurn' ? <button data-testid="user-copy" data-copy={text} className={className} /> : null }))
 vi.mock('./FileIcon', () => ({ FileIcon: () => null }))
 vi.mock('./Icon', () => ({ Icon: () => null }))
-import { AssistantMessage } from './AgentMessage'
+import { AssistantMessage, UserMessage, serializeUserMessage, serializeAssistantMessage, toolCommand, toolPreview } from './AgentMessage'
 
 const planMessage = (resolved = false): AgentMessage => ({
   id: 'reply', role: 'assistant', at: 1, readOnly: true,
@@ -59,4 +59,46 @@ it('disables actions while a turn runs and restores the saved resolved state', (
   rerender(view(planMessage(true)))
   expect(screen.queryAllByRole('button')).toHaveLength(0)
   expect(screen.getByText('agent.plan.resolved')).toBeTruthy()
+})
+
+it('keeps tool previews and public reasoning in source order without details wrappers', () => {
+  const message: AgentMessage = { id: 'stream', role: 'assistant', at: 1, completion: 'completed', durationMs: 1234,
+    items: [
+      { id: 'a', type: 'text', text: 'Before' },
+      { id: 'r', type: 'thinking', text: 'Inspecting files' },
+      { id: 't', type: 'tool', text: '', title: 'Bash', detail: '{"command":"pwd"}', output: 'one\ntwo\nthree\nfour', status: 'ok' },
+      { id: 'b', type: 'text', text: 'After' },
+    ] }
+  const { container, rerender } = render(view(message))
+  expect(container.querySelector('details')).toBeNull()
+  expect(screen.getByText('pwd')).toBeTruthy()
+  expect(screen.getByText('Inspecting files')).toBeTruthy()
+  expect(screen.queryByText(/four/)).toBeNull()
+  expect(screen.getByText('Before').compareDocumentPosition(screen.getByText('pwd')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'agent.output.expand' }))
+  expect(screen.getByText(/four/)).toBeTruthy()
+  rerender(view({ ...message, items: message.items!.map(item => item.id === 't' ? { ...item, output: item.output + '\nfive' } : item) }))
+  expect(screen.getByText(/five/)).toBeTruthy()
+  expect(screen.getByRole('status').textContent).toContain('agent.completion.completed')
+  expect(screen.getByText('After').compareDocumentPosition(screen.getByRole('status')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  expect(serializeAssistantMessage(message)).toContain('four')
+})
+
+it('right-aligns a shrink-wrapped user bubble and keeps indentation and full copy metadata', () => {
+  const message: AgentMessage = { id: 'u', role: 'user', at: 1, text: '  first\n    second\n',
+    mentions: [{ rel: 'src/a.ts', isDir: false }], skills: [{ name: 'audit', path: '/skills/audit', source: 'user' }] }
+  const { container } = render(<UserMessage root="/repo" message={message} />)
+  expect(container.firstElementChild?.className).toContain('ml-auto')
+  expect(container.firstElementChild?.className).toContain('w-fit')
+  expect(screen.getByTestId('user-copy').className).toContain('absolute right-1 top-1')
+  expect(screen.getByTestId('user-copy').className).toContain('pointer-events-none')
+  expect(screen.getByTestId('user-copy').getAttribute('data-copy')).toBe(serializeUserMessage(message))
+  expect(serializeUserMessage(message)).toBe('$audit (/skills/audit)\n@src/a.ts\n  first\n    second\n')
+})
+
+it('extracts command paths and never splits surrogate pairs in previews', () => {
+  expect(toolCommand({ id: 't', type: 'tool', text: '', title: 'Read', detail: '{"file_path":"src/main.rs"}' })).toBe('src/main.rs')
+  const preview = toolPreview('🙂'.repeat(400), 2)
+  expect(preview.clipped).toBe(true)
+  expect(preview.text).toBe('🙂'.repeat(360) + '\n…')
 })

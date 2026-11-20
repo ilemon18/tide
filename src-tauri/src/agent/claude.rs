@@ -1,6 +1,6 @@
 //! Claude Code in `-p --output-format stream-json` mode.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use serde_json::Value;
@@ -19,16 +19,16 @@ pub fn launch(program: &Path, request: &AgentTurnRequest, root: &Path) -> Launch
         "--output-format".into(),
         "stream-json".into(),
         "--include-partial-messages".into(),
-        // Tide has no approval channel. Planning uses Claude's read-only plan mode; ordinary
-        // turns retain the existing bypass because the settings page explains that trust boundary.
+        "--input-format".into(), "stream-json".into(),
+        "--permission-prompt-tool".into(), "stdio".into(),
         "--permission-mode".into(),
-        if request.read_only {
-            "plan".into()
-        } else {
-            "bypassPermissions".into()
+        match request.permission() {
+            super::AgentPermissionMode::ReadOnly => "plan".into(),
+            super::AgentPermissionMode::WorkspaceWrite => "acceptEdits".into(),
+            super::AgentPermissionMode::FullAccess => "bypassPermissions".into(),
         },
     ];
-    if !request.read_only {
+    if request.permission() == super::AgentPermissionMode::FullAccess {
         args.push("--allow-dangerously-skip-permissions".into());
     }
     args.push("--append-system-prompt".into());
@@ -72,6 +72,9 @@ pub struct State {
     tools: HashSet<String>,
     /// Any text delta seen: the assistant event then carries the same text again
     streamed: bool,
+    // Index -> (UI item id, block kind, complete raw bytes received).
+    blocks: HashMap<u64, (String, String, String)>,
+    final_messages: HashSet<String>,
     /// Current session model, initially from the request and refreshed by Claude's init event.
     model: Option<String>,
     /// Input-side usage of the latest individual model message, never result-level accumulated usage.
@@ -157,7 +160,7 @@ fn clip(value: &str) -> String {
     while end > 0 && !value.is_char_boundary(end) {
         end -= 1;
     }
-    format!("{}…", &value[..end])
+    format!("{}\n… [output truncated at 64 KiB]", &value[..end])
 }
 
 fn content_text(content: Option<&Value>) -> String {
@@ -303,9 +306,22 @@ pub fn translate(line: &str, state: &mut State) -> Vec<AgentEvent> {
             match event.get("type").and_then(Value::as_str).unwrap_or_default() {
                 "content_block_start" => {
                     let block = event.get("content_block");
+                    let index = event["index"].as_u64().unwrap_or(0);
                     match block.and_then(|b| b.get("type")).and_then(Value::as_str) {
                         Some("text") => {
                             state.text_id = Some(next_text_id(&mut state.seq));
+                            state.blocks.insert(index, (state.text_id.clone().unwrap_or_default(), "text".into(), String::new()));
+                            if let Some(text) = event["content_block"]["text"].as_str().filter(|s| !s.is_empty()) {
+                                if let Some(block) = state.blocks.get_mut(&index) { block.2.push_str(text); }
+                                out.extend(push_text(state, text));
+                            }
+                        }
+                        Some("thinking") => {
+                            state.seq += 1;
+                            let id = format!("think-{}", state.seq);
+                            let text = event["content_block"]["thinking"].as_str().unwrap_or_default();
+                            state.blocks.insert(index, (id.clone(), "thinking".into(), text.into()));
+                            out.push(AgentEvent::Thinking { item_id: id, text: text.into() });
                         }
                         Some("tool_use") => {
                             let id = block
@@ -317,6 +333,7 @@ pub fn translate(line: &str, state: &mut State) -> Vec<AgentEvent> {
                                 .and_then(Value::as_str)
                                 .unwrap_or("tool");
                             if !id.is_empty() {
+                                state.blocks.insert(index, (id.into(), "tool_use".into(), String::new()));
                                 state.tools.insert(id.to_string());
                                 out.push(AgentEvent::ToolStart {
                                     item_id: id.to_string(),
@@ -328,14 +345,18 @@ pub fn translate(line: &str, state: &mut State) -> Vec<AgentEvent> {
                     }
                 }
                 "content_block_delta" => {
-                    let delta = event.get("delta");
-                    if delta.and_then(|d| d.get("type")).and_then(Value::as_str)
-                        == Some("text_delta")
-                    {
-                        if let (Some(_), Some(text)) = (
-                            state.text_id.as_ref(),
-                            delta.and_then(|d| d.get("text")).and_then(Value::as_str),
-                        ) {
+                    let index = event["index"].as_u64().unwrap_or(0);
+                    let delta = &event["delta"];
+                    let kind = delta["type"].as_str().unwrap_or_default();
+                    let text = delta[if kind == "thinking_delta" { "thinking" } else if kind == "input_json_delta" { "partial_json" } else { "text" }].as_str().unwrap_or_default();
+                    if let Some(block) = state.blocks.get_mut(&index) {
+                        block.2.push_str(text);
+                        let id = block.0.clone();
+                        if kind == "thinking_delta" {
+                            out.push(AgentEvent::Thinking { item_id: id, text: text.into() });
+                        } else if kind == "input_json_delta" {
+                            out.push(AgentEvent::ToolDetail { item_id: id, detail: clip(&block.2) });
+                        } else if kind == "text_delta" {
                             state.streamed = true;
                             out.extend(push_text(state, text));
                         }
@@ -343,9 +364,15 @@ pub fn translate(line: &str, state: &mut State) -> Vec<AgentEvent> {
                 }
                 "content_block_stop" => {
                     out.extend(flush(state));
+                    if let Some(block) = state.blocks.get(&event["index"].as_u64().unwrap_or(0)) {
+                        if block.1 != "tool_use" { out.push(AgentEvent::ItemComplete { item_id: block.0.clone(), text: None }); }
+                    }
                     state.text_id = None;
                 }
                 "message_start" => {
+                    out.extend(flush(state));
+                    state.blocks.clear();
+                    state.streamed = false;
                     if let Some(usage) = event.get("message").and_then(|message| message.get("usage")).and_then(parse_streaming_usage) {
                         state.context_tokens = usage.context_tokens;
                         out.push(AgentEvent::Usage { usage, session_usage: None });
@@ -368,6 +395,9 @@ pub fn translate(line: &str, state: &mut State) -> Vec<AgentEvent> {
             }
         }
         "assistant" => {
+            if let Some(id) = value["message"]["id"].as_str() {
+                if !state.final_messages.insert(id.into()) { return out; }
+            }
             if let Some(usage) = value.get("message").and_then(|message| message.get("usage")).and_then(parse_streaming_usage) {
                 if usage.context_tokens.is_some() { state.context_tokens = usage.context_tokens; }
             }
@@ -381,13 +411,21 @@ pub fn translate(line: &str, state: &mut State) -> Vec<AgentEvent> {
             for (index, block) in blocks.iter().enumerate() {
                 match block.get("type").and_then(Value::as_str).unwrap_or_default() {
                     "text" => {
-                        if state.streamed {
-                            continue;
-                        }
                         if let Some(text) = block.get("text").and_then(Value::as_str) {
-                            state.text_id = Some(next_text_id(&mut state.seq));
-                            out.extend(push_text(state, text));
-                            out.extend(flush(state));
+                            if let Some((id, _, previous)) = state.blocks.get(&(index as u64)).cloned() {
+                                if let Some(suffix) = text.strip_prefix(&previous).filter(|s| !s.is_empty()) {
+                                    state.text_id = Some(id.clone());
+                                    out.extend(push_text(state, suffix));
+                                    out.extend(flush(state));
+                                }
+                                if text != previous && !text.contains(question::QUESTION_START) && !previous.contains(question::QUESTION_START) {
+                                    out.push(AgentEvent::ItemComplete { item_id: id, text: Some(text.into()) });
+                                }
+                            } else {
+                                state.text_id = Some(next_text_id(&mut state.seq));
+                                out.extend(push_text(state, text));
+                                out.extend(flush(state));
+                            }
                             state.text_id = None;
                         }
                     }
@@ -414,12 +452,13 @@ pub fn translate(line: &str, state: &mut State) -> Vec<AgentEvent> {
                         }
                     }
                     "thinking" => {
-                        if let Some(text) = block.get("text").and_then(Value::as_str) {
-                            state.seq += 1;
-                            out.push(AgentEvent::Thinking {
-                                item_id: format!("think-{}-{index}", state.seq),
-                                text: text.to_string(),
-                            });
+                        if let Some(text) = block.get("thinking").or_else(|| block.get("text")).and_then(Value::as_str) {
+                            if let Some((id, _, _)) = state.blocks.get(&(index as u64)) {
+                                out.push(AgentEvent::ItemComplete { item_id: id.clone(), text: Some(text.into()) });
+                            } else {
+                                state.seq += 1;
+                                out.push(AgentEvent::Thinking { item_id: format!("think-{}-{index}", state.seq), text: text.into() });
+                            }
                         }
                     }
                     _ => {}
@@ -508,6 +547,7 @@ mod tests {
             prompt: "hi".into(),
             mentions: Vec::new(),
             read_only,
+            permission_mode: super::super::AgentPermissionMode::WorkspaceWrite,
         }
     }
 
@@ -560,6 +600,30 @@ mod tests {
     }
 
     #[test]
+    fn thinking_and_tool_input_stream_before_the_final_assistant_message() {
+        let mut state = State::default();
+        translate(r#"{"type":"stream_event","event":{"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":""}}}"#, &mut state);
+        let events = translate(r#"{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"分析🙂"}}}"#, &mut state);
+        assert!(matches!(&events[0], AgentEvent::Thinking { text, .. } if text == "分析🙂"));
+        translate(r#"{"type":"stream_event","event":{"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"t","name":"Bash"}}}"#, &mut state);
+        let events = translate(r#"{"type":"stream_event","event":{"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\"command\":\"pwd\"}"}}}"#, &mut state);
+        assert!(matches!(&events[0], AgentEvent::ToolDetail { detail, .. } if detail.contains("pwd")));
+        let final_message = r#"{"type":"assistant","message":{"id":"m","content":[{"type":"thinking","thinking":"分析🙂"},{"type":"tool_use","id":"t","name":"Bash","input":{"command":"pwd"}}]}}"#;
+        let events = translate(final_message, &mut state);
+        assert!(!events.iter().any(|e| matches!(e, AgentEvent::Thinking { .. } | AgentEvent::ToolStart { .. })));
+        assert!(translate(final_message, &mut state).is_empty());
+    }
+
+    #[test]
+    fn full_access_is_explicit_and_planning_overrides_it() {
+        let mut r = request(false);
+        r.permission_mode = super::super::AgentPermissionMode::FullAccess;
+        assert!(launch(Path::new("claude"), &r, Path::new("/tmp")).args.contains(&"bypassPermissions".into()));
+        r.read_only = true;
+        assert!(!launch(Path::new("claude"), &r, Path::new("/tmp")).args.contains(&"bypassPermissions".into()));
+    }
+
+    #[test]
     fn read_only_uses_plan_mode_without_dangerous_permissions() {
         let launch = launch(Path::new("claude"), &request(true), Path::new("/tmp"));
         assert!(launch.args.windows(2).any(|args| {
@@ -573,12 +637,12 @@ mod tests {
     }
 
     #[test]
-    fn writable_turns_keep_existing_claude_permissions() {
+    fn writable_turns_use_controlled_edit_permissions() {
         let launch = launch(Path::new("claude"), &request(false), Path::new("/tmp"));
         assert!(launch.args.windows(2).any(|args| {
-            args[0] == "--permission-mode" && args[1] == "bypassPermissions"
+            args[0] == "--permission-mode" && args[1] == "acceptEdits"
         }));
-        assert!(launch
+        assert!(!launch
             .args
             .iter()
             .any(|arg| arg == "--allow-dangerously-skip-permissions"));

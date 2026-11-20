@@ -1,5 +1,5 @@
 import { type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import type { AgentMention } from '../lib/ipc'
+import type { AgentMention, AgentPermissionMode } from '../lib/ipc'
 import type { AgentCommandId, AgentPromptCommandId, AgentSkillRef, ComposerTrigger } from '../lib/agentCommand'
 import {
   isAgentPromptCommandId,
@@ -20,7 +20,7 @@ import {
 import { useT } from '../i18n'
 import { FileIcon } from './FileIcon'
 import { Icon } from './Icon'
-import { AgentPicker, EffortPicker, ModelPicker } from './AgentPickers'
+import { AgentPicker, EffortPicker, ModelPicker, PermissionPicker } from './AgentPickers'
 import { COMMAND_DESCRIPTIONS, CommandChip, SkillChip, commandLabel } from './AgentTags'
 
 type Props = {
@@ -33,6 +33,8 @@ type Props = {
   provider: string
   model: string
   effort: string
+  permissionMode?: AgentPermissionMode
+  onPermission?: (mode: AgentPermissionMode) => void
   running: boolean
   disabled?: boolean
   /** An unanswered structured question owns the next turn */
@@ -108,6 +110,8 @@ export function AgentComposer({
   provider,
   model,
   effort,
+  permissionMode = 'workspace-write',
+  onPermission,
   running,
   disabled,
   pendingQuestion,
@@ -126,6 +130,8 @@ export function AgentComposer({
   onStop,
 }: Props) {
   const t = useT()
+  const composingRef = useRef(false)
+  const compositionEndedAt = useRef(-Infinity)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const [trigger, setTrigger] = useState<ComposerTrigger | null>(null)
   const [highlight, setHighlight] = useState(0)
@@ -263,7 +269,7 @@ export function AgentComposer({
   // `/plan` typed without committing the chip still counts as a command, not as text
   const pending = normalizeAgentDraft({ text: draft, mentions, command, skills })
   const canSend =
-    (Boolean(pending.text) || pending.command === 'plan' || (pending.skills?.length ?? 0) > 0) &&
+    (Boolean(pending.text.trim()) || pending.command === 'plan' || (pending.skills?.length ?? 0) > 0) &&
     Boolean(root) &&
     Boolean(provider) &&
     !disabled &&
@@ -412,11 +418,17 @@ export function AgentComposer({
           onChange={(e) => {
             const value = e.target.value
             onDraft(value)
-            setTrigger(triggerAt(value, e.target.selectionStart ?? value.length))
+            if (!composingRef.current) setTrigger(triggerAt(value, e.target.selectionStart ?? value.length))
           }}
-          onBlur={() => setTrigger(null)}
+          onCompositionStart={() => { composingRef.current = true; setTrigger(null) }}
+          onCompositionEnd={() => { composingRef.current = false; compositionEndedAt.current = performance.now() }}
+          onBlur={() => { composingRef.current = false; setTrigger(null) }}
           onKeyDown={(e) => {
-            const composing = e.nativeEvent.isComposing
+            // WebKit can emit compositionend before the confirming Enter keydown.
+            const composing = composingRef.current || e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229
+            if (composing) { e.stopPropagation(); return }
+            if (e.key === 'Enter' && performance.now() - compositionEndedAt.current < 80) { e.preventDefault(); return }
+            if (e.key === 'Enter' && e.repeat) { e.preventDefault(); return }
             if (e.key === 'Escape' && trigger) {
               e.preventDefault()
               e.stopPropagation()
@@ -468,6 +480,11 @@ export function AgentComposer({
               }
               return
             }
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault()
+              if (canSend) onSend()
+              return
+            }
             if (e.key === 'Backspace' && !draft) {
               if (mentions.length > 0) {
                 e.preventDefault()
@@ -502,6 +519,7 @@ export function AgentComposer({
             onPick={onModel}
             disabled={running || disabled || blocked}
           />
+          <span className="shrink-0">
           <EffortPicker
             provider={provider}
             model={model}
@@ -509,6 +527,9 @@ export function AgentComposer({
             onPick={onEffort}
             disabled={running || disabled || blocked}
           />
+          </span>
+          {onPermission ? <PermissionPicker provider={provider} value={permissionMode} onPick={onPermission}
+            disabled={running || disabled || blocked} /> : null}
         </div>
         <div className="ml-auto flex shrink-0 items-center gap-1">
           {contextUsage}

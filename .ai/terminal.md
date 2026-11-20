@@ -3,6 +3,8 @@ summary: PTY lifecycle, terminal output, keyboard and IME
 scope:
   - src/components/TerminalView.tsx
   - src/components/TerminalPanel.tsx
+  - src/components/TerminalPanel.test.tsx
+  - src/lib/terminalLayout*.ts
   - src/store/terminal.ts
   - src/lib/keys.ts
   - src-tauri/src/commands/terminal.rs
@@ -34,3 +36,14 @@ scope:
   wait for `Process`/key code 229 to commit or poll the textarea.
 - Keep shortcut definitions in `src/lib/keys.ts` and the forwarding exception together with the platform
   tests; changing one without the other causes duplicate, dropped or control-sequence input.
+
+## Panel geometry
+
+- Terminal maximize fills only the right editor region, including its tab-bar space. The file tree stays.
+  `App` measures that region with ResizeObserver; `terminalLayout.ts` subtracts the persistent 4px splitter
+  and retains the 120px terminal minimum. Never use a window-height offset as the available height.
+- Maximize is window-memory state in the terminal store. Button restore uses the unchanged saved normal
+  height; dragging upward to the top maximizes, dragging down starts continuously from the actual current
+  region height and resumes normal persisted height updates. Hidden/last-closed panels exit maximize.
+- EditorArea and TerminalView stay mounted across geometry changes; no generation/PTY replacement occurs.
+  Existing terminal ResizeObserver/fit sends native PTY resize after layout changes.

@@ -24,7 +24,7 @@ function terminalTitle(
  * programs (vim, less) blank until a key is pressed. A few MB per terminal is a fair price. PTYs live
  * in the backend, so collapsing or switching tabs never respawns the shell.
  */
-export default function TerminalPanel() {
+export default function TerminalPanel({ height }: { height: number }) {
   const t = useT()
   const tabs = useTerminal((s) => s.tabs)
   const activeId = useTerminal((s) => s.activeId)
@@ -32,7 +32,7 @@ export default function TerminalPanel() {
   const close = useTerminal((s) => s.close)
   const activate = useTerminal((s) => s.activate)
   const restart = useTerminal((s) => s.restart)
-  const height = useSettings((s) => s.panelHeight)
+  const maximized = useTerminal((s) => s.maximized)
   const visible = useTerminal((s) => s.visible)
   const panelVisible = useSettings((s) => s.panelVisible)
   /** TerminalView must know the panel is collapsed so it can fit + repaint fully on expand */
@@ -85,6 +85,12 @@ export default function TerminalPanel() {
         >
           <Icon name="plus" size={15} />
         </button>
+        <button
+          aria-label={t(maximized ? 'terminal.restore' : 'terminal.maximize')}
+          data-tip={t(maximized ? 'terminal.restore' : 'terminal.maximize')}
+          onClick={() => useTerminal.getState().setMaximized(!maximized)}
+          className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted hover:bg-hover hover:text-fg"
+        ><Icon name={maximized ? 'window-restore' : 'window-maximize'} size={14} /></button>
         <span className="mx-0.5 h-4 w-px shrink-0 bg-line" />
         <button
           data-tip={t('terminal.killTip')}
