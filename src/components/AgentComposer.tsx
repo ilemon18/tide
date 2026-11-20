@@ -20,7 +20,6 @@ import {
 import { useT } from '../i18n'
 import { FileIcon } from './FileIcon'
 import { Icon } from './Icon'
-import { Splitter } from './Splitter'
 import { AgentPicker, EffortPicker, ModelPicker } from './AgentPickers'
 import { COMMAND_DESCRIPTIONS, CommandChip, SkillChip, commandLabel } from './AgentTags'
 
@@ -38,6 +37,8 @@ type Props = {
   disabled?: boolean
   /** An unanswered structured question owns the next turn */
   pendingQuestion?: boolean
+  /** A completed plan needs an explicit next action before sending or draining the queue. */
+  pendingPlan?: boolean
   /** The current agent is missing: keep the agent picker usable so the user can switch */
   blocked?: boolean
   /** Bumped when the panel opens or the active chat changes: the textarea takes focus */
@@ -110,6 +111,7 @@ export function AgentComposer({
   running,
   disabled,
   pendingQuestion,
+  pendingPlan,
   blocked,
   autoFocusKey,
   showAgentPicker = true,
@@ -125,7 +127,6 @@ export function AgentComposer({
 }: Props) {
   const t = useT()
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const composerDragHeight = useRef<number | null>(null)
   const [trigger, setTrigger] = useState<ComposerTrigger | null>(null)
   const [highlight, setHighlight] = useState(0)
   const agentComposerHeight = useSettings((s) => s.agentComposerHeight)
@@ -262,43 +263,21 @@ export function AgentComposer({
   // `/plan` typed without committing the chip still counts as a command, not as text
   const pending = normalizeAgentDraft({ text: draft, mentions, command, skills })
   const canSend =
-    (Boolean(pending.text) || (pending.skills?.length ?? 0) > 0) &&
+    (Boolean(pending.text) || pending.command === 'plan' || (pending.skills?.length ?? 0) > 0) &&
     Boolean(root) &&
     Boolean(provider) &&
     !disabled &&
     !blocked &&
-    !pendingQuestion
+    !pendingQuestion &&
+    !pendingPlan
 
   const sendTip = pendingQuestion
     ? t('agent.question.pendingHint')
-    : running
-      ? t('agent.queue.send')
-      : t('agent.send')
-
-  const resizeComposer = (deltaY: number) => {
-    // Deltas arrive per animation frame. Keep the intended drag height so an auto-grown textarea does not
-    // swallow the first drag before React commits the new manual minimum.
-    const current =
-      composerDragHeight.current ??
-      Math.round(
-        textareaRef.current?.getBoundingClientRect().height ?? effectiveComposerHeight,
-      )
-    const next = clamp(
-      Math.round(current - deltaY),
-      AGENT_COMPOSER_MIN_HEIGHT,
-      maxComposerHeight,
-    )
-    composerDragHeight.current = next
-    if (next === useSettings.getState().agentComposerHeight) return
-    useSettings.getState().patch({
-      agentComposerHeight: next,
-    })
-  }
-
-  const finishComposerResize = () => {
-    composerDragHeight.current = null
-    useSettings.getState().flush()
-  }
+    : pendingPlan
+      ? t('agent.plan.pendingHint')
+      : running
+        ? t('agent.queue.send')
+        : t('agent.send')
 
   return (
     <div className="relative flex flex-col gap-1.5">
@@ -416,12 +395,6 @@ export function AgentComposer({
       ) : null}
 
       <div className="relative flex flex-col">
-        <Splitter
-          direction="h"
-          tone="editor"
-          onDrag={resizeComposer}
-          onCommit={finishComposerResize}
-        />
         <textarea
           ref={textareaRef}
           value={draft}
@@ -430,7 +403,11 @@ export function AgentComposer({
           placeholder={
             disabled
               ? ''
-              : `${t('agent.composer.placeholder')} · ${t('agent.composer.sendHint', { key: modKey() })}`
+              : pendingQuestion
+                ? t('agent.question.pendingHint')
+                : pendingPlan
+                  ? t('agent.plan.pendingHint')
+                  : t('agent.composer.placeholder')
           }
           onChange={(e) => {
             const value = e.target.value
@@ -534,6 +511,7 @@ export function AgentComposer({
           />
         </div>
         <div className="ml-auto flex shrink-0 items-center gap-1">
+          {contextUsage}
           {running ? (
             <button
               type="button"
@@ -542,15 +520,14 @@ export function AgentComposer({
               aria-label={t('agent.stop')}
               className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[var(--r-control)] border border-line-soft text-muted transition-colors duration-fast hover:border-line hover:bg-hover hover:text-fg"
             >
-              <Icon name="stop" size={14} />
+              <Icon name="stop" size={14} className="text-danger" />
             </button>
           ) : null}
-          {contextUsage}
           <button
             type="button"
             onClick={onSend}
             disabled={!canSend}
-            data-tip={sendTip}
+            data-tip={pendingQuestion || pendingPlan ? sendTip : `${sendTip} · ${t('agent.composer.sendHint', { key: modKey() })}`}
             aria-label={sendTip}
             className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[var(--r-control)] bg-accent text-accent-fg transition-opacity duration-fast hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-35"
           >

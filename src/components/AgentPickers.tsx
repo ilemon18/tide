@@ -116,11 +116,14 @@ export function AgentPicker({
   const usable = (providers ?? []).filter(
     (provider) => provider.installed && provider.supported,
   )
+  const current = usable.find((provider) => provider.id === value)
   return (
     <Picker
       label={t('agent.picker.agent')}
       hideLabel
       tip={t('agent.picker.agentTip')}
+      trigger={<AgentProviderIcon provider={value} size={15} />}
+      buttonLabel={`${t('agent.picker.agent')}: ${current?.name ?? value}`}
       value={value}
       options={usable.map((provider) => ({ id: provider.id, label: provider.name }))}
       onPick={onPick}
@@ -147,13 +150,10 @@ export function ModelPicker({
     ...(catalog?.models ?? []).map((model) => ({ id: model.id, label: model.label })),
     { id: '__custom', label: t('agent.picker.customModel') },
   ]
-  const current = options.find((option) => option.id === value)
   return (
     <Picker
       label={t('agent.picker.model')}
       tip={t('agent.picker.modelTip')}
-      trigger={<AgentProviderIcon provider={provider} size={15} />}
-      buttonLabel={`${t('agent.picker.model')}: ${current?.label ?? value}`}
       value={value}
       options={options}
       onPick={(id) => {

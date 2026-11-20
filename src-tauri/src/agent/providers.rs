@@ -45,6 +45,7 @@ pub struct AgentProviderInfo {
     pub name: String,
     pub command: Option<String>,
     pub version: Option<String>,
+    pub supports_fork: bool,
     pub installed: bool,
     pub supported: bool,
 }
@@ -316,6 +317,7 @@ pub fn scan(force: bool) -> Vec<AgentProviderInfo> {
             version,
             installed: found.is_some(),
             supported: spec.supported,
+            supports_fork: found.as_ref().is_some_and(|path| supports_fork(path, spec.id)),
         });
     }
     *cache = Some(out.clone());
@@ -492,4 +494,34 @@ pub fn catalog(provider: &str, force: bool) -> AgentCatalog {
     };
     map.insert(provider.to_string(), (Instant::now(), catalog.clone()));
     catalog
+}
+
+/// Probe the installed CLI's help rather than inferring support from its version string.
+pub fn supports_fork(program: &Path, provider: &str) -> bool {
+    let args: Vec<String> = match provider {
+        "codex" => vec!["exec".into(), "fork".into(), "--help".into()],
+        "claude" => vec!["--help".into()],
+        _ => return false,
+    };
+    run_capture(program, &args, Duration::from_secs(3)).is_some_and(|help| fork_help_supported(provider, &help))
+}
+
+fn fork_help_supported(provider: &str, help: &str) -> bool {
+    match provider {
+        "codex" => help.lines().any(|line| line.trim_start().starts_with("Usage:") && line.contains("exec fork")),
+        "claude" => help.contains("--fork-session"),
+        _ => false,
+    }
+}
+
+#[cfg(test)]
+mod capability_tests {
+    use super::fork_help_supported;
+    #[test]
+    fn fork_requires_the_native_operation_in_help() {
+        assert!(fork_help_supported("codex", "Usage: codex exec fork [OPTIONS] <SESSION_ID>"));
+        assert!(!fork_help_supported("codex", "Usage: codex exec [OPTIONS]"));
+        assert!(fork_help_supported("claude", "  --fork-session  Fork the resumed session"));
+        assert!(!fork_help_supported("claude", "  --resume <session>"));
+    }
 }

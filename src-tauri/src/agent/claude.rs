@@ -74,6 +74,8 @@ pub struct State {
     streamed: bool,
     /// Current session model, initially from the request and refreshed by Claude's init event.
     model: Option<String>,
+    /// Input-side usage of the latest individual model message, never result-level accumulated usage.
+    context_tokens: Option<u64>,
 }
 
 impl State {
@@ -186,6 +188,11 @@ fn has_token_count(usage: &Value) -> bool {
     .any(|key| usage.get(*key).and_then(Value::as_u64).is_some())
 }
 
+fn has_input_usage(usage: &Value) -> bool {
+    ["input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"].iter()
+        .any(|key| usage.get(*key).and_then(Value::as_u64).is_some())
+}
+
 fn result_context_window(value: &Value, model: Option<&str>) -> Option<u64> {
     let model = model?;
     value
@@ -212,11 +219,6 @@ fn result_usage(value: &Value, model: Option<&str>) -> Option<AgentUsage> {
     let output_tokens = token_count(usage, "output_tokens");
     // Claude reports reasoning as part of the output token stream, not as a separate field.
     let reasoning_output_tokens = 0;
-    // Claude's context pressure is the input side of the turn, including both cache buckets. Its
-    // output tokens are generated after the prompt consumes the window, so they do not count here.
-    let context_tokens = input_tokens
-        .saturating_add(cached_input_tokens)
-        .saturating_add(cache_write_input_tokens);
     let total_tokens = input_tokens
         .saturating_add(cached_input_tokens)
         .saturating_add(cache_write_input_tokens)
@@ -229,8 +231,41 @@ fn result_usage(value: &Value, model: Option<&str>) -> Option<AgentUsage> {
         reasoning_output_tokens,
         total_tokens,
         cost_usd,
-        context_tokens: (context_tokens > 0).then_some(context_tokens),
+        context_tokens: None,
         context_window: result_context_window(value, model),
+    })
+}
+
+/// Parse streaming usage from message_delta events during response generation.
+/// This provides incremental token counts as the response streams, before the final result.
+fn parse_streaming_usage(usage: &Value) -> Option<AgentUsage> {
+    if !usage.is_object() || !has_token_count(usage) {
+        return None;
+    }
+    let input_tokens = token_count(usage, "input_tokens");
+    let cached_input_tokens = token_count(usage, "cache_read_input_tokens");
+    let cache_write_input_tokens = token_count(usage, "cache_creation_input_tokens");
+    let output_tokens = token_count(usage, "output_tokens");
+    let reasoning_output_tokens = 0;
+    let context_tokens = input_tokens
+        .saturating_add(cached_input_tokens)
+        .saturating_add(cache_write_input_tokens);
+    let total_tokens = input_tokens
+        .saturating_add(cached_input_tokens)
+        .saturating_add(cache_write_input_tokens)
+        .saturating_add(output_tokens);
+
+    // Streaming events don't include cost or context window info yet
+    Some(AgentUsage {
+        input_tokens,
+        cached_input_tokens,
+        cache_write_input_tokens,
+        output_tokens,
+        reasoning_output_tokens,
+        total_tokens,
+        cost_usd: None,
+        context_tokens: has_input_usage(usage).then_some(context_tokens),
+        context_window: None,
     })
 }
 
@@ -310,10 +345,32 @@ pub fn translate(line: &str, state: &mut State) -> Vec<AgentEvent> {
                     out.extend(flush(state));
                     state.text_id = None;
                 }
+                "message_start" => {
+                    if let Some(usage) = event.get("message").and_then(|message| message.get("usage")).and_then(parse_streaming_usage) {
+                        state.context_tokens = usage.context_tokens;
+                        out.push(AgentEvent::Usage { usage, session_usage: None });
+                    }
+                }
+                "message_delta" => {
+                    // Stream incremental usage updates during response generation
+                    if let Some(usage) = event.get("usage") {
+                        if let Some(mut agent_usage) = parse_streaming_usage(usage) {
+                            if agent_usage.context_tokens.is_some() { state.context_tokens = agent_usage.context_tokens; }
+                            agent_usage.context_tokens = state.context_tokens;
+                            out.push(AgentEvent::Usage {
+                                usage: agent_usage,
+                                session_usage: None,
+                            });
+                        }
+                    }
+                }
                 _ => {}
             }
         }
         "assistant" => {
+            if let Some(usage) = value.get("message").and_then(|message| message.get("usage")).and_then(parse_streaming_usage) {
+                if usage.context_tokens.is_some() { state.context_tokens = usage.context_tokens; }
+            }
             let blocks = value
                 .get("message")
                 .and_then(|m| m.get("content"))
@@ -394,7 +451,8 @@ pub fn translate(line: &str, state: &mut State) -> Vec<AgentEvent> {
             }
         }
         "result" => {
-            if let Some(usage) = result_usage(&value, state.model.as_deref()) {
+            if let Some(mut usage) = result_usage(&value, state.model.as_deref()) {
+                usage.context_tokens = state.context_tokens;
                 out.push(AgentEvent::Usage {
                     usage,
                     session_usage: None,
@@ -677,7 +735,7 @@ mod tests {
         assert_eq!(usage.output_tokens, 80);
         assert_eq!(usage.reasoning_output_tokens, 0);
         assert_eq!(usage.total_tokens, 540);
-        assert_eq!(usage.context_tokens, Some(460));
+        assert_eq!(usage.context_tokens, None);
         assert_eq!(usage.cost_usd, Some(0.0125));
         assert_eq!(usage.context_window, None);
     }
@@ -757,6 +815,7 @@ mod tests {
     #[test]
     fn claude_context_tokens_exclude_output_tokens() {
         let mut state = State::with_model(Some("claude-sonnet-test".into()));
+        translate(r#"{"type":"stream_event","event":{"type":"message_start","message":{"usage":{"input_tokens":120,"cache_read_input_tokens":300,"cache_creation_input_tokens":40}}}}"#, &mut state);
         let events = translate(
             r#"{"type":"result","subtype":"success","is_error":false,"usage":{"input_tokens":120,"cache_read_input_tokens":300,"cache_creation_input_tokens":40,"output_tokens":80},"modelUsage":{"claude-sonnet-test":{"contextWindow":200000}}}"#,
             &mut state,
@@ -767,15 +826,29 @@ mod tests {
     }
 
     #[test]
-    fn claude_zero_usage_has_no_context_occupancy() {
+    fn claude_zero_usage_is_valid_when_reported_for_a_message() {
         let mut state = State::default();
+        translate(r#"{"type":"stream_event","event":{"type":"message_start","message":{"usage":{"input_tokens":0}}}}"#, &mut state);
         let events = translate(
             r#"{"type":"result","subtype":"success","is_error":false,"usage":{"input_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":0,"output_tokens":20}}"#,
             &mut state,
         );
         let usage = translate_usage(&events);
-        assert_eq!(usage.context_tokens, None);
+        assert_eq!(usage.context_tokens, Some(0));
         assert_eq!(usage.context_window, None);
+    }
+
+    #[test]
+    fn result_uses_latest_message_context_instead_of_accumulated_tool_loop_input() {
+        let mut state = State::with_model(Some("model".into()));
+        translate(r#"{"type":"stream_event","event":{"type":"message_start","message":{"usage":{"input_tokens":800}}}}"#, &mut state);
+        translate(r#"{"type":"stream_event","event":{"type":"message_start","message":{"usage":{"input_tokens":120,"cache_read_input_tokens":300}}}}"#, &mut state);
+        translate(r#"{"type":"stream_event","event":{"type":"message_delta","usage":{"output_tokens":25}}}"#, &mut state);
+        let events = translate(r#"{"type":"result","usage":{"input_tokens":5000,"output_tokens":90},"modelUsage":{"model":{"contextWindow":200000}}}"#, &mut state);
+        let usage = translate_usage(&events);
+        assert_eq!(usage.input_tokens, 5000);
+        assert_eq!(usage.context_tokens, Some(420));
+        assert_eq!(usage.context_window, Some(200000));
     }
 
     #[test]

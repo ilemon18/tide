@@ -3,6 +3,9 @@ summary: Git actions, diff views, conflicts and bulk discard
 scope:
   - src/store/git.ts
   - src/components/DiffView.tsx
+  - src/components/DiffView.test.tsx
+  - src/components/diffScroll.ts
+  - src/components/diffScroll.test.ts
   - src/components/GitPanel.tsx
   - src/components/DiffRuler.tsx
   - src/components/diffHighlight.ts
@@ -49,6 +52,14 @@ snapshot, a partial backend failure only unprocessed rows, and status refresh wa
   closes only the diff tab.
 - Large diffs are bounded twice: `memoryBudget.diffRows()` limits frontend rows/parsing and `git_diff_full`
   truncates oversized patches. Do not raise either bound without profiling generated-file diffs.
+- Diff scroll synchronization coalesces the latest real input per axis each frame; recognize echoes by
+  actual (possibly clamped) offsets, never by dropping every event behind a frame lock. Vertical movement
+  on a narrower pane must not pull the other pane's horizontal position back.
+- First-change positioning, overview jumps and refresh restoration share `diffScroll.jumpTo`, cancelling
+  queued synchronization. Capture refresh progress immediately before applying the response, so input during a background fetch
+  wins. Subsequent scrolls, ruler jumps and folds invalidate pending restores. Settle movement before folding; cancel
+  old layout/tab work and restoration callbacks on replacement/unmount. Only the overview viewport
+  slider updates during scrolling, with measurements coalesced per frame.
 
 ## Conflicts and subprocess
 

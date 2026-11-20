@@ -45,6 +45,8 @@ scope:
 
 ## Memory and settings
 
+- Settings keep helper text for non-obvious effects (such as reloads and per-file defaults); format-auto
+  and icon-theme explanations live in option tooltips instead of persistent secondary descriptions.
 - `src/lib/memoryBudget.ts` is the single source for editor state, search/index and terminal budgets, and
   lightweight mode switches the shared profile: read `budget.*` / `feature.*` at use time and never copy
   ceilings into docs or components. The strategy is bounded caches plus explicit release — evict inactive

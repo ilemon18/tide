@@ -2,6 +2,14 @@ import type { Messages } from '../types'
 
 /** 简体中文。键必须和 `en.ts` 完全一致（类型会强制检查）。 */
 export const zhCN: Messages = {
+  "agent.local.invalidArgs": "命令或参数无效。使用 /help 查看可用命令。",
+  "agent.local.busy": "请先完成待回答问题、计划选择和排队消息。",
+  "agent.local.forkUnsupported": "此 CLI 不支持原生会话分支，请更新 CLI 后重新扫描。",
+  "agent.local.restart": "重新开始新会话",
+  "agent.mode.plan": "计划 · 只读",
+  "agent.mode.readOnly": "只读",
+  "agent.mode.write": "工作区可写",
+  "agent.local.statusText": "提供方：{provider}\n模型：{model} · 推理：{effort}\n项目：{root}\n权限：{mode} · 计划：{planning}\n状态：{status} · 会话：{session}\n排队：{queued} · 待处理：{pending}\n上下文：{context}/{window} · 会话 token：{total}",
   'agent.local.new.label': "新聊天",
   'agent.local.new.desc': "创建新聊天",
   'agent.local.resume.label': "恢复聊天",
@@ -19,7 +27,7 @@ export const zhCN: Messages = {
   'agent.local.help.label': "帮助",
   'agent.local.help.desc': "显示本地命令帮助",
   'agent.local.unavailable': "当前提供商驱动暂不支持此操作。",
-  'agent.local.helpText': "/new · /resume <聊天 ID> · /fork（Claude）· /status · /model <模型 ID> · /help",
+  'agent.local.helpText': "/new \u00b7 /resume [chat ID] \u00b7 /fork \u00b7 /compact \u00b7 /status \u00b7 /model [model ID|default] \u00b7 /permissions [read-only|workspace-write] \u00b7 /plan \u00b7 /help",
   'agent.history.earlier': "较早的消息",
   'agent.history.later': "较新的消息",
   'agent.history.pending': "打开待处理请求",
@@ -703,7 +711,7 @@ export const zhCN: Messages = {
   'agent.queue.send': '插话',
   'agent.queue.pending': '停止当前回合即可立即发送',
   'agent.queue.remove': '移出队列',
-  'agent.status.running': '运行中 · {duration}',
+  'agent.status.running': '正在运行 · {duration}',
   'agent.status.failed': '失败',
   'agent.status.stopped': '已停止',
   'agent.activity.starting': '正在启动…',
@@ -751,9 +759,8 @@ export const zhCN: Messages = {
   'agent.question.submit': '提交',
   'agent.question.answered': '已回答',
   'agent.question.invalid': '格式有误的问题已恢复为文本显示。',
-  'agent.question.required': '请选择一个选项或输入回答。',
   'agent.question.answerPrompt': '问题：\n{question}\n\n回答：\n{answer}',
-  'agent.question.pendingHint': '请先回答待处理的问题，再发送其他消息。',
+  'agent.question.pendingHint': '先回答待处理的问题',
   'agent.skill.pick': '选择一个 skill',
   'agent.skill.loading': '正在加载 skill…',
   'agent.skill.empty': '没有匹配的 skill',
@@ -788,6 +795,12 @@ export const zhCN: Messages = {
   'agent.usage.total': '总计',
   'agent.usage.cost': '费用',
   'agent.usage.costUnavailable': '费用不可用',
+  'agent.usage.updating': '实时更新',
+  'agent.plan.header': '计划',
+  'agent.plan.implementCurrent': '执行此计划',
+  'agent.plan.implementFresh': "新上下文执行",
+  'agent.plan.continuePlanning': '继续规划',
+  'agent.plan.resolved': '已选择计划操作',
   'agent.picker.agent': '智能体',
   'agent.picker.agentTip': '由哪个命令行工具回答此对话',
   'agent.picker.model': '模型',
@@ -843,5 +856,8 @@ export const zhCN: Messages = {
   'agent.context.estimateHint': '根据草稿及磁盘上引用文件的大小粗略估算，不含会话历史、目录内容和 CLI 开销；这不是模型的上下文上限。',
 
   'error.git.discardDirectory': '无法丢弃 {path} 的改动：此已跟踪文件路径已被目录占用。',
+
+  'agent.plan.instructions': "补充要求（可选）",
+  'agent.plan.pendingHint': '先选择计划操作',
 
 }

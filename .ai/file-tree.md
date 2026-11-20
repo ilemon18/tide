@@ -53,6 +53,13 @@ shared layout data, and only pointer drag hit testing measures geometry.
 - **Never close a tab because Git status changed**, only a file that really vanished from disk; the one
   exception is an empty diff tab, which Git/diff logic may replace with the normal file tab.
 - During an explicit checkout/create, `beginBranchTransition` suppresses the watcher's duplicate `.git` batch,
-  with a short grace window after success so the debounce cannot repeat the same scans.
+  with a short grace window after success. Accumulate mixed worktree paths and replay them once after the
+  transition; rescan/ignore changes always refresh, and fetch still suppresses only pure Git metadata.
+- Batch refresh preserves loaded page counts and unreadable caches, deleting only confirmed missing
+  subtrees. Directory versions and workspace lifetimes protect refresh, pagination, chain expansion and
+  expand-all: collapse/reopen, root replacement or newer cache reads cannot resurrect obsolete nodes.
+  Worktree `.lock` files are watched; temporary lock suppression applies only inside Git metadata.
+- Rust tests cover payload truncation, overflow, continuous-flow deadlines and error/rescan notifications;
+  frontend tests cover mixed branch batches, ignore rules, cache races, permissions and missing subtrees.
 - Workspace roots are refcounted: dropping the last reference reaps its PTY and watcher resources in Rust, so
   never model workspace lifetime only in the frontend.

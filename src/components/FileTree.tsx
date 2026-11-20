@@ -246,6 +246,7 @@ export function FileTree() {
   const compactFolders = useSettings((s) => s.compactFolders)
   const agentEnabled = useSettings((s) => s.agentEnabled)
   const chains = useFolderChain((s) => s.chains)
+  const chainRevision = useFolderChain((s) => s.revision)
   // Keep the last settled chain snapshot while the scrollbar is moving. Applying async chain
   // results mid-scroll changes row count under the thumb, which makes it flicker and snap back.
   const [settledChains, setSettledChains] = useState(chains)
@@ -293,6 +294,7 @@ export function FileTree() {
   const scrolling = useRef(false)
   const latestScrollTop = useRef(remembered.top)
   const rowsRef = useRef(rows)
+  const paintedRows = useRef({ rows, rootKey })
   const settledChainsRef = useRef(settledChains)
   const chainsRef = useRef(chains)
   const pendingScrollAnchor = useRef<{
@@ -345,7 +347,7 @@ export function FileTree() {
       pendingScrollAnchor.current = {
         key: rowAnchorKey(currentRows[index]),
         offset: Math.max(0, Math.min(ROW_H - 1, el.scrollTop - index * ROW_H)),
-        atBottom: el.scrollTop >= max - 1,
+        atBottom: max > 0 && el.scrollTop >= max - 1,
       }
     }
     setSettledChains(next)
@@ -376,7 +378,20 @@ export function FileTree() {
     const el = containerRef.current
     if (!el) return
     const max = Math.max(0, rows.length * ROW_H - el.clientHeight)
-    const anchor = pendingScrollAnchor.current
+    const previous = paintedRows.current
+    paintedRows.current = { rows, rootKey }
+    let anchor = pendingScrollAnchor.current
+    pendingScrollAnchor.current = null
+    if (!anchor && previous.rootKey === rootKey && previous.rows !== rows && previous.rows.length > 0) {
+      const top = latestScrollTop.current
+      const index = Math.min(previous.rows.length - 1, Math.max(0, Math.floor(top / ROW_H)))
+      const oldMax = Math.max(0, previous.rows.length * ROW_H - el.clientHeight)
+      anchor = {
+        key: rowAnchorKey(previous.rows[index]),
+        offset: Math.max(0, Math.min(ROW_H - 1, top - index * ROW_H)),
+        atBottom: oldMax > 0 && top >= oldMax - 1,
+      }
+    }
     if (anchor && rows.length > 0) {
       pendingScrollAnchor.current = null
       if (anchor.atBottom) {
@@ -391,7 +406,7 @@ export function FileTree() {
     }
     if (el.scrollTop > max) el.scrollTop = max
     syncScrollTop(el.scrollTop, true)
-  }, [rows, viewportH, scrollTreeTo, syncScrollTop])
+  }, [rows, rootKey, viewportH, scrollTreeTo, syncScrollTop])
 
   // Chain results depend on whether hidden entries count: drop them when the setting flips
   const prevShowHidden = useRef(showHidden)
@@ -512,10 +527,9 @@ export function FileTree() {
     const store = useFolderChain.getState()
     for (const row of visible) {
       if (row.kind !== 'node' || !row.isDir) continue
-      if (`${row.root}:${row.start}` in chains) continue
       store.resolve(row.root, row.start, showHidden)
     }
-  }, [visible, chains, compactFolders, scrollIdle, showHidden])
+  }, [visible, chains, chainRevision, compactFolders, scrollIdle, showHidden])
 
   // An empty tree has three different causes: project collapsed / not read yet / truly no files.
   // Sharing one "empty directory" message would make users think the project was wiped.
@@ -755,7 +769,7 @@ export function FileTree() {
 
             return (
               <div
-                key={row.key}
+                key={rowAnchorKey(row)}
                 style={{
                   position: 'absolute',
                   top,

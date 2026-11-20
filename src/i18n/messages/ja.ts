@@ -2,6 +2,14 @@ import type { Messages } from '../types'
 
 /** 日本語。キーは `en.ts` と完全に一致している必要があります（型で強制）。 */
 export const ja: Messages = {
+  "agent.local.invalidArgs": "コマンドまたは引数が無効です。/help を参照してください。",
+  "agent.local.busy": "保留中の質問、計画の選択、キューのメッセージを先に完了してください。",
+  "agent.local.forkUnsupported": "この CLI はネイティブのセッション分岐に対応していません。CLI を更新して再スキャンしてください。",
+  "agent.local.restart": "新しいセッションを開始",
+  "agent.mode.plan": "計画 · 読み取り専用",
+  "agent.mode.readOnly": "読み取り専用",
+  "agent.mode.write": "ワークスペース書き込み",
+  "agent.local.statusText": "プロバイダー: {provider}\nモデル: {model} · 推論: {effort}\nプロジェクト: {root}\n権限: {mode} · 計画: {planning}\n状態: {status} · セッション: {session}\nキュー: {queued} · 保留: {pending}\nコンテキスト: {context}/{window} · セッショントークン: {total}",
   'agent.local.new.label': "新しいチャット",
   'agent.local.new.desc': "新しいチャットを作成",
   'agent.local.resume.label': "チャットを再開",
@@ -19,7 +27,7 @@ export const ja: Messages = {
   'agent.local.help.label': "ヘルプ",
   'agent.local.help.desc': "ローカルコマンドのヘルプを表示",
   'agent.local.unavailable': "現在のプロバイダードライバーではこの操作を利用できません。",
-  'agent.local.helpText': "/new · /resume <チャット ID> · /fork（Claude）· /status · /model <モデル ID> · /help",
+  'agent.local.helpText': "/new \u00b7 /resume [chat ID] \u00b7 /fork \u00b7 /compact \u00b7 /status \u00b7 /model [model ID|default] \u00b7 /permissions [read-only|workspace-write] \u00b7 /plan \u00b7 /help",
   'agent.history.earlier': "以前のメッセージ",
   'agent.history.later': "以降のメッセージ",
   'agent.history.pending': "未処理のリクエストを開く",
@@ -763,9 +771,8 @@ export const ja: Messages = {
   'agent.question.submit': '送信',
   'agent.question.answered': '回答済み',
   'agent.question.invalid': '形式が無効な質問はテキストとして復元されました。',
-  'agent.question.required': '選択肢を1つ選ぶか、回答を入力してください。',
   'agent.question.answerPrompt': '質問:\n{question}\n\n回答:\n{answer}',
-  'agent.question.pendingHint': '未回答の質問に答えてから、別のメッセージを送信してください。',
+  'agent.question.pendingHint': '先に未回答の質問に回答',
   'agent.skill.pick': 'スキルを使う',
   'agent.skill.loading': 'スキルを読み込み中…',
   'agent.skill.empty': '一致するスキルがありません',
@@ -789,6 +796,7 @@ export const ja: Messages = {
   'agent.copy.logs': 'ログをコピー',
   'agent.copy.queued': '待機中メッセージをコピー',
   'agent.code': 'コード',
+  'agent.usage.updating': '更新中',
   'agent.usage.title': '使用量と費用',
   'agent.usage.cumulative': '累計',
   'agent.usage.latest': '最新ターン',
@@ -863,5 +871,13 @@ export const ja: Messages = {
   'agent.context.estimateHint': '下書きと参照ファイルのディスク上のサイズによる概算です。会話履歴、ディレクトリの内容、CLI の追加使用量は含みません。モデルのコンテキスト上限ではありません。',
 
   'error.git.discardDirectory': '{path} の変更を破棄できません。追跡中のファイルのパスにディレクトリがあります。',
+
+  'agent.plan.header': "計画",
+  'agent.plan.implementCurrent': "この計画を実行",
+  'agent.plan.implementFresh': "新しいコンテキストで実行",
+  'agent.plan.continuePlanning': "計画を続ける",
+  'agent.plan.resolved': "計画の操作を選択済み",
+  'agent.plan.instructions': "追加の指示（任意）",
+  'agent.plan.pendingHint': '先に計画の操作を選択',
 
 }

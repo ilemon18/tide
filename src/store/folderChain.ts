@@ -26,6 +26,8 @@ type QueueItem = { id: number; root: string; rel: string; showHidden: boolean }
 const inFlight = new Set<string>()
 /** Probes that failed (browser dev mode / unreadable folder): no retry until something invalidates them */
 const failed = new Set<string>()
+/** Invalidated entries remain visible until their replacement is ready. */
+const stale = new Set<string>()
 /**
  * Latest probe id per key. A probe started before an invalidate can come back afterwards with the old
  * shape; comparing ids drops that late answer instead of writing it over the fresh one.
@@ -38,14 +40,16 @@ let active = 0
 type FolderChainStore = {
   /** `${root}:${rel}` -> deepest rel of its single-child chain (rel itself when it already branches) */
   chains: Record<string, string>
+  revision: number
   /** Ask for a chain (cache hit queues nothing) */
   resolve: (root: string, rel: string, showHidden: boolean) => void
   /**
-   * Drop cached chains a change at `rel` can affect: only chains starting at an ancestor of `rel`, because
-   * an entry added/removed inside a folder is what can turn a single-child chain into a branching one.
-   * Without `rel` the whole root is dropped (git operations touch arbitrary paths).
+   * Mark affected chains stale without dismantling the displayed tree. Ancestors and descendants can
+   * change shape; without `rel` invalidate the whole root. Only visible rows revalidate.
    */
   invalidate: (root: string, rel?: string) => void
+  /** Remove entries on confirmed deletion / workspace release. */
+  forget: (root: string, rel?: string) => void
   reset: () => void
 }
 
@@ -75,6 +79,7 @@ export const useFolderChain = create<FolderChainStore>((set, get) => {
             failed.add(key)
             return
           }
+          stale.delete(key)
           // Cache even an unchanged folder: it is what makes the row repaint settle instead of re-probing
           if (get().chains[key] !== deepest) {
             set({ chains: { ...get().chains, [key]: deepest } })
@@ -96,14 +101,15 @@ export const useFolderChain = create<FolderChainStore>((set, get) => {
 
   /** Whether a chain starting at `startRel` is affected by a change at `rel` */
   const affected = (startRel: string, rel: string | undefined) =>
-    rel === undefined || isUnder(rel, startRel) || isUnder(startRel, rel)
+    rel === undefined || rel === '' || isUnder(rel, startRel) || isUnder(startRel, rel)
 
   return {
     chains: {},
+    revision: 0,
 
     resolve: (root, rel, showHidden) => {
       const key = keyOf(root, rel)
-      if (key in get().chains || inFlight.has(key) || failed.has(key)) return
+      if ((key in get().chains && !stale.has(key)) || inFlight.has(key) || failed.has(key)) return
       inFlight.add(key)
       const id = nextId++
       latest.set(key, id)
@@ -113,15 +119,8 @@ export const useFolderChain = create<FolderChainStore>((set, get) => {
 
     invalidate: (root, rel) => {
       const prefix = `${root}:`
-      const chains = get().chains
-      const next: Record<string, string> = {}
-      let changed = false
-      for (const [key, value] of Object.entries(chains)) {
-        if (!key.startsWith(prefix) || !affected(key.slice(prefix.length), rel)) {
-          next[key] = value
-          continue
-        }
-        changed = true
+      for (const key of Object.keys(get().chains)) {
+        if (key.startsWith(prefix) && affected(key.slice(prefix.length), rel)) stale.add(key)
       }
       queue = queue.filter((task) => task.root !== root || !affected(task.rel, rel))
       for (const [key] of [...latest]) {
@@ -132,7 +131,23 @@ export const useFolderChain = create<FolderChainStore>((set, get) => {
           if (key.startsWith(prefix) && affected(key.slice(prefix.length), rel)) set.delete(key)
         }
       }
-      if (changed) set({ chains: next })
+      set({ revision: get().revision + 1 })
+    },
+
+    forget: (root, rel) => {
+      get().invalidate(root, rel)
+      const prefix = `${root}:`
+      const chains = { ...get().chains }
+      let changed = false
+      for (const key of Object.keys(chains)) {
+        const start = key.slice(prefix.length)
+        if (key.startsWith(prefix) && (rel === undefined || rel === '' || isUnder(start, rel))) {
+          delete chains[key]
+          stale.delete(key)
+          changed = true
+        }
+      }
+      if (changed) set({ chains })
     },
 
     reset: () => {
@@ -140,7 +155,8 @@ export const useFolderChain = create<FolderChainStore>((set, get) => {
       inFlight.clear()
       failed.clear()
       latest.clear()
-      set({ chains: {} })
+      stale.clear()
+      set({ chains: {}, revision: get().revision + 1 })
     },
   }
 })

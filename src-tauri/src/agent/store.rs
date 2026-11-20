@@ -196,8 +196,8 @@ fn page_range(document: &ChatDocument, start: usize, end: usize, backwards: bool
         .iter()
         .find(|message| {
             find_pending_question(std::slice::from_ref(*message))
-                || find_unhandled_plan_action(std::slice::from_ref(*message))
         })
+        .or_else(|| document.messages.iter().find(|message| find_unhandled_plan_action(std::slice::from_ref(*message))))
         .and_then(message_id)
         .map(str::to_string);
     AgentChatPage {
@@ -307,7 +307,8 @@ fn find_unhandled_plan_action(messages: &[Value]) -> bool {
             .is_some_and(|items| {
                 items.iter().any(|item| {
                     item.get("type").and_then(Value::as_str) == Some("plan")
-                        && item.get("resolved").and_then(Value::as_bool) != Some(true)
+                        && (item.get("resolved").and_then(Value::as_bool) != Some(true)
+                            || item.get("actionState").and_then(Value::as_str) == Some("launching"))
                 })
             })
     })
@@ -717,6 +718,20 @@ mod tests {
         assert!(find_unhandled_plan_action(&doc.messages));
         doc.messages[3]["items"][0]["resolved"] = json!(true);
         assert!(!find_unhandled_plan_action(&doc.messages));
+    }
+
+    #[test]
+    fn questions_take_priority_and_interrupted_plan_actions_still_block() {
+        let mut doc = document();
+        doc.messages.push(json!({ "id": "plan", "role": "assistant", "items": [
+            { "id": "choice", "type": "plan", "resolved": true, "actionState": "launching" }
+        ] }));
+        doc.messages.push(json!({ "id": "question", "role": "assistant", "items": [
+            { "id": "q", "type": "question", "question": "Which?" }
+        ] }));
+        let page = recent_page(&doc, 1);
+        assert!(page.has_unhandled_plan_action && page.has_pending_question);
+        assert_eq!(page.pending_message_id.as_deref(), Some("question"));
     }
 
     #[test]

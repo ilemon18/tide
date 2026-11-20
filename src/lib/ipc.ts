@@ -4,6 +4,16 @@ import { hasMessage, t } from '../i18n'
 
 export type WorkspaceInfo = { root: string; name: string; isGitRepo: boolean }
 
+/** Backend fs:changed event. A rescan means paths alone are not a complete change set. */
+export type FsChanged = {
+  root: string
+  git: boolean
+  worktree: boolean
+  paths: string[]
+  rescan: boolean
+  ignoreChanged: boolean
+}
+
 export type DirEntryInfo = {
   name: string
   path: string
@@ -315,6 +325,7 @@ export type AgentProviderInfo = {
   installed: boolean
   /** False = detected, but this version of Tide cannot drive it yet */
   supported: boolean
+  supportsFork?: boolean
 }
 
 export type AgentModelInfo = {

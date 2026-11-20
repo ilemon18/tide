@@ -15,3 +15,10 @@ describe('command boundaries', () => {
     expect(buildAgentPrompt(draft)).toContain('.agents/skills/audit/SKILL.md')
   })
 })
+
+it('keeps a permissions-only read-only query on the requested topic', () => {
+  const prompt = buildAgentPrompt({ text: 'Explain this function', mentions: [] }, true)
+  expect(prompt).toContain('Read-only mode:')
+  expect(prompt).toContain('Explain this function')
+  expect(prompt).not.toContain('return the final decision-ready plan')
+})

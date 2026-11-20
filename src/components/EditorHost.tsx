@@ -458,9 +458,7 @@ export function EditorHost({ groupId }: { groupId: TabGroupId }) {
           ref={hostRef}
           onPointerDownCapture={focusGroup}
           onFocusCapture={focusGroup}
-          className={`absolute inset-y-0 left-0 overflow-hidden ${
-            showRuler ? 'right-[10px]' : 'right-0'
-          } ${hidden ? 'invisible' : ''}`}
+          className={`absolute inset-y-0 left-0 right-0 overflow-hidden ${hidden ? 'invisible' : ''}`}
         />
         {showRuler && activeTab ? (
           <DiffRuler

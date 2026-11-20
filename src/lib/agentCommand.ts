@@ -98,8 +98,8 @@ Planning mode:
 `.trim()
 
 const READ_ONLY_CONTINUATION = `
-Read-only planning continuation:
-Continue the existing planning task without modifying files or running commands with side effects. Use the answer above, inspect the repository as needed, and either ask at most one remaining critical question or return the final decision-ready plan.
+Read-only mode:
+Answer the request without modifying files or running commands with side effects. Inspect the repository as needed. Do not implement changes unless the user explicitly switches to writable mode.
 `.trim()
 
 const QUESTION_PROTOCOL = `

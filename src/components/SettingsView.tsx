@@ -358,10 +358,7 @@ export function SettingsView() {
               ))}
             </div>
           </Row>
-          <Row
-            label={t('settings.editor.formatTool')}
-            hint={settings.formatTool === 'auto' ? t('settings.editor.formatToolAutoHint') : undefined}
-          >
+          <Row label={t('settings.editor.formatTool')}>
             <div
               className={`flex max-w-[340px] flex-wrap justify-end gap-1 ${
                 settings.formatMode === 'off' ? 'opacity-50' : ''
@@ -369,6 +366,7 @@ export function SettingsView() {
             >
               <button
                 onClick={() => set('formatTool', 'auto')}
+                data-tip={t('settings.editor.formatToolAutoHint')}
                 className={`flex items-center gap-1 ${pill(settings.formatTool === 'auto')}`}
               >
                 {settings.formatTool === 'auto' ? <Icon name="check" size={10} /> : null}
@@ -419,18 +417,13 @@ export function SettingsView() {
 
     files: (
       <Card>
-        <Row
-          label={t('settings.files.iconTheme')}
-          hint={t(
-            (ICON_THEME_OPTIONS.find((o) => o.id === settings.iconTheme) ?? ICON_THEME_OPTIONS[0])
-              .hintKey,
-          )}
-        >
+        <Row label={t('settings.files.iconTheme')}>
           <div className="flex items-center gap-1">
             {ICON_THEME_OPTIONS.map((option) => (
               <button
                 key={option.id}
                 onClick={() => set('iconTheme', option.id)}
+                data-tip={t(option.hintKey)}
                 className={pill(settings.iconTheme === option.id)}
               >
                 {t(option.labelKey)}

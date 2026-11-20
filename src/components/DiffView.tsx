@@ -22,6 +22,7 @@ import { useT } from '../i18n'
 import { FileIcon } from './FileIcon'
 import { HIGHLIGHT_MAX_LINES, highlightSide, type LineTokens, type Token } from './diffHighlight'
 import { budget } from '../lib/memoryBudget'
+import { createDiffScroll } from './diffScroll'
 
 /**
  * Side-by-side diff view (VSCode style). Data comes from git's full-context patch (-U100000): each
@@ -236,8 +237,10 @@ export function DiffView({ tab }: Props) {
   const syntax = useSettings((s) => s.palette.syntax)
   const leftRef = useRef<HTMLDivElement | null>(null)
   const rightRef = useRef<HTMLDivElement | null>(null)
-  /** Echo lock for scroll sync: keeps the panes from triggering each other's scroll events */
-  const syncLock = useRef(false)
+  const scroll = useMemo(
+    () => createDiffScroll((side) => (side === 'left' ? leftRef.current : rightRef.current)),
+    [],
+  )
   /** Which tab the current content belongs to: only a tab change clears the view, same-tab refreshes replace in place */
   const loadedFor = useRef<string | null>(null)
   /** Freshly loaded content still has to land on its first change; in-place refreshes keep the reader's position */
@@ -251,6 +254,14 @@ export function DiffView({ tab }: Props) {
   /** Incremented on external edits / staging changes: keeps the tab open, just refetches and re-diffs */
   const epoch = useTabs((s) => (s.diffEpoch[tab.root] ?? 0) + (s.diffEpoch[tab.id] ?? 0))
 
+  useLayoutEffect(() => {
+    scroll.reset()
+    pendingLocate.current = true
+    pendingScroll.current = null
+    requestedFile.current = false
+    return scroll.cancel
+  }, [scroll, tab.id])
+
   /** Apply the captured ratio to the diff panes that are mounted now */
   const restorePendingScroll = useCallback(() => {
     const ratio = pendingScroll.current
@@ -262,13 +273,13 @@ export function DiffView({ tab }: Props) {
       return
     }
     const top = Math.min(el.scrollHeight - el.clientHeight, ratio * el.scrollHeight)
-    el.scrollTop = top
-    if (rightRef.current) rightRef.current.scrollTop = top
+    scroll.jumpTo(top)
     pendingScroll.current = null
-  }, [])
+  }, [scroll])
 
   useEffect(() => {
     let alive = true
+    let restoreFrame: number | null = null
     // An in-place refresh of the same tab (external edit / staging change) does not clear existing content:
     // fetch the new patch in the background, then swap it in whole to avoid flashing "loading diff"
     // and jumping scrollbars
@@ -283,27 +294,30 @@ export function DiffView({ tab }: Props) {
       setTruncated(false)
       setCollapsed(new Set())
     }
-    // Remember where the reader was before an in-place refresh. The restore has to wait until the new view
-    // has laid out. The same reading becomes the progress handed over when the diff turns out empty.
-    const ruler = leftRef.current
-    const maxScroll = ruler ? Math.max(0, ruler.scrollHeight - ruler.clientHeight) : 0
-    switchRatio.current =
-      sameTab && ruler && maxScroll > 0 ? Math.min(1, Math.max(0, ruler.scrollTop / maxScroll)) : 0
-    if (sameTab && ruler && ruler.scrollHeight > 0) {
-      pendingScroll.current = ruler.scrollTop / ruler.scrollHeight
-    }
 
     void api
       .gitDiffFull(tab.root, tab.rel, Boolean(tab.staged))
       .then((res) => {
         if (!alive) return
+        // Capture at application time: input during the background request owns the reading position.
+        if (sameTab) {
+          scroll.flush()
+          const pane = leftRef.current
+          if (pane) {
+            const max = Math.max(0, pane.scrollHeight - pane.clientHeight)
+            switchRatio.current = max > 0 ? pane.scrollTop / max : 0
+            pendingScroll.current = pane.scrollHeight > 0 ? pane.scrollTop / pane.scrollHeight : null
+          }
+        }
         loadedFor.current = tab.id
         setBinary(res.binary)
         setTruncated(res.truncated)
         setPatch(res.patch)
         setLoading(false)
         // Also covers a refresh whose patch did not change: no re-render, so the layout effect never runs
-        requestAnimationFrame(restorePendingScroll)
+        restoreFrame = requestAnimationFrame(() => {
+          if (alive) restorePendingScroll()
+        })
       })
       .catch((e) => {
         if (!alive) return
@@ -321,8 +335,9 @@ export function DiffView({ tab }: Props) {
 
     return () => {
       alive = false
+      if (restoreFrame !== null) cancelAnimationFrame(restoreFrame)
     }
-  }, [tab.id, tab.root, tab.rel, tab.staged, epoch])
+  }, [tab.id, tab.root, tab.rel, tab.staged, epoch, restorePendingScroll, scroll])
 
   // null = not fetched yet; an empty string is a fetched, unchanged file and must parse to zero rows
   const parsed = useMemo(
@@ -372,13 +387,18 @@ export function DiffView({ tab }: Props) {
     return out
   }, [parsed, runs, collapsed])
 
+  // A replaced/folded layout must not receive a queued position from the previous layout.
+  useLayoutEffect(() => {
+    scroll.reset()
+  }, [display, scroll])
+
   /**
    * Opening a diff (a file in the staged / changes / untracked list) starts at the first change instead of
    * line 1, so the edit itself is on screen. Only for freshly loaded content: the refresh path above keeps
    * whatever position the reader had.
    */
   useLayoutEffect(() => {
-    if (!pendingLocate.current) return
+    if (!pendingLocate.current || loadedFor.current !== tab.id) return
     const locate = () => {
       const container = leftRef.current
       if (!container) return false
@@ -391,20 +411,18 @@ export function DiffView({ tab }: Props) {
       const context = targetRect.height * FIRST_CHANGE_CONTEXT_ROWS
       const max = Math.max(0, container.scrollHeight - container.clientHeight)
       const scrollTop = Math.min(max, Math.max(0, top - context))
-      for (const el of [leftRef.current, rightRef.current]) {
-        if (el) el.scrollTop = scrollTop
-      }
+      scroll.jumpTo(scrollTop)
       return true
     }
     if (!locate()) return
     // A second pass after paint uses the final pane height (the terminal panel and the scrollbars may
     // still settle in the first frame), then releases the one-shot jump.
     const frame = requestAnimationFrame(() => {
-      locate()
+      if (pendingLocate.current) locate()
       pendingLocate.current = false
     })
     return () => cancelAnimationFrame(frame)
-  }, [display])
+  }, [display, scroll, tab.id])
 
   /** Marks for the right-hand ruler: add / delete / modify placed by rendered-row ratio (folds and skips included) */
   const rulerMarks = useMemo(() => {
@@ -484,12 +502,6 @@ export function DiffView({ tab }: Props) {
   const emptyDiff = parsed !== null && parsed.rows.length === 0
   const handOver = emptyDiff && !binary && !error
 
-  // A tab switch must not replay the previous tab's position, nor keep the old tab's switch request
-  useLayoutEffect(() => {
-    pendingScroll.current = null
-    requestedFile.current = false
-  }, [tab.id])
-
   useEffect(() => {
     if (!handOver || requestedFile.current) return
     requestedFile.current = true
@@ -507,6 +519,10 @@ export function DiffView({ tab }: Props) {
   }, [display, error, binary, restorePendingScroll])
 
   const toggleRun = (index: number) => {
+    // Settle either side's latest input before folding changes the scrollable height.
+    pendingScroll.current = null
+    pendingLocate.current = false
+    scroll.flush()
     setCollapsed((current) => {
       const next = new Set(current)
       if (next.has(index)) next.delete(index)
@@ -517,26 +533,21 @@ export function DiffView({ tab }: Props) {
 
   /** Scroll sync: vertical and horizontal both follow, matching VSCode's side-by-side diff */
   const syncScroll = (from: 'left' | 'right') => (event: UIEvent<HTMLDivElement>) => {
-    if (syncLock.current) return
-    const target = from === 'left' ? rightRef.current : leftRef.current
-    if (!target) return
-    const el = event.currentTarget
-    syncLock.current = true
-    target.scrollTop = el.scrollTop
-    target.scrollLeft = el.scrollLeft
-    requestAnimationFrame(() => {
-      syncLock.current = false
-    })
+    if (scroll.onScroll(from, event.currentTarget)) {
+      pendingScroll.current = null
+      pendingLocate.current = false
+    }
   }
 
   /** Click the right-hand ruler: scroll the hit position to the middle of the viewport (both panes) */
   const jumpToRatio = (ratio: number) => {
+    pendingScroll.current = null
+    pendingLocate.current = false
     const el = leftRef.current ?? rightRef.current
     if (!el) return
     const max = Math.max(0, el.scrollHeight - el.clientHeight)
     const top = Math.min(max, Math.max(0, ratio * el.scrollHeight - el.clientHeight / 2))
-    if (leftRef.current) leftRef.current.scrollTop = top
-    if (rightRef.current) rightRef.current.scrollTop = top
+    scroll.jumpTo(top)
   }
 
   /** Left side is "before", right side is "after" */
@@ -723,8 +734,7 @@ type RulerMark = { top: number; height: number; kind: 'add' | 'del' | 'mod' }
 
 /**
  * Change overview bar on the scroll container's right edge: green = add, red = delete, two colors = modify;
- * click / drag to jump. The viewport slider subscribes to scroll itself, so scrolling re-renders only this
- * 10px bar, not the whole diff.
+ * click / drag to jump. Only the viewport slider subscribes to scroll; marks stay static while scrolling.
  */
 function DiffRuler({
   marks,
@@ -736,32 +746,7 @@ function DiffRuler({
   onJump: (ratio: number) => void
 }) {
   const ref = useRef<HTMLDivElement | null>(null)
-  const [viewport, setViewport] = useState({ top: 0, height: 1 })
   const t = useT()
-
-  // Remeasure on content height (marks change) and on container size changes
-  useEffect(() => {
-    const el = scrollRef.current
-    if (!el) return
-    const measure = () => {
-      if (!el.scrollHeight) return
-      const height = Math.min(1, el.clientHeight / el.scrollHeight)
-      const top = Math.min(1 - height, Math.max(0, el.scrollTop / el.scrollHeight))
-      setViewport((current) =>
-        Math.abs(current.top - top) < 0.0005 && Math.abs(current.height - height) < 0.0005
-          ? current
-          : { top, height },
-      )
-    }
-    measure()
-    el.addEventListener('scroll', measure, { passive: true })
-    const observer = new ResizeObserver(measure)
-    observer.observe(el)
-    return () => {
-      el.removeEventListener('scroll', measure)
-      observer.disconnect()
-    }
-  }, [scrollRef, marks])
 
   const jump = (clientY: number) => {
     const el = ref.current
@@ -787,10 +772,7 @@ function DiffRuler({
       className="relative w-[10px] shrink-0 cursor-pointer border-l border-line/40 bg-panel/40"
     >
       {/* Current viewport, a reference for "where am I in the file" */}
-      <div
-        className="pointer-events-none absolute inset-x-0 rounded-[1px] bg-fg/10"
-        style={{ top: `${viewport.top * 100}%`, height: `${viewport.height * 100}%` }}
-      />
+      <DiffViewport scrollRef={scrollRef} marks={marks} />
       {marks.map((mark, index) => (
         <span
           key={index}
@@ -815,6 +797,52 @@ function DiffRuler({
         </span>
       ))}
     </div>
+  )
+}
+
+function DiffViewport({
+  scrollRef,
+  marks,
+}: {
+  scrollRef: RefObject<HTMLDivElement | null>
+  marks: RulerMark[]
+}) {
+  const [viewport, setViewport] = useState({ top: 0, height: 1 })
+
+  useLayoutEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    let frame: number | null = null
+    const measure = () => {
+      frame = null
+      if (!el.scrollHeight) return
+      const height = Math.min(1, el.clientHeight / el.scrollHeight)
+      const top = Math.min(1 - height, Math.max(0, el.scrollTop / el.scrollHeight))
+      setViewport((current) =>
+        Math.abs(current.top - top) < 0.0005 && Math.abs(current.height - height) < 0.0005
+          ? current
+          : { top, height },
+      )
+    }
+    const schedule = () => {
+      if (frame === null) frame = requestAnimationFrame(measure)
+    }
+    measure()
+    el.addEventListener('scroll', schedule, { passive: true })
+    const observer = new ResizeObserver(schedule)
+    observer.observe(el)
+    return () => {
+      el.removeEventListener('scroll', schedule)
+      observer.disconnect()
+      if (frame !== null) cancelAnimationFrame(frame)
+    }
+  }, [scrollRef, marks])
+
+  return (
+    <div
+      className="pointer-events-none absolute inset-x-0 rounded-[1px] bg-fg/10"
+      style={{ top: `${viewport.top * 100}%`, height: `${viewport.height * 100}%` }}
+    />
   )
 }
 

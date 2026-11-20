@@ -59,6 +59,7 @@ export type DirState = {
 }
 
 export type RootNode = {
+  lifetime?: symbol
   id: string
   name: string
   isGitRepo: boolean
@@ -112,6 +113,7 @@ type WorkspaceStore = {
   /** quiet: background refresh (watcher), no toast on failure, only drop dead dirs from the cache */
   refreshDir: (root: string, rel: string, options?: { quiet?: boolean }) => Promise<void>
   refreshTree: (root?: string, options?: { quiet?: boolean }) => Promise<void>
+  refreshDirs: (root: string, rels: string[], options?: { quiet?: boolean }) => Promise<void>
   collapseAll: () => void
   /** Expand all dirs (bounded by dir count / depth, skips .gitignore and heavy dirs) */
   expandAll: (rootId: string, showHidden: boolean) => Promise<void>
@@ -163,12 +165,113 @@ function pruneTree(node: RootNode): RootNode {
 }
 
 export function emptyRoot(id: string, name: string, isGitRepo: boolean): RootNode {
-  return { id, name, isGitRepo, tree: {}, expanded: { '': true }, collapsed: false }
+  return { lifetime: Symbol(id), id, name, isGitRepo, tree: {}, expanded: { '': true }, collapsed: false }
 }
 
 export const useWorkspace = create<WorkspaceStore>((set, get) => {
   const patchRoot = (rootId: string, patch: (node: RootNode) => RootNode) => {
-    set({ roots: get().roots.map((r) => (r.id === rootId ? pruneTree(patch(r)) : r)) })
+    const roots = get().roots
+    let changed = false
+    const next = roots.map((node) => {
+      if (node.id !== rootId) return node
+      const updated = patch(node)
+      if (updated === node) return node
+      changed = true
+      return pruneTree(updated)
+    })
+    if (changed) set({ roots: next })
+  }
+
+  const directoryVersions = new Map<string, number>()
+  const directoryVersion = (root: string, rel: string) => {
+    const parents = ['', ...rel.split('/').map((_, i, parts) => parts.slice(0, i + 1).join('/'))]
+    return parents.map(path => directoryVersions.get(`${root}:${path}`) ?? 0).join(':')
+  }
+  const invalidateReads = (root: string, rel = '') => {
+    const key = `${root}:${rel}`
+    directoryVersions.set(key, (directoryVersions.get(key) ?? 0) + 1)
+  }
+  type RefreshJob = { pending: Map<string, boolean>; done: Promise<void> }
+  const refreshJobs = new Map<string, RefreshJob>()
+  const cancelRefresh = (root: string) => { refreshJobs.delete(root); invalidateReads(root) }
+  const sameDir = (a: DirState | undefined, b: DirState) =>
+    a !== undefined && a.total === b.total && a.hasMore === b.hasMore && a.loading === b.loading &&
+    a.entries.length === b.entries.length && a.entries.every((entry, i) => {
+      const other = b.entries[i]
+      return entry.name === other.name && entry.path === other.path && entry.isDir === other.isDir &&
+        entry.isSymlink === other.isSymlink && entry.ignored === other.ignored &&
+        entry.size === other.size && entry.mtime === other.mtime
+    })
+
+  const runRefresh = async (root: string, job: RefreshJob) => {
+    const current = () => refreshJobs.get(root) === job && get().roots.some((node) => node.id === root)
+    try {
+      while (current() && job.pending.size > 0) {
+        const requests = [...job.pending]
+        job.pending.clear()
+        const node = get().roots.find((item) => item.id === root)!
+        type Result = { rel: string; version: string; before?: DirState; state?: DirState; missing?: boolean }
+        const results: Result[] = []
+        await mapLimit(requests, 6, async ([rel, quiet]) => {
+          const before = node.tree[rel]
+          const version = directoryVersion(root, rel)
+          try {
+            // Reload every previously visible page, respecting the backend's per-page cap.
+            const wanted = Math.max(PAGE_SIZE, before?.entries.length ?? 0)
+            const entries: DirEntryInfo[] = []
+            let total = 0
+            let hasMore = false
+            do {
+              const page = await api.readDir(root, rel, entries.length, PAGE_SIZE)
+              entries.push(...page.entries)
+              total = page.total
+              hasMore = page.hasMore
+              if (page.entries.length === 0) break
+            } while (hasMore && entries.length < wanted && current() && !job.pending.has(rel))
+            results.push({ rel, version, before, state: { entries, total, hasMore, loading: false } })
+          } catch (e) {
+            if (!current() || job.pending.has(rel)) return
+            if (errorCode(e) === 'io.notFound') results.push({ rel, version, before, missing: true })
+            if (!quiet) useUi.getState().toast(errorText(e), 'error')
+          }
+        })
+        if (!current()) break
+        const missing: string[] = []
+        patchRoot(root, (latest) => {
+          let tree = latest.tree
+          let expanded = latest.expanded
+          for (const result of results) {
+            const { rel, before, state } = result
+            if (directoryVersion(root, rel) !== result.version) continue
+            if (latest.expanded !== node.expanded && !latest.expanded[rel]) continue
+            if (job.pending.has(rel)) continue // A newer event owns this directory.
+            if (latest.tree[rel] !== before) {
+              // A collapse may have evicted this cache; never resurrect it. Pagination/expansion wins,
+              // but schedule a fresh read so a concurrent filesystem notification is not lost.
+              if (latest.tree[rel]) job.pending.set(rel, true)
+              continue
+            }
+            if (!before && rel !== '' && !latest.expanded[rel]) continue
+            if (result.missing) {
+              if (tree === latest.tree) tree = { ...tree }
+              if (expanded === latest.expanded) expanded = { ...expanded }
+              for (const dir of Object.keys(tree)) if (rel === '' || dir === rel || dir.startsWith(`${rel}/`)) delete tree[dir]
+              for (const dir of Object.keys(expanded)) if (rel === '' || dir === rel || dir.startsWith(`${rel}/`)) delete expanded[dir]
+              missing.push(rel)
+            } else if (state && !results.some((other) => other.missing && !job.pending.has(other.rel) &&
+              latest.tree[other.rel] === other.before && (other.rel === '' || rel.startsWith(`${other.rel}/`))) &&
+              !sameDir(tree[rel], state)) {
+              if (tree === latest.tree) tree = { ...tree }
+              tree[rel] = state
+            }
+          }
+          return tree === latest.tree && expanded === latest.expanded ? latest : { ...latest, tree, expanded }
+        })
+        for (const rel of missing) useFolderChain.getState().forget(root, rel)
+      }
+    } finally {
+      if (refreshJobs.get(root) === job) refreshJobs.delete(root)
+    }
   }
 
   const saveSession = () => {
@@ -241,7 +344,10 @@ export const useWorkspace = create<WorkspaceStore>((set, get) => {
         for (const old of get().roots) {
           if (old.id !== info.root) {
             oldRootIds.push(old.id)
+            cancelRefresh(old.id)
             await api.closeFolder(old.id).catch(() => {})
+            cancelRefresh(old.id)
+            useFolderChain.getState().forget(old.id)
           }
         }
         const node = emptyRoot(info.root, info.name, info.isGitRepo)
@@ -288,18 +394,22 @@ export const useWorkspace = create<WorkspaceStore>((set, get) => {
     closeWorkspace: async () => {
       const ids = get().roots.map((r) => r.id)
       for (const id of ids) {
+        cancelRefresh(id)
         await api.closeFolder(id).catch(() => {})
+        cancelRefresh(id)
         useFileIndex.getState().forget(id)
-        useFolderChain.getState().invalidate(id)
+        useFolderChain.getState().forget(id)
       }
       set({ roots: [], activeRootId: null })
       saveSession()
     },
 
     removeRoot: async (rootId) => {
+      cancelRefresh(rootId)
       await api.closeFolder(rootId).catch(() => {})
+      cancelRefresh(rootId)
       useFileIndex.getState().forget(rootId)
-      useFolderChain.getState().invalidate(rootId)
+      useFolderChain.getState().forget(rootId)
       const roots = get().roots.filter((r) => r.id !== rootId)
       set({
         roots,
@@ -340,7 +450,6 @@ export const useWorkspace = create<WorkspaceStore>((set, get) => {
       // .gitignore starts / stops applying here: rebuild the ⌘P index and recompute every ignored mark
       // in the tree (else entries that were greyed out stay grey)
       useFileIndex.getState().invalidate(rootId)
-      useFolderChain.getState().invalidate(rootId)
       void get().refreshTree(rootId, { quiet: true })
       return true
     },
@@ -358,10 +467,12 @@ export const useWorkspace = create<WorkspaceStore>((set, get) => {
       if (!node) return
       const expanded = { ...node.expanded }
       if (expanded[rel]) {
+        invalidateReads(root, rel)
         delete expanded[rel]
         // Collapsing drops child dir caches and their expanded marks, else re-expanding the parent shows
         // children as "expanded" with no entries
         const tree = { ...node.tree }
+        if (tree[rel]?.loading) tree[rel] = { ...tree[rel], loading: false }
         for (const key of Object.keys(tree)) {
           if (key !== rel && key.startsWith(rel === '' ? '' : rel + '/')) delete tree[key]
         }
@@ -396,6 +507,7 @@ export const useWorkspace = create<WorkspaceStore>((set, get) => {
       const pending = rels.filter((rel) => !node.expanded[rel] || !node.tree[rel])
       if (pending.length === 0) return
 
+      const versions = new Map(pending.map(rel => [rel, directoryVersion(root, rel)]))
       const missing = pending.filter((rel) => !node.tree[rel])
       // Fetch all missing dirs in parallel first (so 2+ levels don't await IPC level by level)
       const loaded: [string, DirState][] = []
@@ -412,17 +524,21 @@ export const useWorkspace = create<WorkspaceStore>((set, get) => {
           if (!options?.silent) useUi.getState().toast(errorText(e), 'error')
         }
       })
-      // The project may have switched / a dir collapsed while fetching: merge against the latest tree
+      // A new workspace lifetime, collapse, or cache replacement invalidates these reads.
       patchRoot(root, (n) => {
+        if (n.lifetime !== node.lifetime) return n
         const expanded = { ...n.expanded }
-        for (const rel of pending) expanded[rel] = true
+        for (const rel of pending) {
+          if (directoryVersion(root, rel) === versions.get(rel) && n.tree[rel] === node.tree[rel] && (n.tree[rel] || loaded.some(([path]) => path === rel))) expanded[rel] = true
+        }
         const tree = { ...n.tree }
-        for (const [rel, state] of loaded) tree[rel] = state
+        for (const [rel, state] of loaded) if (directoryVersion(root, rel) === versions.get(rel) && n.tree[rel] === node.tree[rel]) tree[rel] = state
         return { ...n, expanded, tree }
       })
     },
 
     collapseAll: () => {
+      for (const node of get().roots) invalidateReads(node.id)
       // Collapse levels only, keep the root cache: top-level files stay visible instead of
       // a blank tree (which would look like an empty project)
       set({
@@ -464,6 +580,8 @@ export const useWorkspace = create<WorkspaceStore>((set, get) => {
       // Expand level by level: read each level in parallel instead of waiting serially on a big tree
       let frontier: { rel: string; depth: number }[] = [{ rel: '', depth: 0 }]
       while (frontier.length > 0 && budget > 0) {
+        const latest = get().roots.find(r => r.id === rootId)
+        if (!latest || latest.lifetime !== node.lifetime || latest.expanded !== node.expanded || latest.tree !== node.tree) return
         const next: { rel: string; depth: number }[] = []
         await mapLimit(frontier, 6, async ({ rel, depth }) => {
           const state = await load(rel)
@@ -483,22 +601,35 @@ export const useWorkspace = create<WorkspaceStore>((set, get) => {
         frontier = next
       }
 
-      // The watcher may have committed a refresh meanwhile: merge instead of overwriting
-      patchRoot(rootId, (n) => ({
-        ...n,
-        collapsed: false,
-        expanded: { ...n.expanded, ...expanded },
-        tree: { ...n.tree, ...tree },
-      }))
+      patchRoot(rootId, (n) => {
+        if (n.lifetime !== node.lifetime || n.expanded !== node.expanded || n.tree !== node.tree) return n
+        return { ...n, collapsed: false, expanded, tree }
+      })
     },
 
     loadMore: async (root, rel) => {
+      const refreshing = refreshJobs.get(root)
+      if (refreshing) await refreshing.done
       const node = get().roots.find((r) => r.id === root)
       const current = node?.tree[rel]
       if (!node || !current || !current.hasMore || current.loading) return
-      patchRoot(root, (n) => ({ ...n, tree: { ...n.tree, [rel]: { ...current, loading: true } } }))
+      const version = directoryVersion(root, rel)
+      const loading = { ...current, loading: true }
+      patchRoot(root, (n) => ({ ...n, tree: { ...n.tree, [rel]: loading } }))
       try {
         const page = await api.readDir(root, rel, current.entries.length, PAGE_SIZE)
+        if (directoryVersion(root, rel) !== version) return
+        const latestNode = get().roots.find((n) => n.id === root)
+        if (!latestNode || latestNode.lifetime !== node.lifetime || !latestNode.expanded[rel]) return
+        const latest = latestNode.tree[rel]
+        if (latest !== loading) {
+          // A refresh replaced the prefix while the next page was in flight. Append only to the
+          // exact prefix the page was read against; otherwise fulfill the request against fresh data.
+          if (latest && latest.entries.length < current.entries.length + page.entries.length) {
+            await get().loadMore(root, rel)
+          }
+          return
+        }
         patchRoot(root, (n) => ({
           ...n,
           tree: {
@@ -512,60 +643,39 @@ export const useWorkspace = create<WorkspaceStore>((set, get) => {
           },
         }))
       } catch (e) {
+        if (get().roots.find((n) => n.id === root)?.tree[rel] !== loading) return
         patchRoot(root, (n) => ({ ...n, tree: { ...n.tree, [rel]: { ...current, loading: false } } }))
         useUi.getState().toast(errorText(e), 'error')
       }
     },
 
-    refreshDir: async (root, rel, options) => {
-      try {
-        const page = await api.readDir(root, rel, 0, PAGE_SIZE)
-        patchRoot(root, (n) => ({
-          ...n,
-          tree: {
-            ...n.tree,
-            [rel]: {
-              entries: page.entries,
-              total: page.total,
-              hasMore: page.hasMore,
-              loading: false,
-            },
-          },
-        }))
-      } catch (e) {
-        const message = errorText(e)
-        // Dir deleted / renamed externally: drop the stale cache instead of showing a nonexistent dir
-        if (errorCode(e) === 'io.notFound') {
-          patchRoot(root, (n) => {
-            const tree = { ...n.tree }
-            delete tree[rel]
-            const expanded = { ...n.expanded }
-            delete expanded[rel]
-            return { ...n, tree, expanded }
-          })
-        }
-        // A background refresh failure (watching for changes) must not toast: dirs vanishing after a branch
-        // switch is normal and a toast would look like files were lost
-        if (options?.quiet) {
-          console.warn('[Tide] 刷新目录失败', rel, message)
-          return
-        }
-        useUi.getState().toast(message, 'error')
+    refreshDir: (root, rel, options) => get().refreshDirs(root, [rel], options),
+
+    refreshDirs: (root, rels, options) => {
+      if (!get().roots.some((node) => node.id === root) || rels.length === 0) return Promise.resolve()
+      let job = refreshJobs.get(root)
+      if (!job) {
+        job = { pending: new Map(), done: Promise.resolve() }
+        refreshJobs.set(root, job)
+        const queued = job
+        // Coalesce all notifications in this turn before starting a bounded batch.
+        job.done = Promise.resolve().then(() => runRefresh(root, queued))
       }
+      for (const rel of rels) {
+        invalidateReads(root, rel)
+        const quiet = options?.quiet ?? false
+        job.pending.set(rel, job.pending.has(rel) ? job.pending.get(rel)! && quiet : quiet)
+      }
+      return job.done
     },
 
     refreshTree: async (root, options) => {
-      // Whole tree re-read (branch switch / manual refresh): merged folder chains may have changed shape
-      for (const node of root ? get().roots.filter((r) => r.id === root) : get().roots) {
-        useFolderChain.getState().invalidate(node.id)
-      }
       const targets = root ? get().roots.filter((r) => r.id === root) : get().roots
-      for (const node of targets) {
-        const expanded = Object.keys(node.expanded).filter((k) => node.expanded[k])
-        const dirs = expanded.length > 0 ? expanded : ['']
-        // Dirs are independent: read in parallel with a concurrency cap; serial is visibly slow with many open
-        await mapLimit(dirs, 6, (rel) => get().refreshDir(node.id, rel, options))
-      }
+      await Promise.all(targets.map((node) => {
+        useFolderChain.getState().invalidate(node.id)
+        const dirs = new Set(['', ...Object.keys(node.tree), ...Object.keys(node.expanded).filter((rel) => node.expanded[rel])])
+        return get().refreshDirs(node.id, [...dirs], options)
+      }))
     },
 
     createEntry: async (root, dir, name, kind) => {

@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { chatTabId, findPendingQuestion, useAgent } from '../store/agent'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { chatTabId, findPendingPlanAction, findPendingQuestion, useAgent } from '../store/agent'
 import { useTabs } from '../store/tabs'
 import { useUi } from '../store/ui'
 import type { AgentDraft } from '../lib/agentCommand'
@@ -11,6 +11,7 @@ import { shortcutKey } from '../lib/keys'
 import { AgentComposer } from './AgentComposer'
 import { AssistantMessage, UserMessage } from './AgentMessage'
 import { Icon } from './Icon'
+import { ModelPicker } from './AgentPickers'
 import { AgentContextUsage } from './AgentContextUsage'
 import { CopyButton } from './CopyButton'
 import { elapsedSeconds, formatAgentDuration } from '../lib/agentDuration'
@@ -50,6 +51,8 @@ export function AgentChat({ chatId }: { chatId: string }) {
   const pageLoading = useAgent(s => s.pageLoading[chatId])
   const loading = useAgent((s) => s.loadingChats[chatId])
   const startedAt = useAgent((s) => s.running[chatId])
+  const focusRequest = useAgent(s => s.focusRequests[chatId] ?? 0)
+  const localPicker = useAgent(s => s.localPicker?.chatId === chatId ? s.localPicker : null)
   const draftState = useAgent((s) => s.chatDrafts[chatId])
   const queued = useAgent((s) => s.queues[chatId])
   const providers = useAgent((s) => s.providers)
@@ -58,6 +61,28 @@ export function AgentChat({ chatId }: { chatId: string }) {
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const [atBottom, setAtBottom] = useState(true)
+  const anchor = useRef<{ id: string; offset: number } | null>(null)
+  const captureAnchor = () => {
+    const el = scrollRef.current
+    if (!el) return
+    const top = el.getBoundingClientRect().top
+    const row = [...el.querySelectorAll<HTMLElement>('[data-agent-message]')].find(row => row.getBoundingClientRect().bottom > top)
+    anchor.current = row ? { id: row.dataset.agentMessage!, offset: row.getBoundingClientRect().top - top } : null
+  }
+  useLayoutEffect(() => {
+    const el = scrollRef.current
+    const saved = anchor.current
+    if (!el || !saved || atBottom) return
+    const row = [...el.querySelectorAll<HTMLElement>('[data-agent-message]')].find(row => row.dataset.agentMessage === saved.id)
+    if (row) el.scrollTop += row.getBoundingClientRect().top - el.getBoundingClientRect().top - saved.offset
+    captureAnchor()
+  }, [chat?.messages, atBottom])
+  const navigate = (direction: 'earlier' | 'later' | 'pending') => {
+    captureAnchor()
+    setAtBottom(false)
+    void useAgent.getState().loadPage(chatId, direction)
+  }
+
   const running = chat?.status === 'running'
   const jumpKeys = isMac() ? '⇧⌘↓' : 'Ctrl+Shift+↓'
 
@@ -125,6 +150,7 @@ export function AgentChat({ chatId }: { chatId: string }) {
   // Switching chat tabs reuses this component instance: start the new transcript at its end
   useEffect(() => {
     setAtBottom(true)
+    anchor.current = null
   }, [chatId])
 
   useEffect(() => {
@@ -165,6 +191,7 @@ export function AgentChat({ chatId }: { chatId: string }) {
   }
 
   const pendingQuestion = findPendingQuestion(chat.messages)
+  const pendingPlan = findPendingPlanAction(chat.messages)
   const draft: AgentDraft = draftState ?? { text: '', mentions: [] }
   const providerInfo = providers?.find((provider) => provider.id === chat.provider)
   const providerMissing =
@@ -219,18 +246,19 @@ export function AgentChat({ chatId }: { chatId: string }) {
           onScroll={(e) => {
             const el = e.currentTarget
             setAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 40)
+            captureAnchor()
           }}
           className="h-full select-text overflow-y-auto"
         >
           <div className="mx-auto flex w-full max-w-[820px] flex-col gap-4 px-4 py-4">
             {chat.error ? <div role="alert" className="text-xs text-danger">{chat.error}</div> : null}
             {page?.pendingMessageId && !chat.messages.some(m => m.id === page.pendingMessageId) ? (
-              <button disabled={running || pageLoading} onClick={() => void useAgent.getState().loadPage(chatId, 'pending')} className="text-xs text-accent">
+              <button disabled={running || pageLoading} onClick={() => navigate('pending')} className="text-xs text-accent">
                 {t('agent.history.pending')}
               </button>
             ) : null}
             {page?.hasEarlier ? (
-              <button disabled={running || pageLoading} onClick={() => void useAgent.getState().loadPage(chatId, 'earlier')} className="text-xs text-accent">
+              <button disabled={running || pageLoading} onClick={() => navigate('earlier')} className="text-xs text-accent">
                 {t('agent.history.earlier')}
               </button>
             ) : null}
@@ -241,7 +269,8 @@ export function AgentChat({ chatId }: { chatId: string }) {
               </div>
             ) : (
               chat.messages.map((message) =>
-                message.role === 'user' ? (
+                <div key={message.id} data-agent-message={message.id} style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 120px' }}>
+                {message.role === 'user' ? (
                   <UserMessage key={message.id} root={chat.root} message={message} />
                 ) : (
                   <AssistantMessage
@@ -251,11 +280,24 @@ export function AgentChat({ chatId }: { chatId: string }) {
                     running={running && message.id === last?.id}
                     pendingQuestionId={pendingQuestion?.item.id ?? null}
                   />
-                ),
+                )}
+                </div>,
               )
             )}
+          {running ? (
+            <div className="flex h-7 items-center gap-2 rounded-[var(--r-row)] border border-line-soft bg-accent/10 px-2">
+              <Icon name="spinner" size={11} className="shrink-0 animate-spin text-accent" />
+              <RunningStatus startedAt={startedAt} />
+              <span
+                data-tip={activityLabel}
+                className="min-w-0 flex-1 truncate text-2xs text-fg/75"
+              >
+                {activityLabel}
+              </span>
+            </div>
+          ) : null}
             {page?.hasLater ? (
-              <button disabled={running || pageLoading} onClick={() => void useAgent.getState().loadPage(chatId, 'later')} className="text-xs text-accent">
+              <button disabled={running || pageLoading} onClick={() => navigate('later')} className="text-xs text-accent">
                 {t('agent.history.later')}
               </button>
             ) : null}
@@ -283,18 +325,6 @@ export function AgentChat({ chatId }: { chatId: string }) {
 
       <div className="shrink-0 border-t border-line-soft bg-bg py-2">
         <div className="mx-auto flex w-full max-w-[820px] flex-col gap-1.5 px-4">
-          {running ? (
-            <div className="flex h-7 items-center gap-2 rounded-[var(--r-row)] border border-line-soft bg-accent/10 px-2">
-              <Icon name="spinner" size={11} className="shrink-0 animate-spin text-accent" />
-              <RunningStatus startedAt={startedAt} />
-              <span
-                data-tip={activityLabel}
-                className="min-w-0 flex-1 truncate text-2xs text-fg/75"
-              >
-                {activityLabel}
-              </span>
-            </div>
-          ) : null}
           {queued && queued.length > 0 ? (
             <div className="flex flex-col gap-1">
               {queued.map((item) => (
@@ -376,10 +406,31 @@ export function AgentChat({ chatId }: { chatId: string }) {
               </button>
             </div>
           ) : null}
-          {pendingQuestion ? (
-            <div className="flex items-center gap-1.5 text-2xs text-accent">
-              <Icon name="info" size={11} className="shrink-0" />
-              {t('agent.question.pendingHint')}
+          {chat.sessionAction === 'fork' && chat.status === 'error' ? (
+            <button onClick={() => useAgent.getState().restartSession(chatId)} className="text-xs text-accent">{t('agent.local.restart')}</button>
+          ) : null}
+          <div className="flex items-center gap-2 text-2xs text-muted">
+            {chat.planning ? t('agent.mode.plan') : chat.permissionMode === 'read-only' ? t('agent.mode.readOnly') : null}
+          </div>
+          {localPicker ? (
+            <div role="dialog" aria-label={t(`agent.local.${localPicker.kind}.label`)} className="flex flex-col gap-1 rounded border border-line p-2">
+              <button className="self-end text-xs" onClick={() => useAgent.setState({ localPicker: null })}>{t('tabs.close')}</button>
+              {localPicker.kind === 'resume' ? localPicker.chats?.map(item => (
+                <button key={item.id} className="truncate text-left text-xs hover:text-accent" onClick={() => {
+                  useAgent.setState({ localPicker: null })
+                  void useAgent.getState().loadChat(item.id).then(() => useAgent.getState().openChatTab(item.id))
+                }}>{item.title || item.id} · {item.provider}</button>
+              )) : localPicker.kind === 'model' ? (
+                <ModelPicker provider={chat.provider} value={chat.model} onPick={model => {
+                  useAgent.getState().setChatOptions(chatId, { model })
+                  useAgent.setState({ localPicker: null })
+                }} />
+              ) : ['read-only', 'workspace-write'].map(mode => (
+                <button key={mode} className="text-left text-xs hover:text-accent" onClick={() => {
+                  useAgent.setState({ localPicker: null })
+                  void useAgent.getState().sendMessage(chatId, { text: `/permissions ${mode}`, mentions: [] })
+                }}>{mode === 'read-only' ? t('agent.mode.readOnly') : t('agent.mode.write')}</button>
+              ))}
             </div>
           ) : null}
           <AgentComposer
@@ -395,8 +446,9 @@ export function AgentChat({ chatId }: { chatId: string }) {
             running={running}
             disabled={!enabled}
             blocked={providerMissing}
-            pendingQuestion={pendingQuestion !== null || page?.hasPendingQuestion || page?.hasUnhandledPlanAction}
-            autoFocusKey={chatId}
+            pendingQuestion={pendingQuestion !== null || page?.hasPendingQuestion}
+            pendingPlan={pendingPlan !== null || page?.hasUnhandledPlanAction}
+            autoFocusKey={`${chatId}:${focusRequest}`}
             onDraft={(text) => useAgent.getState().setChatDraft(chatId, { text })}
             onMentions={(mentions) => useAgent.getState().setChatDraft(chatId, { mentions })}
             onCommand={(command) => useAgent.getState().setChatDraft(chatId, { command })}
@@ -406,8 +458,15 @@ export function AgentChat({ chatId }: { chatId: string }) {
             onEffort={(effort) => useAgent.getState().setChatOptions(chatId, { effort })}
             onStop={() => void useAgent.getState().stop(chatId)}
             onSend={() => {
-              if (!draft.text.trim() && !(draft.skills ?? []).length) return
+              if (!draft.text.trim() && !(draft.skills ?? []).length && draft.command !== 'plan') return
               setAtBottom(true)
+              // Immediately scroll to bottom when sending a message
+              const el = scrollRef.current
+              if (el) {
+                requestAnimationFrame(() => {
+                  el.scrollTop = el.scrollHeight
+                })
+              }
               void useAgent.getState().sendMessage(chatId, draft)
             }}
           />

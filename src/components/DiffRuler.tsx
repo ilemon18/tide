@@ -146,8 +146,11 @@ export function DiffRuler({ root, rel, dirty, mtime, tabId, groupId }: Props) {
     tabs.jumpToLine(line)
   }
 
+  // Hide the ruler when there are no changes: saves 10px of horizontal space
+  const hasChanges = marks.length > 0 || isNew
+
   return (
-    <div className="pointer-events-none absolute inset-y-0 right-0 w-[10px] overflow-hidden">
+    <div className={`pointer-events-none absolute inset-y-0 right-0 overflow-hidden ${hasChanges ? 'w-[10px]' : 'w-0'}`}>
       {isNew ? (
         <button
           onClick={() => jumpTo(1)}

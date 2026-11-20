@@ -147,3 +147,12 @@ export function formatAgentUsd(cost: number | null): string | null {
   const [whole, fraction = ''] = fixed.split('.')
   return `$${whole}.${fraction.padEnd(2, '0')}`
 }
+
+/** Replace this turn's contribution; streaming usage snapshots are not independent turns. */
+export function replaceTurnUsage(total: AgentUsage | undefined, previous: AgentUsage | undefined, next: AgentUsage): AgentUsage {
+  const keys = ['inputTokens', 'cachedInputTokens', 'cacheWriteInputTokens', 'outputTokens', 'reasoningOutputTokens', 'totalTokens'] as const
+  const result = { ...next, contextTokens: undefined, contextWindow: undefined }
+  for (const key of keys) result[key] = Math.max(0, (total?.[key] ?? 0) - (previous?.[key] ?? 0) + next[key])
+  result.costUsd = next.costUsd === null || total?.costUsd === null ? null : Math.max(0, (total?.costUsd ?? 0) - (previous?.costUsd ?? 0) + next.costUsd)
+  return result
+}

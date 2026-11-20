@@ -1,6 +1,6 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import type { AgentItem, AgentMessage as Message } from '../store/agent'
-import type { AgentMention } from '../lib/ipc'
+import type { AgentMention, AgentPlanAction } from '../lib/ipc'
 import { useTabs } from '../store/tabs'
 import { useAgent } from '../store/agent'
 import { revealInExplorer } from '../lib/actions'
@@ -293,9 +293,9 @@ function QuestionCard({
             {item.question}
           </div>
         </div>
-        <span className="shrink-0 rounded-[var(--r-row)] border border-line-soft bg-panel px-1.5 py-0.5 text-2xs text-muted">
-          {multi ? t('agent.question.multi') : t('agent.question.single')}
-        </span>
+        {multi ? (
+          <span className="shrink-0 text-2xs text-muted">{t('agent.question.multi')}</span>
+        ) : null}
       </div>
 
       {answered ? (
@@ -347,7 +347,7 @@ function QuestionCard({
           </div>
 
           <label className="flex flex-col gap-1">
-            <span className="text-2xs text-muted">{t('agent.question.custom')}</span>
+            <span className="sr-only">{t('agent.question.custom')}</span>
             <input
               type="text"
               value={custom}
@@ -367,12 +367,7 @@ function QuestionCard({
             />
           </label>
 
-          <div className="flex items-center gap-2">
-            {!canSubmit ? (
-              <span className="min-w-0 flex-1 text-2xs text-muted">{t('agent.question.required')}</span>
-            ) : (
-              <span className="flex-1" />
-            )}
+          <div className="flex items-center justify-end gap-2">
             <button
               type="button"
               disabled={!canSubmit}
@@ -383,6 +378,96 @@ function QuestionCard({
               {t('agent.question.submit')}
             </button>
           </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function PlanCard({
+  chatId,
+  item,
+  running,
+}: {
+  chatId: string
+  item: AgentItem
+  running: boolean
+}) {
+  const t = useT()
+  const resolved = item.resolved === true
+  const [instructions, setInstructions] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const submitted = useRef(false)
+  const locked = running || resolved || submitting
+
+  const handleAction = async (action: AgentPlanAction) => {
+    if (locked || submitted.current) return
+    submitted.current = true
+    setSubmitting(true)
+    try {
+      await useAgent.getState().resolvePlanAction(chatId, item.id, action, instructions)
+    } finally {
+      submitted.current = false
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="group/item overflow-hidden rounded-[var(--r-popup)] border border-accent/30 bg-panel">
+      <div className="flex items-start gap-2 border-b border-line-soft bg-accent/5 px-3 py-2">
+        <Icon name="structure" size={12} className="mt-0.5 shrink-0 text-accent" />
+        <div className="flex min-w-0 flex-1 flex-col gap-1">
+          <div className="text-xs font-medium text-fg/90">{t('agent.plan.header')}</div>
+          {item.text ? (
+            <div className="whitespace-pre-wrap break-words text-sm leading-relaxed text-fg/85">
+              <AgentMarkdown text={item.text} />
+            </div>
+          ) : null}
+        </div>
+      </div>
+
+      {!resolved ? (
+        <div className="flex flex-col gap-2 p-3">
+          <textarea
+            value={instructions}
+            onChange={event => setInstructions(event.target.value)}
+            disabled={locked}
+            aria-label={t('agent.plan.instructions')}
+            placeholder={t('agent.plan.instructions')}
+            rows={2}
+            className="w-full resize-y rounded-[var(--r-row)] border border-line-soft bg-bg px-2 py-1.5 text-xs text-fg outline-none placeholder:text-muted/60 focus:border-accent/60 disabled:opacity-60"
+          />
+          <div className="flex flex-col gap-1.5">
+            <button
+              type="button"
+              disabled={locked}
+              onClick={() => handleAction('implement-current')}
+              className="flex items-start gap-2 rounded-[var(--r-row)] border border-line-soft bg-bg px-3 py-2 text-left transition-colors duration-fast hover:border-accent/40 hover:bg-accent/5 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <span className="min-w-0 flex-1 text-xs font-medium text-fg">{t('agent.plan.implementCurrent')}</span>
+            </button>
+            <button
+              type="button"
+              disabled={locked}
+              onClick={() => handleAction('implement-fresh')}
+              className="flex items-start gap-2 rounded-[var(--r-row)] border border-line-soft bg-bg px-3 py-2 text-left transition-colors duration-fast hover:border-accent/40 hover:bg-accent/5 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <span className="min-w-0 flex-1 text-xs font-medium text-fg">{t('agent.plan.implementFresh')}</span>
+            </button>
+            <button
+              type="button"
+              disabled={locked}
+              onClick={() => handleAction('continue-planning')}
+              className="flex items-start gap-2 rounded-[var(--r-row)] border border-line-soft bg-bg px-3 py-2 text-left transition-colors duration-fast hover:border-accent/40 hover:bg-accent/5 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <span className="min-w-0 flex-1 text-xs font-medium text-fg">{t('agent.plan.continuePlanning')}</span>
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex items-center gap-2 px-3 py-2 text-xs text-success">
+          <Icon name="check" size={12} className="shrink-0" />
+          {t('agent.plan.resolved')}
         </div>
       )}
     </div>
@@ -445,6 +530,14 @@ function Item({
           item={item}
           running={running}
           pendingQuestionId={pendingQuestionId}
+        />
+      )
+    case 'plan':
+      return (
+        <PlanCard
+          chatId={chatId}
+          item={item}
+          running={running}
         />
       )
     case 'error':

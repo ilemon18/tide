@@ -21,12 +21,18 @@ scope:
 | `pnpm i18n` | Locale key/placeholder/plural parity and error-code coverage |
 | `pnpm i18n:scan` | Hardcoded CJK UI literals; genuine non-UI files are explicitly allowlisted |
 | `pnpm check:workflows` | Workflow shell expansions followed by non-ASCII text after `$var` |
-| `pnpm test:frontend` | Vitest/React Testing Library: local commands, context usage and composer chips |
+| `pnpm test:frontend` | Vitest/React Testing Library: local commands, context usage, composer chips, plan completion/actions, persistent Plan/permissions, isolated plan handoff, compact/fork, usage replacement, bounded history, stream flushing, tree/watch races, diff scrolling and restoration |
 | `pnpm typecheck` | TypeScript types, including complete typed locale records |
 | `pnpm check:rust` | Rust types/borrows without linking |
 | `pnpm docs:route` | Select only area docs whose scope matches the supplied touched paths |
 | `pnpm docs:sync` | Regenerate the route table in `context.md` from area-doc frontmatter; never hand-edit the generated region |
 | `pnpm check:docs` | AI-doc tests, metadata, route precision/budgets, skill metadata, plus paths, relative links and `pnpm` script names in docs and wrappers |
+
+Chat running-status placement is a manual UI review surface (only when explicitly requested): one
+status strip after the latest transcript output, no timer in the chat header, correct elapsed time
+after switching chats, and removal when the turn ends. Component tests verify ordering; native visual appearance remains a manual surface.
+UI copy density is also a manual review surface: text-only plan action buttons without icons, explicit action labels, no repeated plan descriptions
+or pending-action banners, accessible question inputs, and contextual settings/send tooltips.
 
 `pnpm check` is the frontend guard set and `pnpm verify` adds Rust and doc checks; outside CI only
 [the verification skill](./skills/release-verify/SKILL.md) runs them.
@@ -49,6 +55,15 @@ Path, guard or behavior-contract changes update their routed docs in the same ch
 
 ## Tests and CI
 
+- Diff tests cover latest scroll input, clamped echoes, independent axes, overview jumps, first-change
+  positioning, refresh restoration, folding and cancellation on tab switch/unmount. Native scrolling
+  smoothness still needs an explicitly requested app review; jsdom does not model layout or compositing.
+- Frontend tests cover Plan persistence/actions/retries/queue guards, local command selectors, compact
+  success/failure, session usage, 160-record/1 MiB windows, stream ordering, footer/status placement and
+  usage popup keyboard interaction; tree/watch tests cover transition batches and stale directory reads.
+- Rust watcher tests cover truncation, overflow, continuous event deadlines, rescan/errors and Git-only locks;
+  provider capability tests reject CLIs without native fork help. Real-account protocol behavior is not
+  established by these tests.
 - Agent store tests cover exclusive cursors, byte budgets, unknown fields, concurrent patches, and preserving files after failed writes.
 - Run targeted Rust tests through the verification skill when test code changed, or when the change touches
   update, path containment, settings migration, Git commands or agent providers; installer changes belong to

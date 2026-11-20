@@ -7,6 +7,9 @@ import {
   type AgentChatApply,
   type AgentEventPayload,
   type AgentMention,
+  type AgentPlanAction,
+  type AgentPermissionMode,
+  type AgentChatSummary,
   type AgentProviderInfo,
   type AgentQuestionOption,
   type AgentUsage,
@@ -26,7 +29,8 @@ import { useSettings } from './settings'
 import { useTabs } from './tabs'
 import { useUi } from './ui'
 import { activeRoot } from './workspace'
-import { normalizeAgentUsage } from '../lib/agentUsage'
+import { normalizeAgentUsage, replaceTurnUsage } from '../lib/agentUsage'
+import { elapsedSeconds, formatAgentDuration } from '../lib/agentDuration'
 
 /**
  * One chat tab = one local CLI conversation.
@@ -44,6 +48,7 @@ export type AgentItemType =
   | 'error'
   | 'notice'
   | 'log'
+  | 'plan'
 
 export type AgentItem = {
   id: string
@@ -62,6 +67,13 @@ export type AgentItem = {
   multiSelect?: boolean
   options?: AgentQuestionOption[]
   answer?: string
+  /** Plan action metadata: pending while `resolved` is false */
+  resolved?: boolean
+  action?: AgentPlanAction
+  actionState?: 'launching' | 'completed' | 'failed'
+  targetChatId?: string
+  actionRunId?: string
+  actions?: Array<{ id: string; label: string; description: string }>
 }
 
 export type AgentMessage = {
@@ -76,8 +88,12 @@ export type AgentMessage = {
   items?: AgentItem[]
   /** Provider-reported usage snapshot for this assistant turn */
   usage?: AgentUsage
-  /** `/plan` and plan follow-up turns stay read-only until the next ordinary message */
+  /** Persistent planning and question-answer turns retain the read-only boundary. */
   readOnly?: boolean
+  planning?: boolean
+  compact?: boolean
+  planActionId?: string
+  launchAccepted?: boolean
 }
 
 export type AgentChatStatus = 'idle' | 'running' | 'error' | 'cancelled'
@@ -94,6 +110,12 @@ export type AgentChat = {
   activeRunId?: string | null
   eventSequence?: number
   sessionUsage?: AgentUsage
+  sessionCost?: { knownUsd: number; unpricedTurns: number }
+  currentContext?: AgentUsage
+  permissionMode?: AgentPermissionMode
+  planning?: boolean
+  compactSummary?: string
+  compactPending?: boolean
   sessionAction?: 'fork' | null
   sessionId: string | null
   messages: AgentMessage[]
@@ -168,6 +190,9 @@ type AgentStore = {
   loadCatalog: (provider: string, force?: boolean) => Promise<void>
   resolveDefaults: () => void
 
+  localPicker: { chatId: string; kind: 'resume' | 'model' | 'permissions'; chats?: AgentChatSummary[] } | null
+  focusRequests: Record<string, number>
+  restartSession: (chatId: string) => void
   pages: Record<string, AgentChatPage>
   pageLoading: Record<string, boolean>
   loadPage: (id: string, direction: 'earlier' | 'later' | 'latest' | 'pending') => Promise<void>
@@ -179,6 +204,7 @@ type AgentStore = {
   loadSkills: (root: string) => Promise<void>
   sendMessage: (chatId: string, draft: AgentDraft) => Promise<void>
   answerQuestion: (chatId: string, itemId: string, answer: string) => boolean
+  resolvePlanAction: (chatId: string, itemId: string, action: AgentPlanAction, instructions?: string) => Promise<boolean>
   removeQueued: (chatId: string, id: string) => void
   stop: (chatId: string) => Promise<void>
   applyEvent: (payload: AgentEventPayload) => void
@@ -193,6 +219,7 @@ type AgentStore = {
 
 /** Chat records waiting for the debounced write */
 const dirty = new Set<string>()
+const planActionLocks = new Set<string>()
 const timers = new Map<string, ReturnType<typeof setTimeout>>()
 /** One write chain per chat: two atomic renames of the same file must finish in order */
 const writeQueues = new Map<string, Promise<void>>()
@@ -202,10 +229,15 @@ const catalogTickets = new Map<string, number>()
 let providerTicket = 0
 /** Retain failed closing-tab writes for explicit flush/reopen retries. */
 const unsavedClosedChats = new Map<string, AgentChat>()
+/** Tab title update timers for running agents */
+const tabTitleTimers = new Map<string, ReturnType<typeof setInterval>>()
 
 function queueChatSave(chatId: string, chat: AgentChat): Promise<void> {
   const { messages, ...header } = chat
-  const patch: AgentChatApply = { header, upserts: messages, removeMessageIds: [] }
+  // Undefined is omitted by JSON IPC; use null to clear known fields in Rust's merge store.
+  const persistedHeader = { ...header, currentContext: header.currentContext ?? null,
+    sessionUsage: header.sessionUsage ?? null, sessionCost: header.sessionCost ?? null, compactSummary: header.compactSummary ?? null }
+  const patch: AgentChatApply = { header: persistedHeader, upserts: messages, removeMessageIds: [] }
   const previous = writeQueues.get(chatId) ?? Promise.resolve()
   // A failed earlier write must not poison the chain for every later transcript
   const next = previous.then(
@@ -220,8 +252,52 @@ function queueChatSave(chatId: string, chat: AgentChat): Promise<void> {
   return next
 }
 
+const evictions = new Map<string, Promise<void>>()
+function messageBytes(messages: AgentMessage[]) {
+  return new TextEncoder().encode(JSON.stringify(messages)).byteLength
+}
+
+/** Only evict a prefix after its complete records have reached the atomic Rust merge store. */
+function boundWorkingSet(chatId: string) {
+  const chat = useAgent.getState().chats[chatId]
+  if (!chat || evictions.has(chatId)) return
+  const sizes = chat.messages.map(message => messageBytes([message]))
+  let count = 0
+  let bytes = 0
+  for (let index = sizes.length - 1; index >= 0; index--) {
+    if (count && (count >= 160 || bytes + sizes[index] > 1024 * 1024)) break
+    count++
+    bytes += sizes[index]
+  }
+  const removed = chat.messages.slice(0, chat.messages.length - count)
+  if (!removed.length) return
+  const ids = new Set(removed.map(message => message.id))
+  const work = queueChatSave(chatId, chat).then(() => {
+    const state = useAgent.getState()
+    const current = state.chats[chatId]
+    if (!current || state.pages[chatId]?.hasLater) return
+    // Do not evict any message edited after the snapshot was captured.
+    const unchanged = removed.every(message => current.messages.find(item => item.id === message.id) === message)
+    if (!unchanged) return
+    const messages = current.messages.filter(message => !ids.has(message.id))
+    const page = state.pages[chatId]
+    const question = findPendingQuestion(current.messages)
+    const plan = findPendingPlanAction(current.messages)
+    useAgent.setState({ chats: { ...state.chats, [chatId]: { ...current, messages } },
+      pages: { ...state.pages, [chatId]: { header: page?.header ?? {}, messages,
+        hasEarlier: true, hasLater: false, total: page?.total ?? current.messages.length,
+        hasPendingQuestion: !!question || !!page?.hasPendingQuestion,
+        hasUnhandledPlanAction: !!plan || !!page?.hasUnhandledPlanAction,
+        pendingMessageId: question?.message.id ?? plan?.message.id ?? page?.pendingMessageId ?? null } } })
+  }).catch(error => {
+    useUi.getState().toast(errorText(error), 'error')
+  }).finally(() => { evictions.delete(chatId) })
+  evictions.set(chatId, work)
+}
+
 function schedulePersist(chatId: string) {
   dirty.add(chatId)
+  boundWorkingSet(chatId)
   const existing = timers.get(chatId)
   if (existing) clearTimeout(existing)
   timers.set(
@@ -233,6 +309,29 @@ function schedulePersist(chatId: string) {
   )
 }
 
+function startTabTitleTimer(chatId: string, startedAt: number) {
+  stopTabTitleTimer(chatId)
+  const interval = setInterval(() => {
+    const state = useAgent.getState()
+    if (!state.running[chatId]) {
+      stopTabTitleTimer(chatId)
+      return
+    }
+    const duration = formatAgentDuration(elapsedSeconds(startedAt))
+    useTabs.getState().setTabName(chatTabId(chatId), duration)
+  }, 1000)
+  tabTitleTimers.set(chatId, interval)
+}
+
+function stopTabTitleTimer(chatId: string) {
+  const timer = tabTitleTimers.get(chatId)
+  if (timer) {
+    clearInterval(timer)
+    tabTitleTimers.delete(chatId)
+  }
+}
+
+
 async function persistChat(chatId: string) {
   const chat = useAgent.getState().chats[chatId]
   if (!chat || !dirty.has(chatId)) return
@@ -243,13 +342,10 @@ async function persistChat(chatId: string) {
       const page = await api.agentChatOpen(chatId, 80)
       if (page && useAgent.getState().chats[chatId] === chat) {
         const state = useAgent.getState()
-        const viewingHistory = state.pages[chatId]?.hasLater
-        const normalized = !viewingHistory ? normalizeChat({ ...page.header, messages: page.messages }) : null
+        const visible = state.pages[chatId]
         useAgent.setState({
-          chats: normalized ? { ...state.chats, [chatId]: normalized } : state.chats,
-          pages: { ...state.pages, [chatId]: viewingHistory ? { ...state.pages[chatId],
-            hasPendingQuestion: page.hasPendingQuestion, hasUnhandledPlanAction: page.hasUnhandledPlanAction,
-            pendingMessageId: page.pendingMessageId, total: page.total } : page },
+          pages: { ...state.pages, [chatId]: { ...page, messages: chat.messages,
+            hasEarlier: visible?.hasEarlier ?? page.hasEarlier, hasLater: visible?.hasLater ?? false } },
         })
       }
     }
@@ -274,7 +370,7 @@ function persistLeavingChat(chatId: string, chat: AgentChat) {
   })
 }
 
-function normalizeChat(raw: unknown): AgentChat | null {
+function normalizeChat(raw: unknown, recover = false): AgentChat | null {
   if (!raw || typeof raw !== 'object') return null
   const value = raw as Partial<AgentChat>
   if (typeof value.id !== 'string' || typeof value.root !== 'string') return null
@@ -285,6 +381,8 @@ function normalizeChat(raw: unknown): AgentChat | null {
       if (message.role !== 'user') {
         const usage = normalizeAgentUsage(message.usage)
         const readOnly = message.readOnly === true ? true : undefined
+        message = { ...message, items: message.items?.map(item => recover && item.type === 'plan' && item.actionState === 'launching'
+          ? { ...item, resolved: false, actionState: 'failed' as const } : item) }
         return usage ? { ...message, usage, readOnly } : { ...message, usage: undefined, readOnly }
       }
       const command = isAgentPromptCommandId(message.command) ? message.command : undefined
@@ -306,6 +404,13 @@ function normalizeChat(raw: unknown): AgentChat | null {
     model: typeof value.model === 'string' ? value.model : '',
     effort: typeof value.effort === 'string' ? value.effort : '',
     sessionUsage: normalizeAgentUsage(value.sessionUsage),
+    sessionCost: value.sessionCost && Number.isFinite(value.sessionCost.knownUsd) && value.sessionCost.knownUsd >= 0 &&
+      Number.isInteger(value.sessionCost.unpricedTurns) && value.sessionCost.unpricedTurns >= 0 ? value.sessionCost : undefined,
+    currentContext: normalizeAgentUsage(value.currentContext),
+    permissionMode: value.permissionMode === 'read-only' || (value.permissionMode === undefined && messages.at(-1)?.readOnly) ? 'read-only' : 'workspace-write',
+    planning: value.planning === true || (value.planning === undefined && messages.at(-1)?.readOnly === true),
+    compactSummary: typeof value.compactSummary === 'string' ? value.compactSummary : undefined,
+    compactPending: false,
     sessionAction: value.sessionAction === 'fork' ? 'fork' : null,
     sessionId: typeof value.sessionId === 'string' ? value.sessionId : null,
     messages,
@@ -333,6 +438,22 @@ export function findPendingQuestion(messages: AgentMessage[]): PendingQuestion |
   return null
 }
 
+export type PendingPlanAction = { message: AgentMessage; item: AgentItem }
+
+/** Find unresolved plan action in the transcript. */
+export function findPendingPlanAction(messages: AgentMessage[]): PendingPlanAction | null {
+  for (let messageIndex = messages.length - 1; messageIndex >= 0; messageIndex -= 1) {
+    const message = messages[messageIndex]
+    if (message.role !== 'assistant') continue
+    const items = message.items ?? []
+    for (let itemIndex = items.length - 1; itemIndex >= 0; itemIndex -= 1) {
+      const item = items[itemIndex]
+      if (item.type === 'plan' && (!item.resolved || item.actionState === 'launching')) return { message, item }
+    }
+  }
+  return null
+}
+
 export const useAgent = create<AgentStore>((set, get) => {
   const runTurn = async (
     chatId: string,
@@ -340,11 +461,13 @@ export const useAgent = create<AgentStore>((set, get) => {
     appendUser: boolean,
     clearDraft = appendUser,
     readOnlyOverride?: boolean,
+    compact = false,
+    actionItemId?: string,
   ) => {
     if (get().pages[chatId]?.hasLater) await get().loadPage(chatId, 'latest')
     const chat = get().chats[chatId]
-    if (get().pages[chatId]?.hasLater) return
-    if (!chat || chat.status === 'running') return
+    if (get().pages[chatId]?.hasLater) return false
+    if (!chat || chat.status === 'running' || !useSettings.getState().agentEnabled) return false
     // The backend re-checks the toggle: make sure its 400ms debounced write has landed first
     useSettings.getState().flush()
     const sentDraft = get().chatDrafts[chatId]
@@ -361,7 +484,8 @@ export const useAgent = create<AgentStore>((set, get) => {
         skills: draft.skills,
       })
     }
-    const readOnly = readOnlyOverride ?? draft.command === 'plan'
+    const planning = !compact && (draft.command === 'plan' || (readOnlyOverride !== false && chat.planning === true))
+    const readOnly = readOnlyOverride ?? (planning || chat.permissionMode === 'read-only')
     const assistantId = agentUid('a')
     const runId = agentUid('run')
     messages.push({
@@ -370,6 +494,9 @@ export const useAgent = create<AgentStore>((set, get) => {
       at: now,
       items: [],
       readOnly: readOnly || undefined,
+      planning,
+      compact,
+      ...(actionItemId ? { planActionId: actionItemId } : {}),
     })
     const title =
       chat.title || titleFromPrompt(draft.text || (draft.skills?.[0]?.name ?? ''))
@@ -381,6 +508,9 @@ export const useAgent = create<AgentStore>((set, get) => {
           title,
           messages,
           status: 'running',
+          planning: compact ? chat.planning : planning,
+          permissionMode: compact ? chat.permissionMode : readOnly ? 'read-only' : 'workspace-write',
+          compactPending: compact,
           activeRunId: runId,
           eventSequence: 0,
           error: null,
@@ -390,9 +520,11 @@ export const useAgent = create<AgentStore>((set, get) => {
       running: { ...get().running, [chatId]: now },
     })
     if (title) useTabs.getState().setTabName(chatTabId(chatId), title)
+    startTabTitleTimer(chatId, now)
     schedulePersist(chatId)
 
     try {
+      await queueChatSave(chatId, get().chats[chatId])
       await api.agentSend({
         chatId,
         runId,
@@ -402,16 +534,26 @@ export const useAgent = create<AgentStore>((set, get) => {
         sessionId: chat.sessionId,
         model: chat.model || null,
         effort: chat.effort || null,
-        prompt: buildAgentPrompt(draft, readOnly),
+        prompt: [!chat.sessionId && chat.compactSummary ? `Previous conversation summary:\n${chat.compactSummary}` : '',
+          compact ? draft.text : buildAgentPrompt(planning ? { ...draft, command: 'plan' } : draft, readOnly)].filter(Boolean).join('\n\n'),
         mentions: draft.mentions,
         readOnly,
       })
+      if (actionItemId) {
+        const current = get().chats[chatId]
+        if (current) {
+          const accepted = { ...current, messages: current.messages.map(message => message.id === assistantId ? { ...message, launchAccepted: true } : message) }
+          set({ chats: { ...get().chats, [chatId]: accepted } })
+          await queueChatSave(chatId, accepted)
+        }
+      }
       if (clearDraft && get().chatDrafts[chatId] === sentDraft) {
         set({ chatDrafts: Object.fromEntries(Object.entries(get().chatDrafts).filter(([id]) => id !== chatId)) })
       }
+      return true
     } catch (e) {
       const current = get().chats[chatId]
-      if (!current) return
+      if (!current) return false
       const text = errorText(e)
       const nextMessages = current.messages.slice()
       const last = nextMessages[nextMessages.length - 1]
@@ -426,6 +568,7 @@ export const useAgent = create<AgentStore>((set, get) => {
       }
       const running = { ...get().running }
       delete running[chatId]
+      stopTabTitleTimer(chatId)
       set({
         chats: {
           ...get().chats,
@@ -433,13 +576,17 @@ export const useAgent = create<AgentStore>((set, get) => {
             ...current,
             messages: nextMessages,
             status: 'error',
+            compactPending: false,
             error: text,
             updatedAt: Date.now(),
           },
         },
         running,
       })
+      // Restore original title after error
+      useTabs.getState().setTabName(chatTabId(chatId), current.title)
       schedulePersist(chatId)
+      return false
     }
   }
 
@@ -463,7 +610,7 @@ export const useAgent = create<AgentStore>((set, get) => {
   const drainQueue = (chatId: string) => {
     if (!useSettings.getState().agentEnabled) return
     const chat = get().chats[chatId]
-    if (!chat || findPendingQuestion(chat.messages) || get().pages[chatId]?.hasPendingQuestion || get().pages[chatId]?.hasUnhandledPlanAction) return
+    if (!chat || findPendingQuestion(chat.messages) || findPendingPlanAction(chat.messages) || get().pages[chatId]?.hasPendingQuestion || get().pages[chatId]?.hasUnhandledPlanAction) return
     const queue = get().queues[chatId] ?? []
     if (queue.length === 0) return
     const [head, ...rest] = queue
@@ -476,7 +623,13 @@ export const useAgent = create<AgentStore>((set, get) => {
       { text: head.text, mentions: head.mentions, command: head.command, skills: head.skills },
       true,
       false,
-    )
+    ).then(accepted => {
+      if (accepted || !get().chats[chatId]) return
+      const remaining = get().queues[chatId] ?? []
+      if (!remaining.some(item => item.id === head.id)) {
+        set({ queues: { ...get().queues, [chatId]: [head, ...remaining] } })
+      }
+    })
   }
 
   const patchLastAssistant = (
@@ -515,6 +668,15 @@ export const useAgent = create<AgentStore>((set, get) => {
   }
 
   return {
+    localPicker: null,
+    focusRequests: {},
+    restartSession: (chatId) => {
+      const chat = get().chats[chatId]
+      if (!chat || chat.status === 'running') return
+      set({ chats: { ...get().chats, [chatId]: { ...chat, sessionId: null, sessionAction: null,
+        sessionUsage: undefined, sessionCost: undefined, currentContext: undefined, compactSummary: undefined, error: null, status: 'idle' } } })
+      schedulePersist(chatId)
+    },
     pages: {},
     pageLoading: {},
     providers: null,
@@ -620,7 +782,7 @@ export const useAgent = create<AgentStore>((set, get) => {
       set({ loadingChats: { ...get().loadingChats, [id]: true } })
       try {
         const page = await api.agentChatOpen(id, 80)
-        const chat = page ? normalizeChat({ ...page.header, messages: page.messages }) : null
+        const chat = page ? normalizeChat({ ...page.header, messages: page.messages }, true) : null
         if (chat) {
           set({
             pages: { ...get().pages, ...(page ? { [id]: page } : {}) },
@@ -664,12 +826,28 @@ export const useAgent = create<AgentStore>((set, get) => {
           const cursor = direction === 'earlier' ? chat.messages[0]?.id : chat.messages.at(-1)?.id
           if (!cursor) return
           page = await api.agentChatPage(id, {
-            ...(direction === 'earlier' ? { beforeId: cursor } : { afterId: cursor }), limit: 80,
+            ...(direction === 'earlier' ? { beforeId: cursor } : { afterId: cursor }), limit: 40,
           })
         }
         if (!page || !get().chats[id]) return
-        const normalized = normalizeChat({ ...page.header, messages: page.messages })
+        const normalized = normalizeChat({ ...page.header, messages: page.messages }, true)
         if (!normalized) return
+        if (direction === 'earlier' || direction === 'later') {
+          const current = get().chats[id]
+          const oldPage = get().pages[id]
+          const combined = direction === 'earlier' ? [...normalized.messages, ...current.messages] : [...current.messages, ...normalized.messages]
+          const unique = combined.filter((message, index) => combined.findIndex(item => item.id === message.id) === index)
+          let trimmed = false
+          while (unique.length > 1 && (unique.length > 160 || messageBytes(unique) > 1024 * 1024)) {
+            if (direction === 'earlier') unique.pop()
+            else unique.shift()
+            trimmed = true
+          }
+          normalized.messages = unique
+          page = { ...page, messages: unique,
+            hasEarlier: direction === 'earlier' ? page.hasEarlier : trimmed || !!oldPage?.hasEarlier,
+            hasLater: direction === 'later' ? page.hasLater : trimmed || !!oldPage?.hasLater }
+        }
         set({ chats: { ...get().chats, [id]: normalized }, pages: { ...get().pages, [id]: page } })
       } catch (error) {
         const current = get().chats[id]
@@ -733,6 +911,8 @@ export const useAgent = create<AgentStore>((set, get) => {
         model: defaults.model,
         effort: defaults.effort,
         sessionId: null,
+        permissionMode: 'workspace-write',
+        planning: false,
         messages: [],
         status: 'idle',
         error: null,
@@ -745,6 +925,7 @@ export const useAgent = create<AgentStore>((set, get) => {
           ? { chatDrafts: { ...get().chatDrafts, [chatId]: { text: '', mentions: unique } } }
           : {}),
       })
+      schedulePersist(chatId)
       useTabs.getState().openChatInRight(chatId, targetRoot, '')
       if (defaults.provider) void get().loadCatalog(defaults.provider)
       return chatId
@@ -754,27 +935,59 @@ export const useAgent = create<AgentStore>((set, get) => {
       const chat = get().chats[chatId]
       if (!chat) return
       if (!useSettings.getState().agentEnabled) return
+      if ([...planActionLocks].some(key => key.startsWith(`${chatId}:`))) return
       const local = parseAgentLocalCommand(draft.text)
+      const normalized = normalizeAgentDraft(draft)
+      if (normalized.command === 'plan' && !normalized.text && !local) {
+        if (chat.status === 'running' || findPendingQuestion(chat.messages) || findPendingPlanAction(chat.messages) || get().pages[chatId]?.hasPendingQuestion || get().pages[chatId]?.hasUnhandledPlanAction) return
+        const planning = !chat.planning
+        set({ chats: { ...get().chats, [chatId]: { ...chat, planning, permissionMode: planning ? 'read-only' : 'workspace-write' } } })
+        get().setChatDraft(chatId, { text: '', command: undefined })
+        schedulePersist(chatId)
+        return
+      }
       if (local) {
-        if (chat.status === 'running') return
         try {
+          if (chat.status === 'running' && !['new', 'resume', 'status', 'help'].includes(local.id)) throw new Error(t('agent.local.busy'))
+          const noArgs = ['new', 'fork', 'compact', 'status', 'help']
+          if (local.args && noArgs.includes(local.id)) throw new Error(t('agent.local.invalidArgs'))
+          const blocked = !!findPendingQuestion(chat.messages) || !!findPendingPlanAction(chat.messages) ||
+            get().pages[chatId]?.hasPendingQuestion || get().pages[chatId]?.hasUnhandledPlanAction
+          if (['compact', 'fork', 'permissions'].includes(local.id) && (blocked || (get().queues[chatId]?.length ?? 0) > 0)) throw new Error(t('agent.local.busy'))
+          get().setChatDraft(chatId, { text: '', command: undefined })
           if (local.id === 'new') { get().newChat(chat.root); return }
-          if (local.id === 'model' && local.args) {
-            get().setChatOptions(chatId, { model: local.args }); return
+          if (local.id === 'model') {
+            if (local.args) {
+              if (/\s/.test(local.args)) throw new Error(t('agent.local.invalidArgs'))
+              get().setChatOptions(chatId, { model: local.args === 'default' ? '' : local.args })
+            } else set({ localPicker: { chatId, kind: 'model' } })
+            return
           }
-          if (local.id === 'resume' && local.args) {
+          if (local.id === 'permissions') {
+            if (!local.args) { set({ localPicker: { chatId, kind: 'permissions' } }); return }
+            if (!['read-only', 'workspace-write'].includes(local.args)) throw new Error(t('agent.local.invalidArgs'))
+            set({ chats: { ...get().chats, [chatId]: { ...chat, permissionMode: local.args as AgentPermissionMode, planning: false } } })
+            schedulePersist(chatId)
+            return
+          }
+          if (local.id === 'resume') {
             const matches = await api.agentChatList(chat.root)
+            if (!local.args) { set({ localPicker: { chatId, kind: 'resume', chats: matches } }); return }
             if (!matches.some(item => item.id === local.args)) throw new Error(t('agent.missingChat'))
             await get().loadChat(local.args)
             get().openChatTab(local.args)
             return
           }
-          if (local.id === 'fork' && chat.provider === 'claude' && chat.sessionId) {
-            await persistChat(chatId)
-            await writeQueues.get(chatId)
-            if (dirty.has(chatId)) return
+          if (local.id === 'compact') {
+            if (!chat.sessionId) throw new Error(t('agent.local.unavailable'))
+            await runTurn(chatId, { text: 'Summarize this conversation for a fresh context. Preserve the task, approved decisions, constraints, relevant paths, completed work, and remaining steps. Return only the summary. Do not modify files, run side-effecting commands, ask questions, or implement the task.', mentions: [] }, false, false, true, true)
+            return
+          }
+          if (local.id === 'fork') {
+            if (!['claude', 'codex'].includes(chat.provider) || !chat.sessionId || !get().providers?.find(p => p.id === chat.provider)?.supportsFork) throw new Error(t('agent.local.forkUnsupported'))
+            await queueChatSave(chatId, chat)
             const id = newChatId()
-            const page = await api.agentChatClone(chatId, { id, sessionAction: 'fork', createdAt: Date.now() })
+            const page = await api.agentChatClone(chatId, { id, sessionAction: 'fork', currentContext: null, sessionUsage: null, sessionCost: null, createdAt: Date.now() })
             const cloned = normalizeChat({ ...page.header, messages: page.messages })
             if (cloned) {
               set({ chats: { ...get().chats, [id]: cloned }, pages: { ...get().pages, [id]: page } })
@@ -783,17 +996,31 @@ export const useAgent = create<AgentStore>((set, get) => {
             return
           }
           const text = local.id === 'status'
-            ? [chat.provider, chat.model, chat.status, chat.sessionId].filter(Boolean).join(' · ')
-            : local.id === 'help' ? t('agent.local.helpText')
-            : t('agent.local.unavailable')
-          set({ chats: { ...get().chats, [chatId]: { ...chat,
-            messages: [...chat.messages, { id: agentUid('n'), role: 'assistant', at: Date.now(),
+            ? t('agent.local.statusText', { provider: chat.provider, model: chat.model || t('agent.picker.defaultModel'),
+              effort: chat.effort || t('agent.picker.defaultModel'), mode: chat.permissionMode ?? 'workspace-write',
+              planning: String(!!chat.planning), status: chat.status, session: chat.sessionId ?? '—',
+              queued: get().queues[chatId]?.length ?? 0, pending: String(!!blocked),
+              context: chat.currentContext?.contextTokens ?? '—', window: chat.currentContext?.contextWindow ?? '—',
+              total: chat.sessionUsage?.totalTokens ?? '—', root: chat.root })
+            : t('agent.local.helpText')
+          if (chat.status === 'running') {
+            useUi.getState().toast(text)
+            return
+          }
+          const current = get().chats[chatId]
+          set({ chats: { ...get().chats, [chatId]: { ...current,
+            messages: [...current.messages, { id: agentUid('n'), role: 'assistant', at: Date.now(),
               items: [{ id: agentUid('n'), type: 'notice', text }] }],
           } } })
           schedulePersist(chatId)
         } catch (error) {
-          set({ chats: { ...get().chats, [chatId]: { ...chat, error: errorText(error) } } })
+          const current = get().chats[chatId]
+          set({ chats: { ...get().chats, [chatId]: { ...current, error: errorText(error) } } })
         }
+        return
+      }
+      if (/^\/[a-z][a-z-]*(?:\s|$)/.test(draft.text.trim()) && !normalized.command) {
+        set({ chats: { ...get().chats, [chatId]: { ...chat, error: t('agent.local.invalidArgs') } } })
         return
       }
       if (get().pages[chatId]?.hasLater) await get().loadPage(chatId, 'latest')
@@ -802,7 +1029,7 @@ export const useAgent = create<AgentStore>((set, get) => {
       if (!next.text.trim() && !(next.skills ?? []).length) return
       // A structured question owns the next turn. The answer must go through answerQuestion so
       // it carries the source question and the planning read-only boundary.
-      if (findPendingQuestion(get().chats[chatId].messages) || get().pages[chatId]?.hasPendingQuestion || get().pages[chatId]?.hasUnhandledPlanAction) return
+      if (findPendingQuestion(get().chats[chatId].messages) || findPendingPlanAction(get().chats[chatId].messages) || get().pages[chatId]?.hasPendingQuestion || get().pages[chatId]?.hasUnhandledPlanAction) return
       const queue = get().queues[chatId] ?? []
       // Running turn, or a queue left over from a stopped / disabled turn: keep FIFO order
       if (chat.status === 'running' || queue.length > 0) {
@@ -842,8 +1069,102 @@ export const useAgent = create<AgentStore>((set, get) => {
       schedulePersist(chatId)
       const question = pending.item.question ?? ''
       const prompt = t('agent.question.answerPrompt', { question, answer: trimmed })
-      void runTurn(chatId, { text: prompt, mentions: [] }, true, false, readOnly)
+      void runTurn(chatId, { text: prompt, mentions: [], command: pending.message.planning ? 'plan' : undefined }, true, false, readOnly).then(accepted => {
+        if (accepted) return
+        const current = get().chats[chatId]
+        if (!current) return
+        const restored = current.messages.map(message => message.id === pending.message.id ? pending.message : message)
+        if (!restored.some(message => message.id === pending.message.id)) {
+          void queueChatSave(chatId, { ...current, messages: [pending.message] }).catch(error => useUi.getState().toast(errorText(error), 'error'))
+        }
+        set({ chats: { ...get().chats, [chatId]: { ...current, messages: restored } } })
+        const page = get().pages[chatId]
+        if (page) set({ pages: { ...get().pages, [chatId]: { ...page, hasPendingQuestion: true, pendingMessageId: pending.message.id } } })
+        schedulePersist(chatId)
+      })
       return true
+    },
+
+    resolvePlanAction: async (chatId, itemId, action, instructions = '') => {
+      if (!['implement-current', 'implement-fresh', 'continue-planning'].includes(action)) return false
+      const chat = get().chats[chatId]
+      if (!chat || chat.status === 'running' || get().pageLoading[chatId] || !useSettings.getState().agentEnabled) return false
+      const pending = findPendingPlanAction(chat.messages)
+      const lockKey = `${chatId}:${itemId}`
+      if (planActionLocks.has(lockKey)) return false
+      if (!pending || pending.item.id !== itemId || findPendingQuestion(chat.messages) || get().pages[chatId]?.hasPendingQuestion) return false
+
+      planActionLocks.add(lockKey)
+      const targetId = action === 'implement-fresh' ? (pending.item.action === action ? pending.item.targetChatId : undefined) ?? newChatId() : chatId
+      let sourceMessage = pending.message
+      const updateCard = async (resolved: boolean, state: 'launching' | 'completed' | 'failed') => {
+        const current = get().chats[chatId]
+        if (!current) return
+        sourceMessage = { ...sourceMessage, items: sourceMessage.items?.map(item => item.id === itemId
+          ? { ...item, resolved, action, actionState: state, targetChatId: targetId } : item) }
+        const messages = current.messages.map(message => message.id === sourceMessage.id ? sourceMessage : message)
+        const updated = { ...current, messages, ...(!resolved ? { permissionMode: chat.permissionMode, planning: chat.planning } : {}) }
+        set({ chats: { ...get().chats, [chatId]: updated } })
+        const page = get().pages[chatId]
+        if (page) set({ pages: { ...get().pages, [chatId]: { ...page, hasUnhandledPlanAction: !resolved || state === 'launching',
+          pendingMessageId: !resolved || state === 'launching' ? sourceMessage.id : null } } })
+        schedulePersist(chatId)
+        // The selected card may leave the loaded window when runTurn navigates to recent history.
+        await queueChatSave(chatId, { ...updated, messages: messages.some(message => message.id === sourceMessage.id) ? messages : [sourceMessage] })
+      }
+      const plan = (pending.message.items ?? []).filter(item => item.type === 'text' || item.type === 'plan')
+        .map(item => item.text).filter(text => text.trim()).join('\n\n')
+      const prompt = ['Implement the approved plan below. Re-read the relevant project instructions and files, then carry the work through implementation and requested verification.',
+        plan, instructions.trim()].filter(Boolean).join('\n\n')
+      try {
+        // Persist the action and stable target before starting any side effects.
+        await updateCard(true, 'launching')
+        if (action === 'continue-planning') {
+          const current = get().chats[chatId]
+          set({ chats: { ...get().chats, [chatId]: { ...current, planning: true, permissionMode: 'read-only' } },
+            focusRequests: { ...get().focusRequests, [chatId]: (get().focusRequests[chatId] ?? 0) + 1 } })
+          get().setChatDraft(chatId, { text: instructions.trim() || get().chatDrafts[chatId]?.text || '', command: undefined })
+          await updateCard(true, 'completed')
+          await queueChatSave(chatId, get().chats[chatId])
+          return true
+        }
+        if (action === 'implement-fresh') {
+          if (!get().chats[targetId]) {
+            const existing = await api.agentChatOpen(targetId, 80)
+            const restored = existing ? normalizeChat({ ...existing.header, messages: existing.messages }) : null
+            const target: AgentChat = (restored?.id === targetId ? restored : null) ?? { v: 1, id: targetId, root: chat.root, title: chat.title,
+              provider: chat.provider, model: chat.model, effort: chat.effort, sessionId: null, messages: [],
+              permissionMode: 'workspace-write', planning: false, status: 'idle', error: null, createdAt: Date.now(), updatedAt: Date.now() }
+            set({ chats: { ...get().chats, [targetId]: target } })
+          }
+          const target = get().chats[targetId]
+          if (target.messages.some(message => message.planActionId === itemId && message.launchAccepted)) {
+            await updateCard(true, 'completed')
+            await queueChatSave(chatId, get().chats[chatId])
+            get().openChatTab(targetId)
+            return true
+          }
+          await queueChatSave(targetId, target)
+          useTabs.getState().openChatInRight(targetId, chat.root, chat.title)
+        }
+        const destination = get().chats[targetId]
+        if (destination?.messages.some(message => message.planActionId === itemId && message.launchAccepted)) {
+          await updateCard(true, 'completed')
+          return true
+        }
+        const accepted = await runTurn(targetId, { text: prompt, mentions: [] }, true, false, false, false, itemId)
+        if (accepted && targetId !== chatId) await queueChatSave(targetId, get().chats[targetId])
+        await updateCard(accepted, accepted ? 'completed' : 'failed')
+        await queueChatSave(chatId, get().chats[chatId])
+        if (accepted && get().chats[targetId]?.status === 'idle') drainQueue(targetId)
+        return accepted
+      } catch (error) {
+        await updateCard(false, 'failed').catch(() => {})
+        useUi.getState().toast(errorText(error), 'error')
+        return false
+      } finally {
+        planActionLocks.delete(lockKey)
+      }
     },
 
     removeQueued: (chatId, id) => {
@@ -869,6 +1190,15 @@ export const useAgent = create<AgentStore>((set, get) => {
       set({ chats: { ...get().chats, [chatId]: chat } })
 
       if (event.kind === 'session') {
+        if (chat.sessionAction === 'fork' && chat.sessionId === event.sessionId) {
+          void get().stop(chatId)
+          const running = { ...get().running }
+          delete running[chatId]
+          stopTabTitleTimer(chatId)
+          set({ chats: { ...get().chats, [chatId]: { ...chat, status: 'error', error: t('agent.local.forkUnsupported') } }, running })
+          schedulePersist(chatId)
+          return
+        }
         if (chat.sessionId === event.sessionId) return
         set({
           chats: {
@@ -884,7 +1214,19 @@ export const useAgent = create<AgentStore>((set, get) => {
         const usage = normalizeAgentUsage(event.usage)
         if (!usage) return
         const next = patchLastAssistantUsage(chat, usage)
-        next.sessionUsage = normalizeAgentUsage(event.sessionUsage) ?? chat.sessionUsage
+        next.currentContext = usage.contextTokens !== undefined || usage.contextWindow !== undefined ? usage : chat.currentContext
+        const nativeTotal = normalizeAgentUsage(event.sessionUsage)
+        const previous = chat.messages.at(-1)?.usage
+        next.sessionUsage = nativeTotal ?? replaceTurnUsage(chat.sessionUsage, previous, usage)
+        if (nativeTotal) {
+          next.sessionCost = { knownUsd: nativeTotal.costUsd ?? 0, unpricedTurns: nativeTotal.costUsd === null ? 1 : 0 }
+        } else {
+          const cost = chat.sessionCost ?? { knownUsd: chat.sessionUsage?.costUsd ?? 0,
+            unpricedTurns: chat.sessionUsage?.costUsd === null ? 1 : 0 }
+          next.sessionCost = { knownUsd: Math.max(0, cost.knownUsd - (previous?.costUsd ?? 0) + (usage.costUsd ?? 0)),
+            unpricedTurns: Math.max(0, cost.unpricedTurns - (previous?.costUsd === null ? 1 : 0) + (usage.costUsd === null ? 1 : 0)) }
+          next.sessionUsage.costUsd = next.sessionCost.unpricedTurns ? null : next.sessionCost.knownUsd
+        }
         if (next === chat) return
         set({ chats: { ...get().chats, [chatId]: next } })
         schedulePersist(chatId)
@@ -894,6 +1236,7 @@ export const useAgent = create<AgentStore>((set, get) => {
       if (event.kind === 'done') {
         const running = { ...get().running }
         delete running[chatId]
+        stopTabTitleTimer(chatId)
         const status: AgentChatStatus = event.cancelled
           ? 'cancelled'
           : event.ok
@@ -927,13 +1270,44 @@ export const useAgent = create<AgentStore>((set, get) => {
               })
             }
           }
+          if (event.ok && !event.cancelled && message.planning === true && !message.compact &&
+            !findPendingQuestion(chat.messages) && !get().pages[chatId]?.hasPendingQuestion &&
+            !findPendingPlanAction(chat.messages) && !get().pages[chatId]?.hasUnhandledPlanAction &&
+            items.some(item => item.type === 'text' && item.text.trim()) &&
+            !items.some(item => item.type === 'error' || item.type === 'plan')) {
+            items.push({ id: `plan-${message.id}`, type: 'plan', text: '', resolved: false })
+          }
           return items
         })
-        next = { ...next, status, error: failure, updatedAt: Date.now() }
+        next = { ...next, status, error: failure, compactPending: false, updatedAt: Date.now() }
+        if (chat.compactPending && event.ok && !event.cancelled) {
+          const last = next.messages.at(-1)
+          const summary = last?.items?.filter(item => item.type === 'text').map(item => item.text).join('\n\n').trim()
+          if (summary && !last?.items?.some(item => item.type === 'error' || item.type === 'question')) {
+            const compacted = { ...next, compactSummary: summary, sessionId: null, sessionAction: null,
+              currentContext: undefined, sessionUsage: undefined, sessionCost: undefined }
+            dirty.delete(chatId)
+            const timer = timers.get(chatId)
+            if (timer) clearTimeout(timer)
+            timers.delete(chatId)
+            // Retain the old session until the summary and reset have been atomically saved.
+            void queueChatSave(chatId, compacted).then(() => {
+              if (get().chats[chatId]?.activeRunId !== runId) return
+              set({ chats: { ...get().chats, [chatId]: compacted }, running })
+              schedulePersist(chatId)
+            }).catch(error => {
+              set({ chats: { ...get().chats, [chatId]: { ...next, error: errorText(error), status: 'error' } }, running })
+              schedulePersist(chatId)
+            })
+            return
+          }
+        }
         set({ chats: { ...get().chats, [chatId]: next }, running })
+        // Restore original title after completion
+        useTabs.getState().setTabName(chatTabId(chatId), next.title)
         schedulePersist(chatId)
 
-        if (event.ok) drainQueue(chatId)
+        if (event.ok && !event.cancelled) drainQueue(chatId)
         return
       }
 
@@ -1082,6 +1456,11 @@ export const useAgent = create<AgentStore>((set, get) => {
             effort,
             // A CLI session belongs to one provider: never resume it with another binary
             sessionId: null,
+            sessionAction: null,
+            currentContext: undefined,
+            sessionUsage: undefined,
+            sessionCost: undefined,
+            compactSummary: undefined,
             messages,
             status: chat.status === 'error' || chat.status === 'cancelled' ? 'idle' : chat.status,
             error: null,
@@ -1119,6 +1498,7 @@ export const useAgent = create<AgentStore>((set, get) => {
           [chatId]: {
             ...chat,
             model: patch.model ?? chat.model,
+            currentContext: patch.model !== undefined && patch.model !== chat.model ? undefined : chat.currentContext,
             effort,
             updatedAt: Date.now(),
           },

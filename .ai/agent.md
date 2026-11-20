@@ -9,82 +9,67 @@ scope:
 ---
 # Built-in agent
 
-The agent wraps local Claude/Codex CLIs. One turn is one headless process resumed by provider session id;
-the CLIs own auth, models and tool loops.
+Claude/Codex CLIs own auth, models and tools; one turn is one headless process.
 
-## Turn lifecycle and queue
+## Lifecycle and prompts
 
-- `agent_send` authorizes the root, spawns the resolved CLI with `cwd = root` and the prompt on **stdin**
-  (never argv), then returns; Rust owns the process and kills the process group (`setsid`, `taskkill /T`) on
-  stop, tab close, window close, app exit and disable. Bounded concurrency and one turn per chat live there.
-- A reader turns stdout JSONL into `AgentEvent`s and coalesces text deltas before the single listener in
-  `src/lib/agentEvents.ts`; the reducer appends items by id, upserts tool/question cards, keeps the session
-  id, attaches usage to the latest assistant message and closes on `done`.
-- Events carry a run ID and monotonically increasing sequence; the reducer rejects stale, duplicate and completed-run events. Cleanup releases the turn before Done and never removes a subsequent turn.
-- A send during a turn joins that chat's FIFO queue, not running stdin; successful completion drains it on the same
-  session without erasing a draft typed meanwhile, and queued text stays out of the transcript.
+- `agent_send` authorizes the root and starts the resolved CLI with `cwd = root`, prompt on stdin, never
+  argv. Rust owns bounded concurrency, one turn/chat and process-group cleanup on stop, tab/window close,
+  exit and disable. Release a completed turn before Done without removing a subsequent run.
+- Events have run ID and monotonic sequence; reject stale, duplicate and completed-run events. Upsert
+  items by ID. `agentEvents.ts` coalesces adjacent text/thinking at 100ms, flushing before structural/end
+  events so Markdown receives final bytes in order. Offscreen transcript rows defer painting.
+- Sends while running join a FIFO queue, never running stdin. Success drains it without erasing a newer
+  draft. Failures keep session/queue; unanswered questions and plans block sending/draining across pages.
+- Composer minimum persists globally (60px, v10); content grows to min(480px, half-window), and
+  viewport clamps never overwrite the saved minimum. `/`, `$`, `@` use the closest trigger to the caret;
+  slash/mention require whitespace/start; skills reject preceding word/`$`, and `$5` stays prose.
+- Mentions fuzzy-match eight quick-open paths and retain `{rel,isDir}` chips through edits/renames. Rust
+  adds workspace-relative referenced paths, marking directories. Skills lazily scan project `.agents/skills`,
+  `.claude/skills`, user `~/.claude/skills`, `$CODEX_HOME/skills`; cache successes, retry errors. Queue metadata
+  retains mentions/skills/command. Prompt commands `plan|goal|review|test|explain` are single replaceable tags;
+  typed leading commands normalize identically. Skill paths precede tags/question/read-only instructions.
 
-## Composer input and prompt assembly
+## Questions, permissions and plans
 
-- The composer splitter persists a global manual minimum (default 60px, schema v10). Content can grow
-  above it, capped at min(480px, half the window height); window clamps never overwrite the saved value.
-- `src/lib/agentCommand.ts` owns three triggers — `/` command, `$` skill, `@` mention — resolved to the one
-  closest to the caret. `@` and `/` need line start or whitespace; `$` accepts any prefix except a word
-  character or `$`, and `$5` stays prose.
-- `@` lists up to eight workspace files from the quick-open index by fuzzy match. A `{ rel, isDir }` chip
-  survives edits and renames, and becomes a `Referenced paths (relative to the workspace root)` preamble from
-  Rust `build_prompt`, with directories marked `/ (directory)`.
-- `/` allows one command — `plan | goal | review | test | explain` — and picking another replaces it; a typed
-  leading `/command` normalizes into the same tag. `buildAgentPrompt` wraps the text as `<plan>…</plan>` or
-  `<command>…</command>`, appends the question protocol, appends `READ_ONLY_CONTINUATION` to a read-only turn
-  that is not a plan, and puts one `Use the skill "<name>" (SKILL.md: <path>).` line per skill first.
-- `$` lazily scans `<root>/.agents/skills`, `<root>/.claude/skills`, `~/.claude/skills` and
-  `$CODEX_HOME/skills`, passing only frontmatter name/description and the SKILL.md path, with project paths
-  workspace-relative. Cache per session and retry failures; queue entries carry
-  `command` / `skills` / `mentions`.
+- `<TIDE_QUESTION>` allows one valid marker/turn: nonempty header/question, 2–4 labelled/described options,
+  optional multiSelect and custom UI answer. Preserve surrounding text order. Hide partial markers until
+  flush; invalid/unclosed markers restore source text plus localized notice. Blank answer blocks sends.
+- Header `permissionMode` and `planning` persist. Standalone `/plan` toggles locally; planning follow-ups
+  and question answers stay read-only. Old chats default writable, retaining existing planning state.
+  Claude read-only uses plan permission mode without bypass flags; Codex uses read-only sandbox. Writable
+  Claude uses bypass flags; writable Codex uses workspace-write with approval_policy=never. Failed question
+  launches restore the unanswered card. Permissions-only queries and compact never create plan cards.
+- Only successful planning with nonblank text and no pending question creates stable `plan-<message>`.
+  Questions take precedence. Implement-current resumes writable; implement-fresh opens an isolated same-root
+  tab containing only approved plan, optional instructions and fixed handoff preamble, without old history/session. Continue-planning resolves the card, stays read-only and focuses instructions as a draft.
+  Persist action/result/target ID before launching; lock duplicates, retry the same target after failure,
+  never auto-launch on hydration. Buttons are text-only; pending guidance uses placeholder/send tooltip.
+- Local `/new`, project-scoped `/resume [chat ID]`, `/model [ID|default]`, two-mode `/permissions`, `/status`
+  and `/help` never reach the model. Missing arguments open selectors; invalid ones show errors.
+- `/fork` clones full persisted history and uses native provider fork only if installed CLI help advertises
+  support; Rust probes again before launch. Failure retains clone/parent session boundary, with explicit
+  fresh-session restart. Empty model/effort sends no flag, preserving CLI config and per-chat defaults.
+- `/compact` requires idle/no queue/no pending card. Generate a read-only summary, preserve transcript,
+  then reset session/context/cumulative usage only after atomic summary persistence. Next new session uses
+  summary as history preamble; failure keeps original session. No app-server/ACP/MCP driver is introduced.
 
-## Questions and read-only planning
+## UI, usage and storage
 
-- At most one valid `<TIDE_QUESTION>` marker per turn, with a non-empty header/question, 2–4 non-empty
-  labelled/described options, `multiSelect` when choices may combine, and a custom answer always available in
-  the UI. Preserve surrounding text in source order, hide only the valid marker (a partly streamed one stays
-  hidden until flush), and on invalid JSON/options or an unclosed marker restore the text with a localized
-  `questionInvalid` notice. A blank `answer` blocks sends and queue draining.
-- `/plan` sends `readOnly: true`: inspect first, ask only when a key decision cannot be derived from the
-  repository. Answer follow-ups keep `readOnly` and the next ordinary message starts a writable turn.
-  Read-only turns never use the bypass/workspace-write path — Claude gets `--permission-mode plan` and drops
-  `--permission-mode bypassPermissions` and `--allow-dangerously-skip-permissions`, Codex gets
-  `sandbox_mode="read-only"`. Failed resumes preserve the question and read-only mode.
-
-## Providers, UI and persistence
-
-- Agent chats open from the title-bar button or a file-tree row's context menu. Double-clicking a file-tree
-  row remains a normal open/toggle gesture and must not switch chats; disabling `agentEnabled` hides the
-  remaining entry points without changing chat persistence or provider behavior. With no open tabs, a new
-  chat fills the editor's only pane; when tabs exist it opens in the secondary pane of a row split.
-- The model picker uses local provider marks and supports custom model IDs; discovered executables are
-  not proof of protocol support. Only supported, installed providers may run.
-- Claude writable turns use the bypass/dangerously-skip flags; Codex writable ones set
-  `-c sandbox_mode="workspace-write" -c approval_policy="never"`. Empty `model` / `effort` means **no flag**,
-  so user provider config wins: never auto-fill a catalog model or rewrite the global default from a per-chat
-  pick. A failed resume keeps the original session and queue; it never silently starts a new session.
-- Tool items group only within one assistant message, with status priority `error > running > ok`; only
-  `RunningStatus` ticks each second, usage replaces the latest snapshot, and grouping is never persisted. A new
-  provider needs a `ProviderSpec` in `src-tauri/src/agent/providers.rs` plus a translator beside
-  `src-tauri/src/agent/claude.rs`, mapped into `AgentEvent`.
-- Chat v:1 JSON uses open/page/apply/list/clone IPC. Rust merges header fields and message-ID patches,
-  preserving unknown fields and unloaded messages. Per-file locks serialize writes across windows; atomic
-  writes reject files over 8 MiB without trimming or replacing the original. Invalid JSON fails explicitly.
-- Pages default to 80 records and 512 KiB serialized message bytes (one oversized record may stand alone).
-  Before/after cursors exclude their boundary, reject missing/ambiguous cursors, and report pending cards
-  across all history. The UI replaces its page window, flushes before navigation, and can locate a pending
-  question. Running turns retain their active page until persisted, then reload the recent bounded page.
-  Closing-tab write failures show a toast and retain the snapshot for flush/reopen retry.
-- Local slash commands stay separate from prompt chips: new, resume by chat ID, Claude native fork,
-  status, model and help dispatch in Tide. Compact/permissions report unavailable in the current drivers;
-  Codex exec fork is rejected by IPC. These are not implementations of the planned bidirectional protocols.
-- Context pressure uses only provider contextTokens/contextWindow. Session usage is persisted separately;
-  partial history is never summed and labeled as full cumulative usage.
-- The agent/tabs.json config file holds primary-window chat tabs; hidden/unload flushes pending patches.
-- **Hooks:** `AgentChat` must finish every hook before its `!chat` loading/missing return, so hydration and
-  missing-chat states cannot change the hook order.
+- Title-bar/tree-context entry points respect agentEnabled. Tree double-click remains normal open/toggle.
+  New chats fill an empty editor or open in a secondary row pane. Only installed/supported providers run;
+  new providers need a spec and event translator.
+- RunningStatus alone ticks each second after the latest transcript output, showing spinner, elapsed
+  (0s before start timestamp), activity/tooltip. No header timer; long titles truncate. Tool groups remain message-local, priority error > running > ok, never persisted.
+- Footer order: context ring, stop, send. Popup handles Escape before stop. Header `currentContext` and
+  `sessionUsage` are independent of loaded history: only provider contextTokens/contextWindow drive the
+  ring (zero valid, missing/invalid unavailable), never draft estimates or cumulative usage. Replace each
+  turn's prior cumulative contribution, or use native session total. Session/provider reset clears stats.
+- Chat v:1 uses open/page/apply/list/clone IPC. Rust merges header/message-ID patches, preserving unknown
+  fields and unloaded history. Per-file locks serialize windows; atomic writes reject >8 MiB or invalid
+  JSON without trimming/replacing originals. Closing-write failures retain snapshots for flush/reopen retry.
+- Initial pages: 80 records/512 KiB; history: 40 per load. Window: 160 records/1 MiB, oversized record alone.
+  Persist before eviction/navigation; retain earlier/later links and visible message anchor. Exclusive
+  before/after cursors reject missing/ambiguous boundaries; pending-card metadata scans full history.
+- Primary-window tabs persist in agent/tabs.json; hidden/unload flush patches. All AgentChat hooks precede
+  loading/missing returns. Tests do not establish native scroll feel or real-account compatibility.

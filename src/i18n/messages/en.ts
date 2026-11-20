@@ -6,6 +6,14 @@
  * - Placeholders are written `{name}`; param names must match the call site (a check script verifies).
  */
 export const en = {
+  "agent.local.invalidArgs": "Invalid command or arguments. Use /help for available commands.",
+  "agent.local.busy": "Finish pending questions, plans and queued messages first.",
+  "agent.local.forkUnsupported": "This CLI does not support native session forks. Update the CLI and rescan providers.",
+  "agent.local.restart": "Start a fresh session",
+  "agent.mode.plan": "Plan · read-only",
+  "agent.mode.readOnly": "Read-only",
+  "agent.mode.write": "Workspace write",
+  "agent.local.statusText": "Provider: {provider}\nModel: {model} · Effort: {effort}\nProject: {root}\nPermissions: {mode} · Plan: {planning}\nStatus: {status} · Session: {session}\nQueued: {queued} · Pending action: {pending}\nContext: {context}/{window} · Session tokens: {total}",
   'agent.local.new.label': "New chat",
   'agent.local.new.desc': "Start a new chat",
   'agent.local.resume.label': "Resume chat",
@@ -23,7 +31,7 @@ export const en = {
   'agent.local.help.label': "Help",
   'agent.local.help.desc': "Show local command help",
   'agent.local.unavailable': "This operation is unavailable in the current provider driver.",
-  'agent.local.helpText': "/new · /resume <chat ID> · /fork (Claude) · /status · /model <model ID> · /help",
+  'agent.local.helpText': "/new \u00b7 /resume [chat ID] \u00b7 /fork \u00b7 /compact \u00b7 /status \u00b7 /model [model ID|default] \u00b7 /permissions [read-only|workspace-write] \u00b7 /plan \u00b7 /help",
   'agent.history.earlier': "Earlier messages",
   'agent.history.later': "Later messages",
   'agent.history.pending': "Open pending request",
@@ -820,9 +828,8 @@ export const en = {
   'agent.question.submit': 'Submit',
   'agent.question.answered': 'Answered',
   'agent.question.invalid': 'The malformed question was restored as text.',
-  'agent.question.required': 'Choose an option or enter an answer.',
   'agent.question.answerPrompt': 'Question:\n{question}\n\nAnswer:\n{answer}',
-  'agent.question.pendingHint': 'Answer the pending question before sending another message.',
+  'agent.question.pendingHint': 'Answer the pending question first',
   'agent.skill.pick': 'Use a skill',
   'agent.skill.loading': 'Loading skills…',
   'agent.skill.empty': 'No matching skills',
@@ -857,6 +864,12 @@ export const en = {
   'agent.usage.total': 'Total',
   'agent.usage.cost': 'Cost',
   'agent.usage.costUnavailable': 'Cost unavailable',
+  'agent.usage.updating': 'updating',
+  'agent.plan.header': 'Plan',
+  'agent.plan.implementCurrent': 'Implement this plan',
+  'agent.plan.implementFresh': "Execute in new context",
+  'agent.plan.continuePlanning': 'Continue planning',
+  'agent.plan.resolved': 'Plan action selected',
   'agent.picker.agent': 'Agent',
   'agent.picker.agentTip': 'Which CLI answers this chat',
   'agent.picker.model': 'Model',
@@ -913,5 +926,8 @@ export const en = {
   'agent.context.estimateHint': 'Rough estimate of the draft and referenced file sizes on disk. Excludes session history, directory contents and CLI overhead; this is not a model context limit.',
 
   'error.git.discardDirectory': 'Cannot discard {path}: a directory occupies this tracked file path.',
+
+  'agent.plan.instructions': "Additional instructions (optional)",
+  'agent.plan.pendingHint': 'Choose a plan action first',
 
 } as const

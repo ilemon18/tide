@@ -162,9 +162,8 @@ pub fn agent_send(
     {
         return Err(AppError::c("agent.invalidId"));
     }
-    // The exec driver has no native fork operation. Do not manufacture an unsupported CLI command.
-    if request.provider == "codex"
-        && matches!(request.session_action, agent::AgentSessionAction::Fork)
+    if matches!(request.session_action, agent::AgentSessionAction::Fork)
+        && !providers::supports_fork(Path::new(&command), &request.provider)
     {
         return Err(AppError::c("agent.unsupported"));
     }

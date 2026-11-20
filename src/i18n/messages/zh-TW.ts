@@ -2,6 +2,14 @@ import type { Messages } from '../types'
 
 /** 繁體中文（台灣用語）。鍵必須跟 `en.ts` 完全一致（型別會強制檢查）。 */
 export const zhTW: Messages = {
+  "agent.local.invalidArgs": "命令或參數無效。使用 /help 查看可用命令。",
+  "agent.local.busy": "請先完成待回答問題、計畫選擇和排隊訊息。",
+  "agent.local.forkUnsupported": "此 CLI 不支援原生工作階段分支，請更新 CLI 後重新掃描。",
+  "agent.local.restart": "重新開始工作階段",
+  "agent.mode.plan": "計畫 · 唯讀",
+  "agent.mode.readOnly": "唯讀",
+  "agent.mode.write": "工作區可寫",
+  "agent.local.statusText": "提供者：{provider}\n模型：{model} · 推理：{effort}\n專案：{root}\n權限：{mode} · 計畫：{planning}\n狀態：{status} · 工作階段：{session}\n排隊：{queued} · 待處理：{pending}\n上下文：{context}/{window} · 工作階段 token：{total}",
   'agent.local.new.label': "新聊天",
   'agent.local.new.desc': "建立新聊天",
   'agent.local.resume.label': "恢復聊天",
@@ -19,7 +27,7 @@ export const zhTW: Messages = {
   'agent.local.help.label': "說明",
   'agent.local.help.desc': "顯示本機命令說明",
   'agent.local.unavailable': "目前提供者驅動程式尚不支援此操作。",
-  'agent.local.helpText': "/new · /resume <聊天 ID> · /fork（Claude）· /status · /model <模型 ID> · /help",
+  'agent.local.helpText': "/new \u00b7 /resume [chat ID] \u00b7 /fork \u00b7 /compact \u00b7 /status \u00b7 /model [model ID|default] \u00b7 /permissions [read-only|workspace-write] \u00b7 /plan \u00b7 /help",
   'agent.history.earlier': "較早的訊息",
   'agent.history.later': "較新的訊息",
   'agent.history.pending': "開啟待處理請求",
@@ -741,9 +749,8 @@ export const zhTW: Messages = {
   'agent.question.submit': '提交',
   'agent.question.answered': '已回答',
   'agent.question.invalid': '格式有誤的問題已還原為文字顯示。',
-  'agent.question.required': '請選擇一個選項或輸入回答。',
   'agent.question.answerPrompt': '問題：\n{question}\n\n回答：\n{answer}',
-  'agent.question.pendingHint': '請先回答待處理的問題，再傳送其他訊息。',
+  'agent.question.pendingHint': '先回答待處理的問題',
   'agent.skill.pick': '選擇一個 skill',
   'agent.skill.loading': '正在載入 skill…',
   'agent.skill.empty': '沒有符合的 skill',
@@ -767,6 +774,7 @@ export const zhTW: Messages = {
   'agent.copy.logs': '複製日誌',
   'agent.copy.queued': '複製排隊訊息',
   'agent.code': '程式碼',
+  'agent.usage.updating': '即時更新',
   'agent.usage.title': '用量與費用',
   'agent.usage.cumulative': '累計',
   'agent.usage.latest': '最近一輪',
@@ -838,5 +846,13 @@ export const zhTW: Messages = {
   'agent.context.estimateHint': '依據草稿及磁碟上引用檔案的大小粗略估算，不含對話歷史、目錄內容和 CLI 額外用量；這不是模型的上下文上限。',
 
   'error.git.discardDirectory': '無法捨棄 {path} 的變更：此已追蹤檔案路徑已被目錄佔用。',
+
+  'agent.plan.header': "計畫",
+  'agent.plan.implementCurrent': "執行此計畫",
+  'agent.plan.implementFresh': "在新上下文執行",
+  'agent.plan.continuePlanning': "繼續規劃",
+  'agent.plan.resolved': "已選擇計畫操作",
+  'agent.plan.instructions': "補充要求（選填）",
+  'agent.plan.pendingHint': '先選擇計畫操作',
 
 }

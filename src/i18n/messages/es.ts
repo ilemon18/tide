@@ -2,6 +2,14 @@ import type { Messages } from '../types'
 
 /** Español. Las claves deben coincidir exactamente con `en.ts` (lo exige el tipo). */
 export const es: Messages = {
+  "agent.local.invalidArgs": "Comando o argumentos no válidos. Consulta /help.",
+  "agent.local.busy": "Completa primero las preguntas, los planes y los mensajes en cola.",
+  "agent.local.forkUnsupported": "Este CLI no admite bifurcar sesiones de forma nativa. Actualiza el CLI y vuelve a buscar proveedores.",
+  "agent.local.restart": "Iniciar una sesión nueva",
+  "agent.mode.plan": "Plan · solo lectura",
+  "agent.mode.readOnly": "Solo lectura",
+  "agent.mode.write": "Escritura en el proyecto",
+  "agent.local.statusText": "Proveedor: {provider}\nModelo: {model} · Razonamiento: {effort}\nProyecto: {root}\nPermisos: {mode} · Plan: {planning}\nEstado: {status} · Sesión: {session}\nEn cola: {queued} · Pendiente: {pending}\nContexto: {context}/{window} · Tokens de sesión: {total}",
   'agent.local.new.label': "Nuevo chat",
   'agent.local.new.desc': "Crear un nuevo chat",
   'agent.local.resume.label': "Reanudar chat",
@@ -19,7 +27,7 @@ export const es: Messages = {
   'agent.local.help.label': "Ayuda",
   'agent.local.help.desc': "Mostrar la ayuda de comandos locales",
   'agent.local.unavailable': "Esta operación no está disponible en el controlador actual del proveedor.",
-  'agent.local.helpText': "/new · /resume <ID del chat> · /fork (Claude) · /status · /model <ID del modelo> · /help",
+  'agent.local.helpText': "/new \u00b7 /resume [chat ID] \u00b7 /fork \u00b7 /compact \u00b7 /status \u00b7 /model [model ID|default] \u00b7 /permissions [read-only|workspace-write] \u00b7 /plan \u00b7 /help",
   'agent.history.earlier': "Mensajes anteriores",
   'agent.history.later': "Mensajes posteriores",
   'agent.history.pending': "Abrir solicitud pendiente",
@@ -788,9 +796,8 @@ export const es: Messages = {
   'agent.question.submit': 'Enviar',
   'agent.question.answered': 'Respondida',
   'agent.question.invalid': 'La pregunta con formato incorrecto se restauró como texto.',
-  'agent.question.required': 'Elige una opción o escribe una respuesta.',
   'agent.question.answerPrompt': 'Pregunta:\n{question}\n\nRespuesta:\n{answer}',
-  'agent.question.pendingHint': 'Responde la pregunta pendiente antes de enviar otro mensaje.',
+  'agent.question.pendingHint': 'Responde primero la pregunta pendiente',
   'agent.skill.pick': 'Usar una skill',
   'agent.skill.loading': 'Cargando skills…',
   'agent.skill.empty': 'No hay skills coincidentes',
@@ -814,6 +821,7 @@ export const es: Messages = {
   'agent.copy.logs': 'Copiar registros',
   'agent.copy.queued': 'Copiar mensaje en cola',
   'agent.code': 'Código',
+  'agent.usage.updating': 'actualizando',
   'agent.usage.title': 'Uso y costo',
   'agent.usage.cumulative': 'Acumulado',
   'agent.usage.latest': 'Último turno',
@@ -881,5 +889,13 @@ export const es: Messages = {
   'agent.context.estimateHint': 'Estimación aproximada del borrador y del tamaño de los archivos referenciados en disco. Excluye el historial, el contenido de directorios y el uso adicional del CLI; no es el límite de contexto del modelo.',
 
   'error.git.discardDirectory': 'No se pueden descartar los cambios de {path}: un directorio ocupa la ruta de este archivo rastreado.',
+
+  'agent.plan.header': "Plan",
+  'agent.plan.implementCurrent': "Ejecutar este plan",
+  'agent.plan.implementFresh': "Ejecutar en contexto nuevo",
+  'agent.plan.continuePlanning': "Seguir planificando",
+  'agent.plan.resolved': "Acción del plan seleccionada",
+  'agent.plan.instructions': "Instrucciones adicionales (opcional)",
+  'agent.plan.pendingHint': 'Elige primero una acción del plan',
 
 }

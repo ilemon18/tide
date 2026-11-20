@@ -2,6 +2,14 @@ import type { Messages } from '../types'
 
 /** 한국어. 키는 `en.ts`와 완전히 일치해야 합니다(타입으로 강제). */
 export const ko: Messages = {
+  "agent.local.invalidArgs": "명령 또는 인수가 올바르지 않습니다. /help를 확인하세요.",
+  "agent.local.busy": "대기 중인 질문, 계획 선택과 큐 메시지를 먼저 완료하세요.",
+  "agent.local.forkUnsupported": "이 CLI는 기본 세션 분기를 지원하지 않습니다. CLI 업데이트 후 다시 검색하세요.",
+  "agent.local.restart": "새 세션 시작",
+  "agent.mode.plan": "계획 · 읽기 전용",
+  "agent.mode.readOnly": "읽기 전용",
+  "agent.mode.write": "작업 공간 쓰기",
+  "agent.local.statusText": "제공자: {provider}\n모델: {model} · 추론: {effort}\n프로젝트: {root}\n권한: {mode} · 계획: {planning}\n상태: {status} · 세션: {session}\n큐: {queued} · 대기: {pending}\n컨텍스트: {context}/{window} · 세션 토큰: {total}",
   'agent.local.new.label': "새 채팅",
   'agent.local.new.desc': "새 채팅 만들기",
   'agent.local.resume.label': "채팅 재개",
@@ -19,7 +27,7 @@ export const ko: Messages = {
   'agent.local.help.label': "도움말",
   'agent.local.help.desc': "로컬 명령 도움말 표시",
   'agent.local.unavailable': "현재 공급자 드라이버에서는 이 작업을 사용할 수 없습니다.",
-  'agent.local.helpText': "/new · /resume <채팅 ID> · /fork (Claude) · /status · /model <모델 ID> · /help",
+  'agent.local.helpText': "/new \u00b7 /resume [chat ID] \u00b7 /fork \u00b7 /compact \u00b7 /status \u00b7 /model [model ID|default] \u00b7 /permissions [read-only|workspace-write] \u00b7 /plan \u00b7 /help",
   'agent.history.earlier': "이전 메시지",
   'agent.history.later': "다음 메시지",
   'agent.history.pending': "대기 중인 요청 열기",
@@ -763,9 +771,8 @@ export const ko: Messages = {
   'agent.question.submit': '제출',
   'agent.question.answered': '답변 완료',
   'agent.question.invalid': '형식이 잘못된 질문은 텍스트로 복원되었습니다.',
-  'agent.question.required': '옵션을 선택하거나 답변을 입력하세요.',
   'agent.question.answerPrompt': '질문:\n{question}\n\n답변:\n{answer}',
-  'agent.question.pendingHint': '대기 중인 질문에 답변한 후 다른 메시지를 보내세요.',
+  'agent.question.pendingHint': '먼저 대기 중인 질문에 답변하세요',
   'agent.skill.pick': '스킬 사용',
   'agent.skill.loading': '스킬 불러오는 중…',
   'agent.skill.empty': '일치하는 스킬 없음',
@@ -789,6 +796,7 @@ export const ko: Messages = {
   'agent.copy.logs': '로그 복사',
   'agent.copy.queued': '대기열 메시지 복사',
   'agent.code': '코드',
+  'agent.usage.updating': '업데이트 중',
   'agent.usage.title': '사용량 및 비용',
   'agent.usage.cumulative': '누적',
   'agent.usage.latest': '최근 턴',
@@ -861,5 +869,13 @@ export const ko: Messages = {
   'agent.context.estimateHint': '초안과 디스크에 있는 참조 파일 크기를 기준으로 한 대략적인 추정입니다. 대화 기록, 디렉터리 내용 및 CLI 추가 사용량은 제외되며 모델의 컨텍스트 한도가 아닙니다.',
 
   'error.git.discardDirectory': '{path} 변경 사항을 버릴 수 없습니다. 추적 중인 파일 경로에 디렉터리가 있습니다.',
+
+  'agent.plan.header': "계획",
+  'agent.plan.implementCurrent': "이 계획 실행",
+  'agent.plan.implementFresh': "새 컨텍스트에서 실행",
+  'agent.plan.continuePlanning': "계획 계속",
+  'agent.plan.resolved': "계획 작업 선택됨",
+  'agent.plan.instructions': "추가 요청 사항 (선택)",
+  'agent.plan.pendingHint': '먼저 계획 작업을 선택하세요',
 
 }
