@@ -21,6 +21,7 @@ scope:
 | `pnpm i18n` | Locale key/placeholder/plural parity and error-code coverage |
 | `pnpm i18n:scan` | Hardcoded CJK UI literals; genuine non-UI files are explicitly allowlisted |
 | `pnpm check:workflows` | Workflow shell expansions followed by non-ASCII text after `$var` |
+| `pnpm test:frontend` | Vitest/React Testing Library: local commands, context usage and composer chips |
 | `pnpm typecheck` | TypeScript types, including complete typed locale records |
 | `pnpm check:rust` | Rust types/borrows without linking |
 | `pnpm docs:route` | Select only area docs whose scope matches the supplied touched paths |
@@ -48,6 +49,7 @@ Path, guard or behavior-contract changes update their routed docs in the same ch
 
 ## Tests and CI
 
+- Agent store tests cover exclusive cursors, byte budgets, unknown fields, concurrent patches, and preserving files after failed writes.
 - Run targeted Rust tests through the verification skill when test code changed, or when the change touches
   update, path containment, settings migration, Git commands or agent providers; installer changes belong to
   the release-check surface. Keep unit tests beside the owning Rust module.

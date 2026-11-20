@@ -3,6 +3,8 @@ import {
   api,
   errorText,
   type AgentCatalog,
+  type AgentChatPage,
+  type AgentChatApply,
   type AgentEventPayload,
   type AgentMention,
   type AgentProviderInfo,
@@ -12,7 +14,8 @@ import {
 } from '../lib/ipc'
 import {
   buildAgentPrompt,
-  isAgentCommandId,
+  isAgentPromptCommandId,
+  parseAgentLocalCommand,
   isAgentSkillRef,
   normalizeAgentDraft,
   type AgentDraft,
@@ -21,6 +24,7 @@ import {
 import { t } from '../i18n'
 import { useSettings } from './settings'
 import { useTabs } from './tabs'
+import { useUi } from './ui'
 import { activeRoot } from './workspace'
 import { normalizeAgentUsage } from '../lib/agentUsage'
 
@@ -87,6 +91,10 @@ export type AgentChat = {
   provider: string
   model: string
   effort: string
+  activeRunId?: string | null
+  eventSequence?: number
+  sessionUsage?: AgentUsage
+  sessionAction?: 'fork' | null
   sessionId: string | null
   messages: AgentMessage[]
   status: AgentChatStatus
@@ -125,35 +133,11 @@ function newChatId(): string {
   return `chat-${Date.now().toString(36)}-${Math.floor(Math.random() * 1e6).toString(36)}`
 }
 
-const MAX_MESSAGES = 300
-const MAX_TEXT = 200_000
-const MAX_TOOL_OUTPUT = 8_000
 const MAX_LOG = 4_000
-const MAX_BODY = 2 * 1024 * 1024
 
-/** Cap a string while keeping the tail (tool output ends with the error that matters). */
 function clipTail(value: string, limit: number): string {
   if (value.length <= limit) return value
-  return `…${value.slice(value.length - limit)}`
-}
-
-function trimChat(chat: AgentChat): AgentChat {
-  let messages = chat.messages.slice(-MAX_MESSAGES).map((message) => ({
-    ...message,
-    text: message.text ? clipTail(message.text, MAX_TEXT) : message.text,
-    items: message.items?.map((item) => ({
-      ...item,
-      text: clipTail(item.text, MAX_TEXT),
-      detail: item.detail ? clipTail(item.detail, MAX_TOOL_OUTPUT) : item.detail,
-      output: item.output ? clipTail(item.output, MAX_TOOL_OUTPUT) : item.output,
-    })),
-  }))
-  let body = JSON.stringify({ ...chat, messages })
-  while (body.length > MAX_BODY && messages.length > 1) {
-    messages = messages.slice(1)
-    body = JSON.stringify({ ...chat, messages })
-  }
-  return { ...chat, messages }
+  return '…' + value.slice(value.length - limit)
 }
 
 type Running = Record<string, number>
@@ -184,6 +168,9 @@ type AgentStore = {
   loadCatalog: (provider: string, force?: boolean) => Promise<void>
   resolveDefaults: () => void
 
+  pages: Record<string, AgentChatPage>
+  pageLoading: Record<string, boolean>
+  loadPage: (id: string, direction: 'earlier' | 'later' | 'latest' | 'pending') => Promise<void>
   loadChat: (id: string) => Promise<void>
   forgetChat: (id: string) => void
   openChatTab: (id: string) => void
@@ -213,15 +200,17 @@ const writeQueues = new Map<string, Promise<void>>()
 const catalogTickets = new Map<string, number>()
 /** Identifies the active provider scan so only its response may finish the loading state */
 let providerTicket = 0
-/** One automatic retry per chat when a resumed CLI session has gone away */
-const retried = new Set<string>()
+/** Retain failed closing-tab writes for explicit flush/reopen retries. */
+const unsavedClosedChats = new Map<string, AgentChat>()
 
-function queueChatSave(chatId: string, body: string): Promise<void> {
+function queueChatSave(chatId: string, chat: AgentChat): Promise<void> {
+  const { messages, ...header } = chat
+  const patch: AgentChatApply = { header, upserts: messages, removeMessageIds: [] }
   const previous = writeQueues.get(chatId) ?? Promise.resolve()
   // A failed earlier write must not poison the chain for every later transcript
   const next = previous.then(
-    () => api.agentChatSave(chatId, body),
-    () => api.agentChatSave(chatId, body),
+    () => api.agentChatApply(chatId, patch).then(() => {}),
+    () => api.agentChatApply(chatId, patch).then(() => {}),
   )
   writeQueues.set(chatId, next)
   const cleanup = () => {
@@ -249,10 +238,26 @@ async function persistChat(chatId: string) {
   if (!chat || !dirty.has(chatId)) return
   dirty.delete(chatId)
   try {
-    await queueChatSave(chatId, JSON.stringify(trimChat(chat)))
-  } catch {
-    // A failed write must not break the conversation; the next change retries it
+    await queueChatSave(chatId, chat)
+    if (useAgent.getState().chats[chatId] === chat && chat.status !== 'running') {
+      const page = await api.agentChatOpen(chatId, 80)
+      if (page && useAgent.getState().chats[chatId] === chat) {
+        const state = useAgent.getState()
+        const viewingHistory = state.pages[chatId]?.hasLater
+        const normalized = !viewingHistory ? normalizeChat({ ...page.header, messages: page.messages }) : null
+        useAgent.setState({
+          chats: normalized ? { ...state.chats, [chatId]: normalized } : state.chats,
+          pages: { ...state.pages, [chatId]: viewingHistory ? { ...state.pages[chatId],
+            hasPendingQuestion: page.hasPendingQuestion, hasUnhandledPlanAction: page.hasUnhandledPlanAction,
+            pendingMessageId: page.pendingMessageId, total: page.total } : page },
+        })
+      }
+    }
+  } catch (error) {
     dirty.add(chatId)
+    const current = useAgent.getState().chats[chatId]
+    if (current) useAgent.setState({ chats: { ...useAgent.getState().chats,
+      [chatId]: { ...current, error: errorText(error) } } })
   }
 }
 
@@ -260,7 +265,13 @@ async function persistChat(chatId: string) {
 function persistLeavingChat(chatId: string, chat: AgentChat) {
   if (!dirty.has(chatId)) return
   dirty.delete(chatId)
-  void queueChatSave(chatId, JSON.stringify(trimChat(chat))).catch(() => {})
+  unsavedClosedChats.set(chatId, chat)
+  void queueChatSave(chatId, chat).then(() => {
+    if (unsavedClosedChats.get(chatId) === chat) unsavedClosedChats.delete(chatId)
+  }).catch(error => {
+    dirty.add(chatId)
+    useUi.getState().toast(errorText(error), 'error')
+  })
 }
 
 function normalizeChat(raw: unknown): AgentChat | null {
@@ -276,7 +287,7 @@ function normalizeChat(raw: unknown): AgentChat | null {
         const readOnly = message.readOnly === true ? true : undefined
         return usage ? { ...message, usage, readOnly } : { ...message, usage: undefined, readOnly }
       }
-      const command = isAgentCommandId(message.command) ? message.command : undefined
+      const command = isAgentPromptCommandId(message.command) ? message.command : undefined
       const rawSkills = Array.isArray(message.skills) ? message.skills : []
       const skills = rawSkills.filter(isAgentSkillRef)
       return {
@@ -286,11 +297,6 @@ function normalizeChat(raw: unknown): AgentChat | null {
         readOnly: undefined,
       }
     })
-  // A turn interrupted by a restart leaves an empty assistant bubble; the user message is enough
-  const last = messages[messages.length - 1]
-  if (last && last.role === 'assistant' && (last.items?.length ?? 0) === 0 && !last.usage) {
-    messages.pop()
-  }
   return {
     v: 1,
     id: value.id,
@@ -299,6 +305,8 @@ function normalizeChat(raw: unknown): AgentChat | null {
     provider: typeof value.provider === 'string' ? value.provider : '',
     model: typeof value.model === 'string' ? value.model : '',
     effort: typeof value.effort === 'string' ? value.effort : '',
+    sessionUsage: normalizeAgentUsage(value.sessionUsage),
+    sessionAction: value.sessionAction === 'fork' ? 'fork' : null,
     sessionId: typeof value.sessionId === 'string' ? value.sessionId : null,
     messages,
     // A process cannot survive a restart: show the old turn as finished, not spinning forever
@@ -333,10 +341,13 @@ export const useAgent = create<AgentStore>((set, get) => {
     clearDraft = appendUser,
     readOnlyOverride?: boolean,
   ) => {
+    if (get().pages[chatId]?.hasLater) await get().loadPage(chatId, 'latest')
     const chat = get().chats[chatId]
+    if (get().pages[chatId]?.hasLater) return
     if (!chat || chat.status === 'running') return
     // The backend re-checks the toggle: make sure its 400ms debounced write has landed first
     useSettings.getState().flush()
+    const sentDraft = get().chatDrafts[chatId]
     const now = Date.now()
     const messages = chat.messages.slice()
     if (appendUser) {
@@ -352,6 +363,7 @@ export const useAgent = create<AgentStore>((set, get) => {
     }
     const readOnly = readOnlyOverride ?? draft.command === 'plan'
     const assistantId = agentUid('a')
+    const runId = agentUid('run')
     messages.push({
       id: assistantId,
       role: 'assistant',
@@ -369,18 +381,13 @@ export const useAgent = create<AgentStore>((set, get) => {
           title,
           messages,
           status: 'running',
+          activeRunId: runId,
+          eventSequence: 0,
           error: null,
           updatedAt: now,
         },
       },
       running: { ...get().running, [chatId]: now },
-      ...(clearDraft
-        ? {
-            chatDrafts: Object.fromEntries(
-              Object.entries(get().chatDrafts).filter(([id]) => id !== chatId),
-            ),
-          }
-        : {}),
     })
     if (title) useTabs.getState().setTabName(chatTabId(chatId), title)
     schedulePersist(chatId)
@@ -388,8 +395,10 @@ export const useAgent = create<AgentStore>((set, get) => {
     try {
       await api.agentSend({
         chatId,
+        runId,
         root: chat.root,
         provider: chat.provider,
+        sessionAction: chat.sessionAction ?? (chat.sessionId ? 'resume' : 'new'),
         sessionId: chat.sessionId,
         model: chat.model || null,
         effort: chat.effort || null,
@@ -397,6 +406,9 @@ export const useAgent = create<AgentStore>((set, get) => {
         mentions: draft.mentions,
         readOnly,
       })
+      if (clearDraft && get().chatDrafts[chatId] === sentDraft) {
+        set({ chatDrafts: Object.fromEntries(Object.entries(get().chatDrafts).filter(([id]) => id !== chatId)) })
+      }
     } catch (e) {
       const current = get().chats[chatId]
       if (!current) return
@@ -447,11 +459,11 @@ export const useAgent = create<AgentStore>((set, get) => {
     })
   }
 
-  /** Start the oldest queued message; a manual Stop drains too, so Stop means “send now” */
+  /** Start the oldest queued message after a successful turn. Stop retains the queue. */
   const drainQueue = (chatId: string) => {
     if (!useSettings.getState().agentEnabled) return
     const chat = get().chats[chatId]
-    if (!chat || findPendingQuestion(chat.messages)) return
+    if (!chat || findPendingQuestion(chat.messages) || get().pages[chatId]?.hasPendingQuestion || get().pages[chatId]?.hasUnhandledPlanAction) return
     const queue = get().queues[chatId] ?? []
     if (queue.length === 0) return
     const [head, ...rest] = queue
@@ -503,6 +515,8 @@ export const useAgent = create<AgentStore>((set, get) => {
   }
 
   return {
+    pages: {},
+    pageLoading: {},
     providers: null,
     providersLoading: false,
     catalogs: {},
@@ -595,23 +609,74 @@ export const useAgent = create<AgentStore>((set, get) => {
     },
 
     loadChat: async (id) => {
+      const unsaved = unsavedClosedChats.get(id)
+      if (unsaved) {
+        unsavedClosedChats.delete(id)
+        set({ chats: { ...get().chats, [id]: unsaved } })
+        schedulePersist(id)
+        return
+      }
       if (get().chats[id] || get().loadingChats[id]) return
       set({ loadingChats: { ...get().loadingChats, [id]: true } })
       try {
-        const raw = await api.agentChatLoad(id)
-        const chat = raw ? normalizeChat(JSON.parse(raw)) : null
+        const page = await api.agentChatOpen(id, 80)
+        const chat = page ? normalizeChat({ ...page.header, messages: page.messages }) : null
         if (chat) {
           set({
+            pages: { ...get().pages, ...(page ? { [id]: page } : {}) },
             chats: { ...get().chats, [id]: chat },
             loadingChats: { ...get().loadingChats, [id]: false },
           })
           useTabs.getState().setTabName(chatTabId(id), chat.title)
           return
         }
-      } catch {
-        // Fall through: an unreadable transcript leaves an empty chat, never a stuck skeleton
+      } catch (error) {
+        useUi.getState().toast(errorText(error), 'error')
       }
       set({ loadingChats: { ...get().loadingChats, [id]: false } })
+    },
+
+    loadPage: async (id, direction) => {
+      const chat = get().chats[id]
+      if (!chat || chat.status === 'running' || get().pageLoading[id]) return
+      set({ pageLoading: { ...get().pageLoading, [id]: true } })
+      try {
+        await persistChat(id)
+        await writeQueues.get(id)
+        if (dirty.has(id)) return
+        let page: AgentChatPage | null
+        if (direction === 'latest') page = await api.agentChatOpen(id, 80)
+        else if (direction === 'pending') {
+          const pending = get().pages[id]?.pendingMessageId
+          if (!pending) return
+          const before = await api.agentChatPage(id, { beforeId: pending, limit: 1 })
+          const predecessor = before?.messages[0]?.id
+          if (typeof predecessor === 'string') {
+            page = await api.agentChatPage(id, { afterId: predecessor, limit: 80 })
+          } else {
+            const after = await api.agentChatPage(id, { afterId: pending, limit: 1 })
+            const successor = after?.messages[0]?.id
+            page = typeof successor === 'string'
+              ? await api.agentChatPage(id, { beforeId: successor, limit: 1 })
+              : await api.agentChatOpen(id, 80)
+          }
+        } else {
+          const cursor = direction === 'earlier' ? chat.messages[0]?.id : chat.messages.at(-1)?.id
+          if (!cursor) return
+          page = await api.agentChatPage(id, {
+            ...(direction === 'earlier' ? { beforeId: cursor } : { afterId: cursor }), limit: 80,
+          })
+        }
+        if (!page || !get().chats[id]) return
+        const normalized = normalizeChat({ ...page.header, messages: page.messages })
+        if (!normalized) return
+        set({ chats: { ...get().chats, [id]: normalized }, pages: { ...get().pages, [id]: page } })
+      } catch (error) {
+        const current = get().chats[id]
+        if (current) set({ chats: { ...get().chats, [id]: { ...current, error: errorText(error) } } })
+      } finally {
+        set({ pageLoading: { ...get().pageLoading, [id]: false } })
+      }
     },
 
     forgetChat: (id) => {
@@ -629,10 +694,13 @@ export const useAgent = create<AgentStore>((set, get) => {
       timers.delete(id)
       // Capture the last transcript before the record leaves memory
       if (leaving) persistLeavingChat(id, leaving)
-      retried.delete(id)
       const tokenEstimates = { ...get().tokenEstimates }
       delete tokenEstimates[id]
-      set({ chats, running, chatDrafts, queues, tokenEstimates })
+      const pages = { ...get().pages }
+      delete pages[id]
+      const pageLoading = { ...get().pageLoading }
+      delete pageLoading[id]
+      set({ chats, running, chatDrafts, queues, tokenEstimates, pages, pageLoading })
     },
 
     openChatTab: (id) => {
@@ -686,12 +754,55 @@ export const useAgent = create<AgentStore>((set, get) => {
       const chat = get().chats[chatId]
       if (!chat) return
       if (!useSettings.getState().agentEnabled) return
+      const local = parseAgentLocalCommand(draft.text)
+      if (local) {
+        if (chat.status === 'running') return
+        try {
+          if (local.id === 'new') { get().newChat(chat.root); return }
+          if (local.id === 'model' && local.args) {
+            get().setChatOptions(chatId, { model: local.args }); return
+          }
+          if (local.id === 'resume' && local.args) {
+            const matches = await api.agentChatList(chat.root)
+            if (!matches.some(item => item.id === local.args)) throw new Error(t('agent.missingChat'))
+            await get().loadChat(local.args)
+            get().openChatTab(local.args)
+            return
+          }
+          if (local.id === 'fork' && chat.provider === 'claude' && chat.sessionId) {
+            await persistChat(chatId)
+            await writeQueues.get(chatId)
+            if (dirty.has(chatId)) return
+            const id = newChatId()
+            const page = await api.agentChatClone(chatId, { id, sessionAction: 'fork', createdAt: Date.now() })
+            const cloned = normalizeChat({ ...page.header, messages: page.messages })
+            if (cloned) {
+              set({ chats: { ...get().chats, [id]: cloned }, pages: { ...get().pages, [id]: page } })
+              get().openChatTab(id)
+            }
+            return
+          }
+          const text = local.id === 'status'
+            ? [chat.provider, chat.model, chat.status, chat.sessionId].filter(Boolean).join(' · ')
+            : local.id === 'help' ? t('agent.local.helpText')
+            : t('agent.local.unavailable')
+          set({ chats: { ...get().chats, [chatId]: { ...chat,
+            messages: [...chat.messages, { id: agentUid('n'), role: 'assistant', at: Date.now(),
+              items: [{ id: agentUid('n'), type: 'notice', text }] }],
+          } } })
+          schedulePersist(chatId)
+        } catch (error) {
+          set({ chats: { ...get().chats, [chatId]: { ...chat, error: errorText(error) } } })
+        }
+        return
+      }
+      if (get().pages[chatId]?.hasLater) await get().loadPage(chatId, 'latest')
+      if (get().pages[chatId]?.hasLater || get().pageLoading[chatId]) return
       const next = normalizeAgentDraft(draft)
       if (!next.text.trim() && !(next.skills ?? []).length) return
       // A structured question owns the next turn. The answer must go through answerQuestion so
       // it carries the source question and the planning read-only boundary.
-      if (findPendingQuestion(chat.messages)) return
-      retried.delete(chatId)
+      if (findPendingQuestion(get().chats[chatId].messages) || get().pages[chatId]?.hasPendingQuestion || get().pages[chatId]?.hasUnhandledPlanAction) return
       const queue = get().queues[chatId] ?? []
       // Running turn, or a queue left over from a stopped / disabled turn: keep FIFO order
       if (chat.status === 'running' || queue.length > 0) {
@@ -725,6 +836,9 @@ export const useAgent = create<AgentStore>((set, get) => {
           [chatId]: { ...chat, messages, updatedAt: Date.now() },
         },
       })
+      const page = get().pages[chatId]
+      if (page) set({ pages: { ...get().pages, [chatId]: { ...page,
+        hasPendingQuestion: !!findPendingQuestion(messages) } } })
       schedulePersist(chatId)
       const question = pending.item.question ?? ''
       const prompt = t('agent.question.answerPrompt', { question, answer: trimmed })
@@ -748,16 +862,18 @@ export const useAgent = create<AgentStore>((set, get) => {
       }
     },
 
-    applyEvent: ({ chatId, event }) => {
-      const chat = get().chats[chatId]
-      if (!chat) return
+    applyEvent: ({ chatId, runId, sequence, event }) => {
+      const current = get().chats[chatId]
+      if (!current || current.status !== 'running' || current.activeRunId !== runId || sequence <= (current.eventSequence ?? 0)) return
+      const chat = { ...current, eventSequence: sequence }
+      set({ chats: { ...get().chats, [chatId]: chat } })
 
       if (event.kind === 'session') {
         if (chat.sessionId === event.sessionId) return
         set({
           chats: {
             ...get().chats,
-            [chatId]: { ...chat, sessionId: event.sessionId, updatedAt: Date.now() },
+            [chatId]: { ...chat, sessionId: event.sessionId, sessionAction: null, updatedAt: Date.now() },
           },
         })
         schedulePersist(chatId)
@@ -768,6 +884,7 @@ export const useAgent = create<AgentStore>((set, get) => {
         const usage = normalizeAgentUsage(event.usage)
         if (!usage) return
         const next = patchLastAssistantUsage(chat, usage)
+        next.sessionUsage = normalizeAgentUsage(event.sessionUsage) ?? chat.sessionUsage
         if (next === chat) return
         set({ chats: { ...get().chats, [chatId]: next } })
         schedulePersist(chatId)
@@ -816,61 +933,7 @@ export const useAgent = create<AgentStore>((set, get) => {
         set({ chats: { ...get().chats, [chatId]: next }, running })
         schedulePersist(chatId)
 
-        // A resumed CLI session can disappear (history pruned, CLI upgraded). Retry once
-        // without the session before showing the failure, so a restart does not strand the chat.
-        const last = next.messages[next.messages.length - 1]
-        if (
-          !event.ok &&
-          !event.cancelled &&
-          chat.sessionId &&
-          last?.role === 'assistant' &&
-          !last.usage &&
-          (last.items ?? []).every(
-            (item) => item.type !== 'text' && item.type !== 'tool' && item.type !== 'question',
-          ) &&
-          !retried.has(chatId)
-        ) {
-          retried.add(chatId)
-          const lastUser = [...next.messages].reverse().find((message) => message.role === 'user')
-          if (lastUser) {
-            set({
-              chats: {
-                ...get().chats,
-                [chatId]: {
-                  ...next,
-                  sessionId: null,
-                  status: 'idle',
-                  error: null,
-                  // Drop the failed (empty) reply so a successful retry does not sit under an error card
-                  messages: [
-                    ...next.messages.slice(0, -1),
-                    {
-                      id: agentUid('n'),
-                      role: 'assistant',
-                      at: Date.now(),
-                      items: [{ id: agentUid('n'), type: 'notice', text: t('agent.sessionReset') }],
-                    },
-                  ],
-                },
-              },
-            })
-            void runTurn(
-              chatId,
-              {
-                text: lastUser.text ?? '',
-                mentions: lastUser.mentions ?? [],
-                command: lastUser.command,
-                skills: lastUser.skills,
-              },
-              false,
-              false,
-              last.readOnly === true ? true : undefined,
-            )
-            return
-          }
-        }
-        if (event.ok) retried.delete(chatId)
-        drainQueue(chatId)
+        if (event.ok) drainQueue(chatId)
         return
       }
 
@@ -1039,7 +1102,7 @@ export const useAgent = create<AgentStore>((set, get) => {
 
     setChatOptions: (chatId, patch) => {
       const chat = get().chats[chatId]
-      if (!chat) return
+      if (!chat || chat.status === 'running') return
       const catalog = get().catalogs[chat.provider]
       let effort = patch.effort ?? chat.effort
       if (patch.model !== undefined) {
@@ -1096,7 +1159,11 @@ export const useAgent = create<AgentStore>((set, get) => {
     flushChats: () => {
       for (const timer of timers.values()) clearTimeout(timer)
       timers.clear()
-      for (const chatId of [...dirty]) void persistChat(chatId)
+      for (const chatId of [...dirty]) {
+        const closed = unsavedClosedChats.get(chatId)
+        if (closed) persistLeavingChat(chatId, closed)
+        else void persistChat(chatId)
+      }
     },
 
     updateTokenEstimate: async (chatId) => {

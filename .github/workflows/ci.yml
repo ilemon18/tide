@@ -33,6 +33,7 @@ jobs:
       # `pnpm check` = word-list check + hardcoded-Chinese scan + tsc --noEmit.
       # Anyone who has run these three separately once wants a single command from the start.
       - run: pnpm check
+      - run: pnpm test:frontend
       - run: pnpm build
 
   rust:

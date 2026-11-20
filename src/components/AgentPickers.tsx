@@ -1,7 +1,8 @@
-import { useRef, useState } from 'react'
+import { type ReactNode, useRef, useState } from 'react'
 import { useAgent } from '../store/agent'
 import { useUi } from '../store/ui'
 import { t, useT } from '../i18n'
+import { AgentProviderIcon } from './AgentProviderIcon'
 import { ContextMenu, type MenuItem } from './ContextMenu'
 import { Icon } from './Icon'
 
@@ -32,6 +33,10 @@ type PickerProps = {
   disabled?: boolean
   hideLabel?: boolean
   tip?: string
+  /** Replace the chip contents with a compact icon trigger. */
+  trigger?: ReactNode
+  /** Accessible name and tooltip for an icon-only trigger. */
+  buttonLabel?: string
 }
 
 /** One compact footer chip; the agent, model and complexity menus share it. */
@@ -43,6 +48,8 @@ export function Picker({
   disabled,
   hideLabel,
   tip,
+  trigger,
+  buttonLabel,
 }: PickerProps) {
   const buttonRef = useRef<HTMLButtonElement>(null)
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
@@ -52,6 +59,7 @@ export function Picker({
     disabled: option.id === value,
     onClick: () => onPick(option.id),
   }))
+  const accessibleLabel = buttonLabel ?? (label || current?.label || value)
 
   return (
     <>
@@ -59,17 +67,27 @@ export function Picker({
         ref={buttonRef}
         type="button"
         disabled={disabled}
-        data-tip={tip}
-        aria-label={label || current?.label || value}
+        data-tip={trigger ? accessibleLabel : tip}
+        aria-label={accessibleLabel}
         onClick={() => {
           const rect = buttonRef.current?.getBoundingClientRect()
           if (rect) setMenu({ x: rect.left, y: rect.bottom + 4 })
         }}
-        className="flex h-6 min-w-0 max-w-[190px] items-center gap-1 rounded-[var(--r-control)] px-1.5 text-xs text-muted transition-colors duration-fast hover:bg-hover hover:text-fg disabled:cursor-not-allowed disabled:opacity-40"
+        className={
+          trigger
+            ? 'flex h-6 w-6 shrink-0 items-center justify-center rounded-[var(--r-control)] text-muted transition-colors duration-fast hover:bg-hover hover:text-fg disabled:cursor-not-allowed disabled:opacity-40'
+            : 'flex h-6 min-w-0 max-w-[190px] items-center gap-1 rounded-[var(--r-control)] px-1.5 text-xs text-muted transition-colors duration-fast hover:bg-hover hover:text-fg disabled:cursor-not-allowed disabled:opacity-40'
+        }
       >
-        {label && !hideLabel ? <span className="shrink-0 text-muted/70">{label}</span> : null}
-        <span className="min-w-0 truncate text-fg/80">{current?.label ?? value}</span>
-        <Icon name="chevron-down" size={10} className="shrink-0 text-muted/70" />
+        {trigger ?? (
+          <>
+            {label && !hideLabel ? (
+              <span className="shrink-0 text-muted/70">{label}</span>
+            ) : null}
+            <span className="min-w-0 truncate text-fg/80">{current?.label ?? value}</span>
+            <Icon name="chevron-down" size={10} className="shrink-0 text-muted/70" />
+          </>
+        )}
       </button>
       {menu ? (
         <ContextMenu
@@ -129,10 +147,13 @@ export function ModelPicker({
     ...(catalog?.models ?? []).map((model) => ({ id: model.id, label: model.label })),
     { id: '__custom', label: t('agent.picker.customModel') },
   ]
+  const current = options.find((option) => option.id === value)
   return (
     <Picker
       label={t('agent.picker.model')}
       tip={t('agent.picker.modelTip')}
+      trigger={<AgentProviderIcon provider={provider} size={15} />}
+      buttonLabel={`${t('agent.picker.model')}: ${current?.label ?? value}`}
       value={value}
       options={options}
       onPick={(id) => {

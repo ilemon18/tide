@@ -25,7 +25,10 @@ export function AgentContextUsage({ chatId }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const buttonRef = useRef<HTMLButtonElement>(null)
   const detailsId = useId()
-  const cumulative = useMemo(() => (messages ? cumulativeAgentUsage(messages) : undefined), [messages])
+  const sessionUsage = useAgent(s => s.chats[chatId]?.sessionUsage)
+  const partial = useAgent(s => s.pages[chatId]?.hasEarlier || s.pages[chatId]?.hasLater)
+  const computed = useMemo(() => (messages ? cumulativeAgentUsage(messages) : undefined), [messages])
+  const cumulative = sessionUsage ?? (partial ? undefined : computed)
   const latest = useMemo(() => (messages ? latestAgentUsage(messages) : undefined), [messages])
   const contextWindow = latest?.contextWindow
 
@@ -122,7 +125,7 @@ export function AgentContextUsage({ chatId }: Props) {
               <ContextRow
                 label={t('agent.context.used')}
                 value={
-                  latest ? formatAgentTokens(latest.totalTokens) : t('agent.context.unavailable')
+                  latest?.contextTokens !== undefined ? formatAgentTokens(latest.contextTokens) : t('agent.context.unavailable')
                 }
               />
               <ContextRow

@@ -46,6 +46,8 @@ function RunningStatus({ startedAt }: { startedAt: number | undefined }) {
 export function AgentChat({ chatId }: { chatId: string }) {
   const t = useT()
   const chat = useAgent((s) => s.chats[chatId])
+  const page = useAgent(s => s.pages[chatId])
+  const pageLoading = useAgent(s => s.pageLoading[chatId])
   const loading = useAgent((s) => s.loadingChats[chatId])
   const startedAt = useAgent((s) => s.running[chatId])
   const draftState = useAgent((s) => s.chatDrafts[chatId])
@@ -221,6 +223,17 @@ export function AgentChat({ chatId }: { chatId: string }) {
           className="h-full select-text overflow-y-auto"
         >
           <div className="mx-auto flex w-full max-w-[820px] flex-col gap-4 px-4 py-4">
+            {chat.error ? <div role="alert" className="text-xs text-danger">{chat.error}</div> : null}
+            {page?.pendingMessageId && !chat.messages.some(m => m.id === page.pendingMessageId) ? (
+              <button disabled={running || pageLoading} onClick={() => void useAgent.getState().loadPage(chatId, 'pending')} className="text-xs text-accent">
+                {t('agent.history.pending')}
+              </button>
+            ) : null}
+            {page?.hasEarlier ? (
+              <button disabled={running || pageLoading} onClick={() => void useAgent.getState().loadPage(chatId, 'earlier')} className="text-xs text-accent">
+                {t('agent.history.earlier')}
+              </button>
+            ) : null}
             {chat.messages.length === 0 ? (
               <div className="flex flex-col items-center gap-2 py-16 text-xs text-muted">
                 <Icon name="agent" size={22} className="text-muted/60" />
@@ -241,6 +254,11 @@ export function AgentChat({ chatId }: { chatId: string }) {
                 ),
               )
             )}
+            {page?.hasLater ? (
+              <button disabled={running || pageLoading} onClick={() => void useAgent.getState().loadPage(chatId, 'later')} className="text-xs text-accent">
+                {t('agent.history.later')}
+              </button>
+            ) : null}
           </div>
         </div>
 
@@ -377,7 +395,7 @@ export function AgentChat({ chatId }: { chatId: string }) {
             running={running}
             disabled={!enabled}
             blocked={providerMissing}
-            pendingQuestion={pendingQuestion !== null}
+            pendingQuestion={pendingQuestion !== null || page?.hasPendingQuestion || page?.hasUnhandledPlanAction}
             autoFocusKey={chatId}
             onDraft={(text) => useAgent.getState().setChatDraft(chatId, { text })}
             onMentions={(mentions) => useAgent.getState().setChatDraft(chatId, { mentions })}

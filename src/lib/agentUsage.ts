@@ -8,6 +8,7 @@ const TOKEN_KEYS = [
   'outputTokens',
   'reasoningOutputTokens',
   'totalTokens',
+  'contextTokens',
 ] as const
 
 type TokenKey = (typeof TOKEN_KEYS)[number]
@@ -30,7 +31,9 @@ export function normalizeAgentUsage(raw: unknown): AgentUsage | undefined {
   const outputTokens = token(value, 'outputTokens')
   const reasoningOutputTokens = token(value, 'reasoningOutputTokens')
   const reportedTotalTokens = token(value, 'totalTokens')
+  const contextTokens = token(value, 'contextTokens')
   if (
+    (contextTokens === undefined && value.contextTokens !== undefined) ||
     (inputTokens === undefined && value.inputTokens !== undefined) ||
     (cachedInputTokens === undefined && value.cachedInputTokens !== undefined) ||
     (cacheWriteInputTokens === undefined && value.cacheWriteInputTokens !== undefined) ||
@@ -73,6 +76,7 @@ export function normalizeAgentUsage(raw: unknown): AgentUsage | undefined {
     totalTokens: reportedTotalTokens ?? input + cachedInput + cacheWrite + output,
     costUsd,
     contextWindow,
+    contextTokens,
   }
 }
 
@@ -119,14 +123,15 @@ export function agentContextPercent(usage: AgentUsage | undefined): number | und
   const window = usage?.contextWindow
   if (
     !usage ||
-    !Number.isFinite(usage.totalTokens) ||
+    usage.contextTokens === undefined ||
+    !Number.isFinite(usage.contextTokens) ||
     window === undefined ||
     !Number.isInteger(window) ||
     window <= 0
   ) {
     return undefined
   }
-  return Math.max(0, Math.min(100, Math.round((usage.totalTokens / window) * 100)))
+  return Math.max(0, Math.min(100, Math.round((usage.contextTokens / window) * 100)))
 }
 
 export function formatAgentTokens(count: number): string {

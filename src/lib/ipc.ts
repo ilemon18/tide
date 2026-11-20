@@ -349,11 +349,21 @@ export type AgentSkillInfo = {
   source: AgentSkillSource
 }
 
+export type AgentSessionAction = 'new' | 'resume' | 'fork'
+export type AgentPermissionMode = 'read-only' | 'workspace-write'
+export type AgentPlanAction =
+  | 'implement-current'
+  | 'implement-fresh'
+  | 'continue-planning'
+
 export type AgentTurnRequest = {
   chatId: string
+  runId: string
   root: string
   provider: string
-  /** CLI session to resume; null on the first turn */
+  /** Which native provider session operation this turn uses. */
+  sessionAction: AgentSessionAction
+  /** CLI session to resume or fork; null for a new session */
   sessionId: string | null
   model: string | null
   effort: string | null
@@ -372,6 +382,8 @@ export type AgentUsage = {
   reasoningOutputTokens: number
   totalTokens: number
   costUsd: number | null
+  /** Tokens currently occupying the provider context window. */
+  contextTokens?: number
   /** Provider-reported context window for the current model, when available. */
   contextWindow?: number
 }
@@ -395,14 +407,41 @@ export type AgentEvent =
   | { kind: 'questionInvalid'; text: string }
   | { kind: 'notice'; text: string }
   | { kind: 'stderr'; text: string }
-  | { kind: 'usage'; usage: AgentUsage }
+  | { kind: 'usage'; usage: AgentUsage; sessionUsage?: AgentUsage }
   | { kind: 'done'; ok: boolean; cancelled: boolean; code: number | null }
 
-export type AgentEventPayload = { chatId: string; event: AgentEvent }
+export type AgentEventPayload = { chatId: string; runId: string; sequence: number; event: AgentEvent }
 
 /** A chat tab restored through agent/tabs.json */
 export type AgentTabRef = { id: string; root: string }
 export type AgentTabs = { tabs: AgentTabRef[]; active: string | null }
+
+/** Forward-compatible transcript records; the frontend owns their shape. */
+export type AgentChatRecord = Record<string, unknown>
+export type AgentChatPage = {
+  header: AgentChatRecord
+  messages: AgentChatRecord[]
+  hasPendingQuestion: boolean
+  hasUnhandledPlanAction: boolean
+  pendingMessageId: string | null
+  hasEarlier: boolean
+  hasLater: boolean
+  total: number
+}
+export type AgentChatApply = {
+  header: AgentChatRecord
+  upserts: AgentChatRecord[]
+  removeMessageIds: string[]
+}
+export type AgentChatSummary = {
+  id: string
+  root: string
+  title: string
+  provider: string
+  model: string
+  updatedAt: number
+  messageCount: number
+}
 
 /** Token estimate breakdown */
 export type TokenEstimate = {
@@ -567,10 +606,17 @@ export const api = {
   agentSkills: (root: string) => invoke<AgentSkillInfo[]>('agent_skills', { root }),
   agentSend: (request: AgentTurnRequest) => invoke<void>('agent_send', { request }),
   agentCancel: (chatId: string) => invoke<void>('agent_cancel', { chatId }),
-  /** Transcripts are opaque frontend JSON; the backend only checks the id and the size */
-  agentChatSave: (id: string, body: string) =>
-    invoke<void>('agent_chat_save', { id, body }),
-  agentChatLoad: (id: string) => invoke<string | null>('agent_chat_load', { id }),
+  agentChatOpen: (id: string, recentLimit: number) =>
+    invoke<AgentChatPage | null>('agent_chat_open', { id, recentLimit }),
+  agentChatPage: (
+    id: string,
+    page: { beforeId?: string | null; afterId?: string | null; limit: number },
+  ) => invoke<AgentChatPage | null>('agent_chat_page', { id, ...page }),
+  agentChatApply: (id: string, patch: AgentChatApply) =>
+    invoke<AgentChatPage>('agent_chat_apply', { id, patch }),
+  agentChatList: (root: string) => invoke<AgentChatSummary[]>('agent_chat_list', { root }),
+  agentChatClone: (fromId: string, header: AgentChatRecord) =>
+    invoke<AgentChatPage>('agent_chat_clone', { fromId, header }),
   agentChatDelete: (id: string) => invoke<void>('agent_chat_delete', { id }),
   agentTabsSave: (tabs: AgentTabRef[], active: string | null) =>
     invoke<void>('agent_tabs_save', { tabs, active }),

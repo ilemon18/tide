@@ -1,6 +1,6 @@
 import type { MessageKey } from '../i18n'
 import { t, useT } from '../i18n'
-import type { AgentCommandId, AgentSkillRef } from '../lib/agentCommand'
+import type { AgentCommandId, AgentPromptCommandId, AgentSkillRef } from '../lib/agentCommand'
 import { Icon } from './Icon'
 
 export const COMMAND_LABELS: Record<AgentCommandId, MessageKey> = {
@@ -9,6 +9,14 @@ export const COMMAND_LABELS: Record<AgentCommandId, MessageKey> = {
   review: 'agent.command.review.label',
   test: 'agent.command.test.label',
   explain: 'agent.command.explain.label',
+  new: 'agent.local.new.label',
+  resume: 'agent.local.resume.label',
+  fork: 'agent.local.fork.label',
+  compact: 'agent.local.compact.label',
+  status: 'agent.local.status.label',
+  model: 'agent.local.model.label',
+  permissions: 'agent.local.permissions.label',
+  help: 'agent.local.help.label',
 }
 
 export const COMMAND_DESCRIPTIONS: Record<AgentCommandId, MessageKey> = {
@@ -17,6 +25,14 @@ export const COMMAND_DESCRIPTIONS: Record<AgentCommandId, MessageKey> = {
   review: 'agent.command.review.desc',
   test: 'agent.command.test.desc',
   explain: 'agent.command.explain.desc',
+  new: 'agent.local.new.desc',
+  resume: 'agent.local.resume.desc',
+  fork: 'agent.local.fork.desc',
+  compact: 'agent.local.compact.desc',
+  status: 'agent.local.status.desc',
+  model: 'agent.local.model.desc',
+  permissions: 'agent.local.permissions.desc',
+  help: 'agent.local.help.desc',
 }
 
 export function commandLabel(id: AgentCommandId): string {
@@ -27,7 +43,7 @@ export function CommandChip({
   id,
   onRemove,
 }: {
-  id: AgentCommandId
+  id: AgentPromptCommandId
   onRemove?: () => void
 }) {
   const t = useT()

@@ -17,6 +17,15 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum AgentSessionAction {
+    #[default]
+    New,
+    Resume,
+    Fork,
+}
+
 /// A CLI invocation built from one provider's flags. The two providers return the same shape so
 /// the command layer can spawn either without branching on the concrete module type.
 pub struct Launch {
@@ -36,9 +45,12 @@ pub struct AgentMention {
 #[serde(rename_all = "camelCase")]
 pub struct AgentTurnRequest {
     pub chat_id: String,
+    pub run_id: String,
     /// Workspace root id (canonical absolute path), authorized before spawn
     pub root: String,
     pub provider: String,
+    /// Required: callers must explicitly choose native session semantics.
+    pub session_action: AgentSessionAction,
     /// CLI session to resume; absent on the first turn
     pub session_id: Option<String>,
     pub model: Option<String>,
@@ -55,6 +67,8 @@ pub struct AgentTurnRequest {
 #[serde(rename_all = "camelCase")]
 pub struct AgentEventPayload {
     pub chat_id: String,
+    pub run_id: String,
+    pub sequence: u64,
     pub event: AgentEvent,
 }
 
@@ -70,6 +84,10 @@ pub struct AgentUsage {
     pub reasoning_output_tokens: u64,
     pub total_tokens: u64,
     pub cost_usd: Option<f64>,
+    /// Tokens currently occupying the provider's context window. Missing when the provider does
+    /// not report this turn's context pressure; never derived from cumulative session usage.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context_tokens: Option<u64>,
     /// Provider-reported context window for the current model. Missing when the CLI does not
     /// expose one, so the UI never substitutes a fixed context limit.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -132,6 +150,9 @@ pub enum AgentEvent {
     },
     Usage {
         usage: AgentUsage,
+        /// Provider-reported cumulative usage for this native session, when available.
+        #[serde(rename = "sessionUsage", skip_serializing_if = "Option::is_none")]
+        session_usage: Option<AgentUsage>,
     },
     Done {
         ok: bool,
@@ -219,7 +240,6 @@ fn format_uuid(mut bytes: [u8; 16]) -> String {
     )
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -227,18 +247,34 @@ mod tests {
     #[test]
     fn read_only_defaults_to_false() {
         let request: AgentTurnRequest = serde_json::from_str(
-            r#"{"chatId":"chat-1","root":"/tmp","provider":"codex","sessionId":null,"model":null,"effort":null,"prompt":"hi","mentions":[]}"#,
+            r#"{"chatId":"chat-1","runId":"run-1","root":"/tmp","provider":"codex","sessionAction":"new","sessionId":null,"model":null,"effort":null,"prompt":"hi","mentions":[]}"#,
         )
         .expect("request should deserialize");
         assert!(!request.read_only);
+        assert!(matches!(request.session_action, AgentSessionAction::New));
     }
 
     #[test]
     fn read_only_deserializes_from_camel_case() {
         let request: AgentTurnRequest = serde_json::from_str(
-            r#"{"chatId":"chat-1","root":"/tmp","provider":"codex","sessionId":null,"model":null,"effort":null,"prompt":"hi","mentions":[],"readOnly":true}"#,
+            r#"{"chatId":"chat-1","runId":"run-1","root":"/tmp","provider":"codex","sessionAction":"new","sessionId":null,"model":null,"effort":null,"prompt":"hi","mentions":[],"readOnly":true}"#,
         )
         .expect("request should deserialize");
         assert!(request.read_only);
+    }
+
+    #[test]
+    fn session_action_deserializes_from_kebab_case() {
+        let request: AgentTurnRequest = serde_json::from_str(
+            r#"{"chatId":"chat-1","runId":"run-1","root":"/tmp","provider":"codex","sessionAction":"fork","sessionId":"thread-1","model":null,"effort":null,"prompt":"hi","mentions":[]}"#,
+        )
+        .expect("request should deserialize");
+        assert!(matches!(request.session_action, AgentSessionAction::Fork));
+    }
+    #[test]
+    fn missing_session_action_is_rejected_instead_of_resetting_a_session() {
+        assert!(serde_json::from_str::<AgentTurnRequest>(
+            r#"{"chatId":"chat-1","runId":"run-1","root":"/tmp","provider":"codex","sessionId":"existing","prompt":"hi"}"#
+        ).is_err());
     }
 }

@@ -6,6 +6,28 @@
  * - Placeholders are written `{name}`; param names must match the call site (a check script verifies).
  */
 export const en = {
+  'agent.local.new.label': "New chat",
+  'agent.local.new.desc': "Start a new chat",
+  'agent.local.resume.label': "Resume chat",
+  'agent.local.resume.desc': "Open a saved chat by ID",
+  'agent.local.fork.label': "Fork chat",
+  'agent.local.fork.desc': "Branch the current native session",
+  'agent.local.compact.label': "Compact context",
+  'agent.local.compact.desc': "Compact through the provider protocol",
+  'agent.local.status.label': "Status",
+  'agent.local.status.desc': "Show provider and session status",
+  'agent.local.model.label': "Model",
+  'agent.local.model.desc': "Set the model for the next turn",
+  'agent.local.permissions.label': "Permissions",
+  'agent.local.permissions.desc': "Show available permission controls",
+  'agent.local.help.label': "Help",
+  'agent.local.help.desc': "Show local command help",
+  'agent.local.unavailable': "This operation is unavailable in the current provider driver.",
+  'agent.local.helpText': "/new · /resume <chat ID> · /fork (Claude) · /status · /model <model ID> · /help",
+  'agent.history.earlier': "Earlier messages",
+  'agent.history.later': "Later messages",
+  'agent.history.pending': "Open pending request",
+  'error.agent.invalidChat': "The chat file is invalid. The original file has been preserved.",
   // ---------------------------------------------------------------- Common
   'common.cancel': 'Cancel',
   'common.create': 'Create',

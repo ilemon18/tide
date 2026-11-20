@@ -2,15 +2,40 @@ import type { AgentMention, AgentSkillInfo, AgentSkillSource } from './ipc'
 
 export type { AgentSkillInfo, AgentSkillSource }
 
-/** Commands the composer understands; the tag sent to the CLI is the id itself. */
-export type AgentCommandId = 'plan' | 'goal' | 'review' | 'test' | 'explain'
+/** Prompt commands are wrapped into the turn and sent to the provider. */
+export type AgentPromptCommandId = 'plan' | 'goal' | 'review' | 'test' | 'explain'
+/** Local commands are executed by Tide and never reach the provider. */
+export type AgentLocalCommandId =
+  | 'new'
+  | 'resume'
+  | 'fork'
+  | 'compact'
+  | 'status'
+  | 'model'
+  | 'permissions'
+  | 'help'
+export type AgentCommandId = AgentPromptCommandId | AgentLocalCommandId
 
-export const AGENT_COMMANDS: readonly AgentCommandId[] = [
+export const AGENT_PROMPT_COMMANDS: readonly AgentPromptCommandId[] = [
   'plan',
   'goal',
   'review',
   'test',
   'explain',
+]
+export const AGENT_LOCAL_COMMANDS: readonly AgentLocalCommandId[] = [
+  'new',
+  'resume',
+  'fork',
+  'compact',
+  'status',
+  'model',
+  'permissions',
+  'help',
+]
+export const AGENT_COMMANDS: readonly AgentCommandId[] = [
+  ...AGENT_PROMPT_COMMANDS,
+  ...AGENT_LOCAL_COMMANDS,
 ]
 
 /** A skill chip: `path` is what the prompt points the agent at. */
@@ -19,12 +44,33 @@ export type AgentSkillRef = Pick<AgentSkillInfo, 'name' | 'path' | 'source'>
 export type AgentDraft = {
   text: string
   mentions: AgentMention[]
-  command?: AgentCommandId
+  command?: AgentPromptCommandId
   skills?: AgentSkillRef[]
 }
 
+export function isAgentPromptCommandId(value: unknown): value is AgentPromptCommandId {
+  return typeof value === 'string' && (AGENT_PROMPT_COMMANDS as readonly string[]).includes(value)
+}
+
+export function isAgentLocalCommandId(value: unknown): value is AgentLocalCommandId {
+  return typeof value === 'string' && (AGENT_LOCAL_COMMANDS as readonly string[]).includes(value)
+}
+
 export function isAgentCommandId(value: unknown): value is AgentCommandId {
-  return typeof value === 'string' && (AGENT_COMMANDS as readonly string[]).includes(value)
+  return (
+    isAgentPromptCommandId(value) ||
+    isAgentLocalCommandId(value)
+  )
+}
+
+/** Parse a slash command typed as the whole message. Local commands never carry arguments. */
+export function parseAgentLocalCommand(value: string): {
+  id: AgentLocalCommandId
+  args: string
+} | null {
+  const match = /^\/([a-z][a-z-]*)(?:\s+([\s\S]*))?$/.exec(value.trim())
+  if (!match || !isAgentLocalCommandId(match[1])) return null
+  return { id: match[1], args: (match[2] ?? '').trim() }
 }
 
 export function isAgentSkillSource(value: unknown): value is AgentSkillSource {
@@ -94,7 +140,7 @@ export function normalizeAgentDraft(draft: AgentDraft): AgentDraft {
   const text = draft.text.trim()
   if (draft.command) return { ...draft, text }
   const match = /^\/([a-z][a-z-]*)(?:\s+|$)/.exec(text)
-  if (!match || !isAgentCommandId(match[1])) return { ...draft, text }
+  if (!match || !isAgentPromptCommandId(match[1])) return { ...draft, text }
   return {
     ...draft,
     text: text.slice(match[0].length).trimStart(),

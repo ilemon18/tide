@@ -10,6 +10,7 @@ import { FORMAT_MODES, FORMAT_TOOLS } from '../lib/formatters'
 import { ICON_THEME_OPTIONS } from '../lib/iconTheme'
 import { useAgent } from '../store/agent'
 import { Picker, effortLabel } from './AgentPickers'
+import { AgentProviderIcon } from './AgentProviderIcon'
 import { MONO_FONT_OPTIONS, monoStack } from '../lib/fonts'
 import { SETTINGS_SECTIONS, type SettingsSectionId } from '../lib/settingsSections'
 import { Icon } from './Icon'
@@ -584,10 +585,10 @@ export function SettingsView() {
                 className="flex items-center justify-between gap-3 border-b border-line/60 px-4 py-2 last:border-b-0"
               >
                 <div className="flex min-w-0 items-center gap-2">
-                  <Icon
-                    name={provider.installed ? 'check-circle' : 'dot'}
-                    size={12}
-                    className={provider.installed ? 'shrink-0 text-success' : 'shrink-0 text-muted/50'}
+                  <AgentProviderIcon
+                    provider={provider.id}
+                    size={14}
+                    className={provider.installed ? 'shrink-0 text-fg/80' : 'shrink-0 text-muted/50'}
                   />
                   <span className="truncate text-sm text-fg/90">{provider.name}</span>
                   <span className="min-w-0 truncate font-mono text-2xs text-muted">

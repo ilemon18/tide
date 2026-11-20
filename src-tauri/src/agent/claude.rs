@@ -6,7 +6,9 @@ use std::path::Path;
 use serde_json::Value;
 
 use super::question::{self, Piece};
-use super::{uuid_v4, workspace_note, AgentEvent, AgentTurnRequest, AgentUsage, Launch};
+use super::{
+    uuid_v4, workspace_note, AgentEvent, AgentSessionAction, AgentTurnRequest, AgentUsage, Launch,
+};
 
 /// One process per user turn. The first turn names its own session so a follow-up can resume
 /// it; a restore keeps the id in the transcript.
@@ -39,12 +41,18 @@ pub fn launch(program: &Path, request: &AgentTurnRequest, root: &Path) -> Launch
         args.push("--effort".into());
         args.push(effort.to_string());
     }
-    match request.session_id.as_deref().filter(|id| !id.is_empty()) {
-        Some(id) => {
+    let session = request.session_id.as_deref().filter(|id| !id.is_empty());
+    match request.session_action {
+        AgentSessionAction::Resume if session.is_some() => {
             args.push("--resume".into());
-            args.push(id.to_string());
+            args.push(session.unwrap_or_default().to_string());
         }
-        None => {
+        AgentSessionAction::Fork if session.is_some() => {
+            args.push("--resume".into());
+            args.push(session.unwrap_or_default().to_string());
+            args.push("--fork-session".into());
+        }
+        _ => {
             args.push("--session-id".into());
             args.push(uuid_v4());
         }
@@ -204,6 +212,11 @@ fn result_usage(value: &Value, model: Option<&str>) -> Option<AgentUsage> {
     let output_tokens = token_count(usage, "output_tokens");
     // Claude reports reasoning as part of the output token stream, not as a separate field.
     let reasoning_output_tokens = 0;
+    // Claude's context pressure is the input side of the turn, including both cache buckets. Its
+    // output tokens are generated after the prompt consumes the window, so they do not count here.
+    let context_tokens = input_tokens
+        .saturating_add(cached_input_tokens)
+        .saturating_add(cache_write_input_tokens);
     let total_tokens = input_tokens
         .saturating_add(cached_input_tokens)
         .saturating_add(cache_write_input_tokens)
@@ -216,6 +229,7 @@ fn result_usage(value: &Value, model: Option<&str>) -> Option<AgentUsage> {
         reasoning_output_tokens,
         total_tokens,
         cost_usd,
+        context_tokens: (context_tokens > 0).then_some(context_tokens),
         context_window: result_context_window(value, model),
     })
 }
@@ -381,7 +395,10 @@ pub fn translate(line: &str, state: &mut State) -> Vec<AgentEvent> {
         }
         "result" => {
             if let Some(usage) = result_usage(&value, state.model.as_deref()) {
-                out.push(AgentEvent::Usage { usage });
+                out.push(AgentEvent::Usage {
+                    usage,
+                    session_usage: None,
+                });
             }
             let failed = value.get("is_error").and_then(Value::as_bool).unwrap_or(false)
                 || value
@@ -422,9 +439,11 @@ mod tests {
 
     fn request(read_only: bool) -> AgentTurnRequest {
         AgentTurnRequest {
+            run_id: "run-test".into(),
             chat_id: "chat-1".into(),
             root: "/tmp".into(),
             provider: "claude".into(),
+            session_action: AgentSessionAction::New,
             session_id: None,
             model: None,
             effort: None,
@@ -434,6 +453,13 @@ mod tests {
         }
     }
 
+    fn session_request(action: AgentSessionAction, session_id: Option<&str>) -> AgentTurnRequest {
+        let mut request = request(false);
+        request.session_action = action;
+        request.session_id = session_id.map(str::to_string);
+        request
+    }
+
     fn question_marker() -> String {
         format!(
             "{}{}{}",
@@ -441,6 +467,16 @@ mod tests {
             r#"{"header":"Decision","question":"Which option?","multiSelect":false,"options":[{"label":"A","description":"First"},{"label":"B","description":"Second"}]}"#,
             question::QUESTION_END
         )
+    }
+
+    fn translate_usage(events: &[AgentEvent]) -> &AgentUsage {
+        events
+            .iter()
+            .find_map(|event| match event {
+                AgentEvent::Usage { usage, .. } => Some(usage),
+                _ => None,
+            })
+            .expect("result should include usage")
     }
 
     fn stream_text(state: &mut State, text: &str) -> Vec<AgentEvent> {
@@ -488,6 +524,45 @@ mod tests {
             .args
             .iter()
             .any(|arg| arg == "--allow-dangerously-skip-permissions"));
+    }
+
+    #[test]
+    fn new_session_ignores_an_inherited_id() {
+        let launch = launch(
+            Path::new("claude"),
+            &session_request(AgentSessionAction::New, Some("old-session")),
+            Path::new("/tmp"),
+        );
+        assert!(launch.args.windows(2).any(|args| args[0] == "--session-id"));
+        assert!(!launch.args.iter().any(|arg| arg == "--resume"));
+    }
+
+    #[test]
+    fn resume_uses_claude_resume_without_forking() {
+        let launch = launch(
+            Path::new("claude"),
+            &session_request(AgentSessionAction::Resume, Some("session-1")),
+            Path::new("/tmp"),
+        );
+        assert!(launch
+            .args
+            .windows(2)
+            .any(|args| args[0] == "--resume" && args[1] == "session-1"));
+        assert!(!launch.args.iter().any(|arg| arg == "--fork-session"));
+    }
+
+    #[test]
+    fn fork_resumes_then_forks_the_native_session() {
+        let launch = launch(
+            Path::new("claude"),
+            &session_request(AgentSessionAction::Fork, Some("session-1")),
+            Path::new("/tmp"),
+        );
+        assert!(launch
+            .args
+            .windows(2)
+            .any(|args| args[0] == "--resume" && args[1] == "session-1"));
+        assert!(launch.args.iter().any(|arg| arg == "--fork-session"));
     }
 
     #[test]
@@ -592,7 +667,7 @@ mod tests {
         let usage = events
             .iter()
             .find_map(|event| match event {
-                AgentEvent::Usage { usage } => Some(usage),
+                AgentEvent::Usage { usage, .. } => Some(usage),
                 _ => None,
             })
             .expect("result should include usage");
@@ -602,6 +677,7 @@ mod tests {
         assert_eq!(usage.output_tokens, 80);
         assert_eq!(usage.reasoning_output_tokens, 0);
         assert_eq!(usage.total_tokens, 540);
+        assert_eq!(usage.context_tokens, Some(460));
         assert_eq!(usage.cost_usd, Some(0.0125));
         assert_eq!(usage.context_window, None);
     }
@@ -620,7 +696,7 @@ mod tests {
         let usage = events
             .iter()
             .find_map(|event| match event {
-                AgentEvent::Usage { usage } => Some(usage),
+                AgentEvent::Usage { usage, .. } => Some(usage),
                 _ => None,
             })
             .expect("result should include usage");
@@ -637,7 +713,7 @@ mod tests {
         let usage = events
             .iter()
             .find_map(|event| match event {
-                AgentEvent::Usage { usage } => Some(usage),
+                AgentEvent::Usage { usage, .. } => Some(usage),
                 _ => None,
             })
             .expect("result should still include usage");
@@ -654,7 +730,7 @@ mod tests {
         let usage = events
             .iter()
             .find_map(|event| match event {
-                AgentEvent::Usage { usage } => Some(usage),
+                AgentEvent::Usage { usage, .. } => Some(usage),
                 _ => None,
             })
             .expect("result should still include usage");
@@ -671,10 +747,34 @@ mod tests {
         let usage = events
             .iter()
             .find_map(|event| match event {
-                AgentEvent::Usage { usage } => Some(usage),
+                AgentEvent::Usage { usage, .. } => Some(usage),
                 _ => None,
             })
             .expect("result should still include usage");
+        assert_eq!(usage.context_window, None);
+    }
+
+    #[test]
+    fn claude_context_tokens_exclude_output_tokens() {
+        let mut state = State::with_model(Some("claude-sonnet-test".into()));
+        let events = translate(
+            r#"{"type":"result","subtype":"success","is_error":false,"usage":{"input_tokens":120,"cache_read_input_tokens":300,"cache_creation_input_tokens":40,"output_tokens":80},"modelUsage":{"claude-sonnet-test":{"contextWindow":200000}}}"#,
+            &mut state,
+        );
+        let usage = translate_usage(&events);
+        assert_eq!(usage.context_tokens, Some(460));
+        assert_eq!(usage.context_window, Some(200_000));
+    }
+
+    #[test]
+    fn claude_zero_usage_has_no_context_occupancy() {
+        let mut state = State::default();
+        let events = translate(
+            r#"{"type":"result","subtype":"success","is_error":false,"usage":{"input_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":0,"output_tokens":20}}"#,
+            &mut state,
+        );
+        let usage = translate_usage(&events);
+        assert_eq!(usage.context_tokens, None);
         assert_eq!(usage.context_window, None);
     }
 
@@ -688,7 +788,7 @@ mod tests {
         let usage = events
             .iter()
             .find_map(|event| match event {
-                AgentEvent::Usage { usage } => Some(usage),
+                AgentEvent::Usage { usage, .. } => Some(usage),
                 _ => None,
             })
             .expect("result should include usage");

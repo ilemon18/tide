@@ -21,7 +21,8 @@
     "app:build": "tauri build --debug --bundles app && node scripts/collect-app.mjs",
     "app:build:win": "tauri build --debug --bundles nsis && node scripts/collect-app.mjs",
     "release:check": "node scripts/release-check.mjs",
-    "icon": "node scripts/make-icon.mjs && tauri icon assets/icon.png"
+    "icon": "node scripts/make-icon.mjs && tauri icon assets/icon.png",
+    "test:frontend": "vitest run src"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.0.0",
@@ -57,12 +58,16 @@
   "devDependencies": {
     "@tailwindcss/vite": "^4.0.0",
     "@tauri-apps/cli": "^2.12.0",
+    "@testing-library/dom": "^10.4.2",
+    "@testing-library/react": "^16.3.3",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^6.0.0",
+    "jsdom": "^31.0.1",
     "material-icon-theme": "^5.40.0",
     "tailwindcss": "^4.0.0",
     "typescript": "^5.6.0",
-    "vite": "^8.0.0"
+    "vite": "^8.0.0",
+    "vitest": "^5.1.1"
   }
 }

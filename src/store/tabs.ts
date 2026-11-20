@@ -298,7 +298,7 @@ type TabsStore = {
   openSettings: () => void
   /** Agent chat tabs: one per conversation; an already open id is activated */
   openChat: (chatId: string, root: string, title: string) => void
-  /** Start a new-agent layout: keep files in primary and put the chat in secondary */
+  /** Open a chat in the active layout: fill an empty editor, otherwise keep files in primary and split */
   openChatInRight: (chatId: string, root: string, title: string) => void
   /** Rename a tab without touching its content (agent title follows the first prompt) */
   setTabName: (id: string, name: string) => void
@@ -1113,6 +1113,20 @@ export const useTabs = create<TabsStore>((set, get) => ({
           current.id === id && current.name !== title ? { ...current, name: title } : current,
         )
       : [...state.tabs, tab]
+    if (state.tabs.length === 0) {
+      const primary: TabGroup =
+        state.groups.find((group) => group.id === 'primary') ??
+        ({ id: 'primary', activeId: null, order: [] } satisfies TabGroup)
+      set({
+        tabs,
+        groups: [{ ...primary, activeId: id, order: [id] }],
+        activeId: id,
+        activeGroupId: 'primary',
+        splitOrientation: null,
+      })
+      if (root) useWorkspace.getState().setActiveRoot(root)
+      return
+    }
     const isNewSplit = state.groups.length < 2
     const primary = state.groups.find((group) => group.id === 'primary') ?? state.groups[0]
     const groups = isNewSplit

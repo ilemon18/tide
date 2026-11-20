@@ -1,8 +1,8 @@
 import { type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { AgentMention } from '../lib/ipc'
-import type { AgentCommandId, AgentSkillRef, ComposerTrigger } from '../lib/agentCommand'
+import type { AgentCommandId, AgentPromptCommandId, AgentSkillRef, ComposerTrigger } from '../lib/agentCommand'
 import {
-  isAgentCommandId,
+  isAgentPromptCommandId,
   matchCommands,
   normalizeAgentDraft,
   rankSkills,
@@ -29,7 +29,7 @@ type Props = {
   contextUsage?: ReactNode
   draft: string
   mentions: AgentMention[]
-  command?: AgentCommandId
+  command?: AgentPromptCommandId
   skills: AgentSkillRef[]
   provider: string
   model: string
@@ -46,7 +46,7 @@ type Props = {
   showAgentPicker?: boolean
   onDraft: (text: string) => void
   onMentions: (mentions: AgentMention[]) => void
-  onCommand: (command: AgentCommandId | undefined) => void
+  onCommand: (command: AgentPromptCommandId | undefined) => void
   onSkills: (skills: AgentSkillRef[]) => void
   onProvider: (id: string) => void
   onModel: (id: string) => void
@@ -224,8 +224,13 @@ export function AgentComposer({
 
   const pickCommand = (id: AgentCommandId) => {
     if (!trigger || trigger.kind !== 'command') return
-    onCommand(id)
-    onDraft(removeToken(trigger))
+    if (isAgentPromptCommandId(id)) {
+      onCommand(id)
+      onDraft(removeToken(trigger))
+    } else {
+      onCommand(undefined)
+      onDraft('/' + id + ' ' + removeToken(trigger).trim())
+    }
     focusAt(trigger.start)
     setTrigger(null)
   }
@@ -460,7 +465,7 @@ export function AgentComposer({
             }
             // A space after an exact command, or after picking a skill, commits the chip
             if (!composing && e.key === ' ' && trigger) {
-              if (trigger.kind === 'command' && isAgentCommandId(trigger.text)) {
+              if (trigger.kind === 'command' && isAgentPromptCommandId(trigger.text)) {
                 e.preventDefault()
                 pickCommand(trigger.text)
                 return

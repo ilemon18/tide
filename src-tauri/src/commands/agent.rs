@@ -18,12 +18,37 @@ use crate::agent::{self, providers, store, AgentEvent, AgentEventPayload, AgentT
 use crate::error::{AppError, AppResult};
 use crate::state::{assert_inside, resolve_in_root, AppState};
 
+#[derive(Clone)]
+struct TurnEvents {
+    app: AppHandle,
+    chat_id: String,
+    run_id: String,
+    sequence: Arc<parking_lot::Mutex<u64>>,
+}
+
+impl TurnEvents {
+    fn emit(&self, event: AgentEvent) {
+        let mut sequence = self.sequence.lock();
+        *sequence += 1;
+        let _ = self.app.emit(
+            "agent:event",
+            AgentEventPayload {
+                chat_id: self.chat_id.clone(),
+                run_id: self.run_id.clone(),
+                sequence: *sequence,
+                event,
+            },
+        );
+    }
+}
+
 /// Four concurrent CLIs is already a lot of CPU/network; more is a foot-gun, not a feature.
 const MAX_TURNS: usize = 4;
 
 pub struct AgentTurn {
     /// Owning window: a destroyed window must not leave an agent writing into the project
     pub owner: String,
+    run_id: String,
     pid: Option<u32>,
     pub cancelled: Arc<AtomicBool>,
 }
@@ -51,6 +76,14 @@ impl AgentTurn {
                 .stderr(Stdio::null())
                 .status();
         }
+    }
+}
+
+fn release_turn(app: &AppHandle, chat_id: &str, run_id: &str) {
+    let state = app.state::<AppState>();
+    let mut turns = state.agent_turns.lock();
+    if turns.get(chat_id).is_some_and(|turn| turn.run_id == run_id) {
+        turns.remove(chat_id);
     }
 }
 
@@ -99,7 +132,7 @@ pub fn agent_send(
     if !settings.agent_enabled {
         return Err(AppError::c("agent.disabled"));
     }
-    if !store::valid_id(&request.chat_id) {
+    if !store::valid_id(&request.chat_id) || !store::valid_id(&request.run_id) {
         return Err(AppError::c("agent.invalidId"));
     }
     if request.prompt.trim().is_empty() {
@@ -119,6 +152,22 @@ pub fn agent_send(
         return Err(AppError::c("agent.notInstalled"));
     };
 
+    if matches!(
+        request.session_action,
+        agent::AgentSessionAction::Resume | agent::AgentSessionAction::Fork
+    ) && request
+        .session_id
+        .as_deref()
+        .is_none_or(|id| id.trim().is_empty())
+    {
+        return Err(AppError::c("agent.invalidId"));
+    }
+    // The exec driver has no native fork operation. Do not manufacture an unsupported CLI command.
+    if request.provider == "codex"
+        && matches!(request.session_action, agent::AgentSessionAction::Fork)
+    {
+        return Err(AppError::c("agent.unsupported"));
+    }
     let launch = match request.provider.as_str() {
         "claude" => agent::claude::launch(Path::new(&command), &request, &root),
         "codex" => agent::codex::launch(Path::new(&command), &request, &root),
@@ -182,6 +231,7 @@ pub fn agent_send(
         request.chat_id.clone(),
         Arc::new(AgentTurn {
             owner: window.label().to_string(),
+            run_id: request.run_id.clone(),
             pid,
             cancelled: cancelled.clone(),
         }),
@@ -197,9 +247,14 @@ pub fn agent_send(
     let provider_id = request.provider.clone();
     let claude_model = request.model.clone();
 
+    let events = TurnEvents {
+        app: app.clone(),
+        chat_id: chat_id.clone(),
+        run_id: request.run_id.clone(),
+        sequence: Arc::new(parking_lot::Mutex::new(0)),
+    };
     if let Some(stderr) = stderr {
-        let app = app.clone();
-        let chat_id = chat_id.clone();
+        let events = events.clone();
         std::thread::spawn(move || {
             let reader = BufReader::new(stderr);
             let mut emitted = 0usize;
@@ -210,13 +265,7 @@ pub fn agent_send(
                     continue;
                 }
                 emitted += 1;
-                let _ = app.emit(
-                    "agent:event",
-                    AgentEventPayload {
-                        chat_id: chat_id.clone(),
-                        event: AgentEvent::Stderr { text: line },
-                    },
-                );
+                events.emit(AgentEvent::Stderr { text: line });
             }
         });
     }
@@ -287,13 +336,7 @@ pub fn agent_send(
         let emit_pending = |pending: &mut Option<(String, String)>| {
             if let Some((item_id, text)) = pending.take() {
                 if !text.is_empty() {
-                    let _ = app_for_events.emit(
-                        "agent:event",
-                        AgentEventPayload {
-                            chat_id: chat_id.clone(),
-                            event: AgentEvent::TextDelta { item_id, text },
-                        },
-                    );
+                    events.emit(AgentEvent::TextDelta { item_id, text });
                 }
             }
         };
@@ -321,19 +364,9 @@ pub fn agent_send(
                     // must not race the cleanup and be rejected as "busy".
                     if matches!(&event, AgentEvent::Done { .. }) {
                         saw_done = true;
-                        app_for_events
-                            .state::<AppState>()
-                            .agent_turns
-                            .lock()
-                            .remove(&chat_id);
+                        release_turn(&app_for_events, &chat_id, &events.run_id);
                     }
-                    let _ = app_for_events.emit(
-                        "agent:event",
-                        AgentEventPayload {
-                            chat_id: chat_id.clone(),
-                            event,
-                        },
-                    );
+                    events.emit(event);
                 }
                 Err(RecvTimeoutError::Timeout) => emit_pending(&mut pending),
                 Err(RecvTimeoutError::Disconnected) => break,
@@ -342,23 +375,14 @@ pub fn agent_send(
         emit_pending(&mut pending);
         // A parser panic drops the sender without a Done: never leave the chat spinning forever
         if !saw_done {
-            let _ = app_for_events.emit(
-                "agent:event",
-                AgentEventPayload {
-                    chat_id: chat_id.clone(),
-                    event: AgentEvent::Done {
-                        ok: false,
-                        cancelled: false,
-                        code: None,
-                    },
-                },
-            );
+            release_turn(&app_for_events, &chat_id, &events.run_id);
+            events.emit(AgentEvent::Done {
+                ok: false,
+                cancelled: false,
+                code: None,
+            });
         }
-        app_for_events
-            .state::<AppState>()
-            .agent_turns
-            .lock()
-            .remove(&chat_id);
+        // Done already released this turn before notifying the view. Never remove a newer turn.
     });
 
     Ok(())
@@ -375,13 +399,55 @@ pub fn agent_cancel(state: State<'_, AppState>, chat_id: String) -> AppResult<()
 }
 
 #[tauri::command(async)]
-pub fn agent_chat_save(app: AppHandle, id: String, body: String) -> AppResult<()> {
-    store::save_chat(&app, &id, &body)
+pub fn agent_chat_open(
+    app: AppHandle,
+    id: String,
+    recent_limit: usize,
+) -> AppResult<Option<store::AgentChatPage>> {
+    store::open_chat(&app, &id, recent_limit)
 }
 
 #[tauri::command(async)]
-pub fn agent_chat_load(app: AppHandle, id: String) -> Option<String> {
-    store::load_chat(&app, &id)
+pub fn agent_chat_page(
+    app: AppHandle,
+    id: String,
+    before_id: Option<String>,
+    after_id: Option<String>,
+    limit: usize,
+) -> AppResult<Option<store::AgentChatPage>> {
+    store::page_chat(&app, &id, before_id.as_deref(), after_id.as_deref(), limit)
+}
+
+#[tauri::command(async)]
+pub fn agent_chat_apply(
+    app: AppHandle,
+    id: String,
+    patch: store::AgentChatPatch,
+) -> AppResult<store::AgentChatPage> {
+    store::apply_chat(&app, &id, patch)
+}
+
+#[tauri::command(async)]
+pub fn agent_chat_list(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    root: String,
+) -> AppResult<Vec<store::AgentChatSummary>> {
+    let root = state.authorize(&root)?;
+    store::list_chats(&app, &root.to_string_lossy())
+}
+
+#[tauri::command(async)]
+pub fn agent_chat_clone(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    from_id: String,
+    header: store::AgentChatRecord,
+) -> AppResult<store::AgentChatPage> {
+    if let Some(root) = header.get("root").and_then(serde_json::Value::as_str) {
+        state.authorize(root)?;
+    }
+    store::clone_chat(&app, &from_id, header)
 }
 
 #[tauri::command(async)]

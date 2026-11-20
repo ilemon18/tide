@@ -9,19 +9,24 @@ use std::path::Path;
 use serde_json::Value;
 
 use super::question::{self, Piece};
-use super::{AgentEvent, AgentTurnRequest, AgentUsage, Launch};
+use super::{AgentEvent, AgentSessionAction, AgentTurnRequest, AgentUsage, Launch};
 
 pub fn launch(program: &Path, request: &AgentTurnRequest, root: &Path) -> Launch {
-    let resume = request.session_id.as_deref().filter(|id| !id.is_empty());
+    let session = request.session_id.as_deref().filter(|id| !id.is_empty());
     let mut args: Vec<String> = vec!["exec".into()];
-    if let Some(thread) = resume {
-        args.push("resume".into());
+    let existing_session = match request.session_action {
+        AgentSessionAction::New => None,
+        AgentSessionAction::Resume => session.map(|thread| ("resume", thread)),
+        AgentSessionAction::Fork => session.map(|thread| ("fork", thread)),
+    };
+    if let Some((action, thread)) = existing_session {
+        args.push(action.into());
         args.push(thread.to_string());
     }
     args.push("--json".into());
     // Accepted by both `exec` and `exec resume`; a workspace does not have to be a git repo
     args.push("--skip-git-repo-check".into());
-    if resume.is_none() {
+    if existing_session.is_none() {
         // `exec resume` takes the cwd from the process and does not accept -C
         args.push("-C".into());
         args.push(root.to_string_lossy().to_string());
@@ -57,6 +62,10 @@ pub struct State {
     seq: u64,
     /// Last window reported by `token_count`; later usage-only events keep it for this turn.
     context_window: Option<u64>,
+    /// Latest `last_token_usage.total_tokens`; unlike cumulative usage it measures context pressure.
+    context_tokens: Option<u64>,
+    /// Latest cumulative usage reported by `total_token_usage`.
+    session_usage: Option<AgentUsage>,
     /// Current text item. A question closes it so trailing text starts a new item.
     text_id: Option<String>,
 }
@@ -243,6 +252,17 @@ fn usage_value(value: &Value) -> Option<&Value> {
     None
 }
 
+/// Codex token-count events carry both turn and session counters. Find one by its exact key so
+/// `total_token_usage` is never mistaken for `last_token_usage` (or vice versa).
+fn named_usage<'a>(value: &'a Value, key: &str) -> Option<&'a Value> {
+    if let Some(found) = value.get(key).filter(|found| has_usage_fields(found)) {
+        return Some(found);
+    }
+    ["payload", "info"]
+        .into_iter()
+        .find_map(|container| value.get(container).and_then(|nested| named_usage(nested, key)))
+}
+
 fn is_token_count_event(value: &Value) -> bool {
     let kind = value.get("type").and_then(Value::as_str).unwrap_or_default();
     let payload_kind = value
@@ -270,16 +290,11 @@ fn context_window(value: &Value) -> Option<Option<u64>> {
     Some(window.as_u64().filter(|window| *window > 0))
 }
 
-fn usage_from_event(value: &Value, context_window: Option<u64>) -> Option<AgentUsage> {
-    let kind = value.get("type").and_then(Value::as_str).unwrap_or_default();
-    let candidate = if kind == "turn.completed"
-        || is_token_count_event(value)
-        || has_usage_fields(value)
-    {
-        usage_value(value)
-    } else {
-        None
-    }?;
+fn usage_from_tokens(
+    candidate: &Value,
+    context_tokens: Option<u64>,
+    context_window: Option<u64>,
+) -> AgentUsage {
     let input_tokens = token(candidate, &["input_tokens", "inputTokens", "prompt_tokens", "promptTokens"])
         .unwrap_or(0);
     let cached_input_tokens = token(
@@ -325,7 +340,7 @@ fn usage_from_event(value: &Value, context_window: Option<u64>) -> Option<AgentU
             .saturating_add(cache_write_input_tokens)
             .saturating_add(cached_input_tokens.saturating_sub(input_tokens))
     });
-    Some(AgentUsage {
+    AgentUsage {
         input_tokens,
         cached_input_tokens,
         cache_write_input_tokens,
@@ -334,8 +349,46 @@ fn usage_from_event(value: &Value, context_window: Option<u64>) -> Option<AgentU
         total_tokens,
         // Codex JSONL does not report a price; never turn missing cost into a fabricated zero.
         cost_usd: None,
+        context_tokens,
         context_window,
-    })
+    }
+}
+
+fn usage_from_event(value: &Value, state: &mut State) -> Option<(AgentUsage, Option<AgentUsage>)> {
+    let kind = value.get("type").and_then(Value::as_str).unwrap_or_default();
+    if is_token_count_event(value) {
+        let last = named_usage(value, "last_token_usage");
+        let total = named_usage(value, "total_token_usage");
+        if let Some(context_tokens) = last
+            .and_then(|usage| token(usage, &["total_tokens", "totalTokens"]))
+            .filter(|tokens| *tokens > 0)
+        {
+            state.context_tokens = Some(context_tokens);
+        }
+        if let Some(total) = total {
+            state.session_usage = Some(usage_from_tokens(
+                total,
+                None,
+                state.context_window,
+            ));
+        }
+        let candidate = last.or(total).or_else(|| usage_value(value))?;
+        return Some((
+            usage_from_tokens(candidate, state.context_tokens, state.context_window),
+            state.session_usage.clone(),
+        ));
+    }
+    let candidate = if kind == "turn.completed"
+        || has_usage_fields(value)
+    {
+        usage_value(value)
+    } else {
+        None
+    }?;
+    Some((
+        usage_from_tokens(candidate, state.context_tokens, state.context_window),
+        state.session_usage.clone(),
+    ))
 }
 
 pub fn translate(line: &str, state: &mut State) -> Vec<AgentEvent> {
@@ -349,8 +402,11 @@ pub fn translate(line: &str, state: &mut State) -> Vec<AgentEvent> {
     if let Some(window) = context_window(&value) {
         state.context_window = window;
     }
-    if let Some(usage) = usage_from_event(&value, state.context_window) {
-        out.push(AgentEvent::Usage { usage });
+    if let Some((usage, session_usage)) = usage_from_event(&value, state) {
+        out.push(AgentEvent::Usage {
+            usage,
+            session_usage,
+        });
     }
 
     match kind {
@@ -467,9 +523,11 @@ mod tests {
 
     fn request(read_only: bool) -> AgentTurnRequest {
         AgentTurnRequest {
+            run_id: "run-test".into(),
             chat_id: "chat-1".into(),
             root: "/tmp".into(),
             provider: "codex".into(),
+            session_action: AgentSessionAction::New,
             session_id: None,
             model: None,
             effort: None,
@@ -477,6 +535,13 @@ mod tests {
             mentions: Vec::new(),
             read_only,
         }
+    }
+
+    fn session_request(action: AgentSessionAction, session_id: Option<&str>) -> AgentTurnRequest {
+        let mut request = request(false);
+        request.session_action = action;
+        request.session_id = session_id.map(str::to_string);
+        request
     }
 
     fn question_marker() -> String {
@@ -509,6 +574,37 @@ mod tests {
             .iter()
             .any(|arg| arg == "sandbox_mode=\"workspace-write\""));
         assert!(!launch.args.iter().any(|arg| arg == "sandbox_mode=\"read-only\""));
+    }
+
+    #[test]
+    fn new_session_starts_codex_exec() {
+        let launch = launch(
+            Path::new("codex"),
+            &session_request(AgentSessionAction::New, Some("old-thread")),
+            Path::new("/tmp"),
+        );
+        assert_eq!(&launch.args[..2], ["exec", "--json"]);
+        assert!(!launch.args.iter().any(|arg| arg == "resume" || arg == "fork"));
+    }
+
+    #[test]
+    fn resume_uses_codex_exec_resume_and_thread() {
+        let launch = launch(
+            Path::new("codex"),
+            &session_request(AgentSessionAction::Resume, Some("thread-1")),
+            Path::new("/tmp"),
+        );
+        assert_eq!(&launch.args[..3], ["exec", "resume", "thread-1"]);
+    }
+
+    #[test]
+    fn fork_uses_codex_exec_fork_and_thread() {
+        let launch = launch(
+            Path::new("codex"),
+            &session_request(AgentSessionAction::Fork, Some("thread-1")),
+            Path::new("/tmp"),
+        );
+        assert_eq!(&launch.args[..3], ["exec", "fork", "thread-1"]);
     }
 
     #[test]
@@ -614,7 +710,7 @@ mod tests {
         let usage = events
             .iter()
             .find_map(|event| match event {
-                AgentEvent::Usage { usage } => Some(usage),
+                AgentEvent::Usage { usage, .. } => Some(usage),
                 _ => None,
             })
             .expect("turn completion should include usage");
@@ -636,7 +732,7 @@ mod tests {
         let usage = events
             .iter()
             .find_map(|event| match event {
-                AgentEvent::Usage { usage } => Some(usage),
+                AgentEvent::Usage { usage, .. } => Some(usage),
                 _ => None,
             })
             .expect("cache fields should count as usage");
@@ -657,7 +753,7 @@ mod tests {
         let usage = events
             .iter()
             .find_map(|event| match event {
-                AgentEvent::Usage { usage } => Some(usage),
+                AgentEvent::Usage { usage, .. } => Some(usage),
                 _ => None,
             })
             .expect("token count should include usage");
@@ -678,7 +774,7 @@ mod tests {
         let usage = events
             .iter()
             .find_map(|event| match event {
-                AgentEvent::Usage { usage } => Some(usage),
+                AgentEvent::Usage { usage, .. } => Some(usage),
                 _ => None,
             })
             .expect("token count should include usage");
@@ -695,11 +791,71 @@ mod tests {
         let usage = events
             .iter()
             .find_map(|event| match event {
-                AgentEvent::Usage { usage } => Some(usage),
+                AgentEvent::Usage { usage, .. } => Some(usage),
                 _ => None,
             })
             .expect("wrapped token count should include usage");
         assert_eq!(usage.context_window, Some(258_400));
+    }
+
+    #[test]
+    fn codex_uses_last_usage_for_context_and_total_usage_for_session() {
+        let mut state = State::default();
+        let events = translate(
+            r#"{"type":"token_count","payload":{"info":{"last_token_usage":{"input_tokens":12,"output_tokens":3,"total_tokens":15},"total_token_usage":{"input_tokens":100,"output_tokens":50,"total_tokens":150},"model_context_window":200}}}"#,
+            &mut state,
+        );
+        let (usage, session_usage) = events
+            .iter()
+            .find_map(|event| match event {
+                AgentEvent::Usage {
+                    usage,
+                    session_usage,
+                } => Some((usage, session_usage)),
+                _ => None,
+            })
+            .expect("token count should include usage");
+        assert_eq!(usage.total_tokens, 15);
+        assert_eq!(usage.context_tokens, Some(15));
+        assert_eq!(usage.context_window, Some(200));
+        let session_usage = session_usage.as_ref().expect("provider session usage");
+        assert_eq!(session_usage.total_tokens, 150);
+        assert_eq!(session_usage.context_tokens, None);
+    }
+
+    #[test]
+    fn codex_does_not_fall_back_to_total_usage_for_context() {
+        let mut state = State::default();
+        let events = translate(
+            r#"{"type":"token_count","payload":{"info":{"total_token_usage":{"input_tokens":100,"output_tokens":50,"total_tokens":150},"model_context_window":200}}}"#,
+            &mut state,
+        );
+        let usage = events
+            .iter()
+            .find_map(|event| match event {
+                AgentEvent::Usage { usage, .. } => Some(usage),
+                _ => None,
+            })
+            .expect("token count should include usage");
+        assert_eq!(usage.context_tokens, None);
+        assert_eq!(usage.context_window, Some(200));
+    }
+
+    #[test]
+    fn codex_zero_last_usage_is_unavailable_context() {
+        let mut state = State::default();
+        let events = translate(
+            r#"{"type":"token_count","payload":{"info":{"last_token_usage":{"input_tokens":0,"output_tokens":0,"total_tokens":0},"model_context_window":200}}}"#,
+            &mut state,
+        );
+        let usage = events
+            .iter()
+            .find_map(|event| match event {
+                AgentEvent::Usage { usage, .. } => Some(usage),
+                _ => None,
+            })
+            .expect("token count should include usage");
+        assert_eq!(usage.context_tokens, None);
     }
 
     #[test]
@@ -716,7 +872,7 @@ mod tests {
         let usage = events
             .iter()
             .find_map(|event| match event {
-                AgentEvent::Usage { usage } => Some(usage),
+                AgentEvent::Usage { usage, .. } => Some(usage),
                 _ => None,
             })
             .expect("turn completion should include usage");
@@ -733,7 +889,7 @@ mod tests {
         let usage = events
             .iter()
             .find_map(|event| match event {
-                AgentEvent::Usage { usage } => Some(usage),
+                AgentEvent::Usage { usage, .. } => Some(usage),
                 _ => None,
             })
             .expect("token count should still include usage");
@@ -757,7 +913,7 @@ mod tests {
         let usage = events
             .iter()
             .find_map(|event| match event {
-                AgentEvent::Usage { usage } => Some(usage),
+                AgentEvent::Usage { usage, .. } => Some(usage),
                 _ => None,
             })
             .expect("turn completion should include usage");
