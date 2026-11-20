@@ -8,15 +8,18 @@ scope:
   - src/components/SettingsView.tsx
   - src/components/ThemeMenu.tsx
   - src/components/UpdateBadge.tsx
+  - src/components/UpdateBadge.test.tsx
   - src/lib/memoryBudget.ts
   - src/lib/displayScale.ts
   - src/lib/update.ts
   - src/lib/updateView.ts
+  - src/lib/updateView.test.ts
   - src/lib/settingsSections.ts
   - src/lib/fonts.ts
   - src/lib/iconTheme.ts
   - src/store/settings.ts
   - src/store/update.ts
+  - src/store/update.test.ts
   - src/theme/**
   - src-tauri/src/main.rs
   - src-tauri/src/state.rs
@@ -78,6 +81,11 @@ scope:
 - Settings → About has one state-driven update action. Its initial manual check maps to
   `check(true, true)` / `update_check { force: true }`: it skips `update-cache.json`, sends
   `Cache-Control: no-cache` on every lookup, never falls back to an old cache on failure, and writes a
-  successful answer back to the cache. When an installer is available the action changes to **Download
-  update**; downloading and restarting remain separate explicit steps. The title bar and Settings continue
-  to read this one state machine.
+  successful answer back to the cache. When an installer is available the action changes to **Update to
+  latest**: one explicit click downloads, verifies, saves the initiating window and starts installation/restart.
+  Checks alone never download. Remaining dirty tabs or a failed subscription/download/save/install produce
+  a retryable error; busy states reject duplicate actions. Native manual-install outcomes still reveal the
+  package, and a restart timeout returns to the install action with its error visible.
+- Title bar and Settings share action labels and state. The release primary-window badge shows the available
+  action as text; downloads use a fixed 16px SVG circle beside the localized percentage, with 8px gap and
+  horizontal padding. It never measures text for progress geometry. Missing installers open the release page.

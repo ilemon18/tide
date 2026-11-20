@@ -4,6 +4,14 @@ import { closeSync, openSync, readSync } from 'node:fs'
 export const GENERATED_ROUTES_BEGIN = '<!-- BEGIN GENERATED ROUTES -->'
 export const GENERATED_ROUTES_END = '<!-- END GENERATED ROUTES -->'
 
+/** Total resident context plus the area docs selected by one routing fixture. */
+export const FIXTURE_LIMIT = 24 * 1024
+
+export function fixtureBudgetError(name, bundleBytes) {
+  if (bundleBytes <= FIXTURE_LIMIT) return null
+  return `routing fixture '${name}' bundle is ${(bundleBytes / 1024).toFixed(2)}KB (hard limit ${FIXTURE_LIMIT / 1024}KB)`
+}
+
 /** Paths that exercise precise routing, including one legitimate cross-domain change. */
 export const ROUTING_FIXTURES = Object.freeze([
   {

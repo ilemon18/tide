@@ -17,8 +17,8 @@ import { t } from '../i18n'
  *
  * Each status maps to exactly one button label (mapping in `lib/updateView.ts`):
  *
- *   idle/uptodate → check for updates   available → download update
- *   downloading   → 42%                 ready     → restart to update
+ *   idle/uptodate → check for updates   available → update to latest
+ *   downloading   → downloading 42%    ready     → retry restart
  *   installing    → installing…         error     → retry
  */
 export type UpdateStatus =
@@ -47,6 +47,7 @@ type UpdateStore = {
   logPath: string
   /** Check for updates; a forced manual check bypasses the local cache and cached fallback. */
   check: (manual?: boolean, force?: boolean) => Promise<void>
+  /** User action: download, verify through Rust, then continue directly to installation. */
   download: () => Promise<void>
   install: () => Promise<void>
   /** Opens the release page in the browser (the step after a release without an installer) */
@@ -119,7 +120,7 @@ export const useUpdate = create<UpdateStore>((set, get) => ({
       const stale = info.stale ? t('update.stale') : null
       if (info.available) {
         set({ status: 'available' })
-        // The button already becomes "download update": a toast with the same action is a second copy
+        // The button already offers the update: a toast with the same action is a second copy
         if (manual) toast(stale ?? t('update.available', { version: info.latest }))
       } else {
         set({ status: 'uptodate' })
@@ -140,15 +141,16 @@ export const useUpdate = create<UpdateStore>((set, get) => ({
   download: async () => {
     const { info, status } = get()
     // Needs a package for the current platform; the UI only offers this when available, this blocks a double click
-    if (!info?.available || !info.downloadUrl || status === 'downloading') return
+    if (!info?.available || !info.downloadUrl || (status !== 'available' && status !== 'error')) return
     set({ status: 'downloading', percent: 0, error: null })
-    await watchProgress()
     try {
+      await watchProgress()
       await updateApi.download(info.downloadUrl, info.assetName, info.checksum)
       clearInstallTimer()
       // The file is on disk now, nothing left to watch
       unwatchProgress()
       set({ status: 'ready', percent: 100 })
+      await get().install()
     } catch (err) {
       set({ status: 'error', error: errorText(err) })
       useUi.getState().toast(errorText(err), 'error')
@@ -160,9 +162,13 @@ export const useUpdate = create<UpdateStore>((set, get) => ({
     const { status, info } = get()
     if (status !== 'ready') return
     set({ status: 'installing', error: null })
-    // The app exits right after this: the last edit must not be lost
-    await flushBeforeInstall()
     try {
+      // The app exits right after this: the last edit must not be lost
+      await flushBeforeInstall()
+      // Save As can be cancelled and individual saves may fail without rejecting saveAll.
+      if (useTabs.getState().tabs.some((tab) => tab.dirty)) {
+        throw new Error(t('update.unsavedEdits'))
+      }
       const outcome = await updateApi.install(info?.latest ?? '')
       set({ installedTo: outcome.installedTo, logPath: outcome.logPath })
       if (outcome.mode === 'manual') {

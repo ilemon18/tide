@@ -21,6 +21,7 @@ import { fileURLToPath } from 'node:url'
 import {
   ROUTING_FIXTURES,
   compileScopeGlob,
+  fixtureBudgetError,
   parseAreaMetadata,
   resolveAreaDocsForPaths,
   roughTokens,
@@ -36,7 +37,6 @@ const PKG = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'))
 
 const CONTEXT_LIMIT = 2 * 1024
 const RESIDENT_LIMIT = 4 * 1024
-const FIXTURE_LIMIT = 16 * 1024
 const OTHER_LIMIT = 6 * 1024
 const AI_TOTAL_TARGET = 36 * 1024
 const ROOT_POLICY_FILES = ['AGENTS.md', 'CLAUDE.md']
@@ -310,11 +310,8 @@ for (const fixture of ROUTING_FIXTURES) {
     return sum + (record ? statSync(record.file).size : 0)
   }, 0)
   const bundleBytes = residentBytes + loadedBytes
-  if (bundleBytes > FIXTURE_LIMIT) {
-    fail(
-      `routing fixture '${fixture.name}' bundle is ${(bundleBytes / 1024).toFixed(2)}KB (hard limit ${FIXTURE_LIMIT / 1024}KB)`,
-    )
-  }
+  const budgetError = fixtureBudgetError(fixture.name, bundleBytes)
+  if (budgetError) fail(budgetError)
   const breakdown = loaded.map((doc) => {
     const record = validAreaDocs.find((candidate) => candidate.doc === doc)
     return record ? `${doc} ${(statSync(record.file).size / 1024).toFixed(2)}KB` : doc

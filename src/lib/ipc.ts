@@ -460,12 +460,6 @@ export type AgentChatSummary = {
   messageCount: number
 }
 
-/** Token estimate breakdown */
-export type TokenEstimate = {
-  total: number
-  breakdown: Array<{ kind: 'prompt' | 'file'; label: string; tokens: number }>
-}
-
 export const api = {
   agentPermissionRespond: (chatId: string, runId: string, requestId: string, allow: boolean) =>
     invoke<void>('agent_permission_respond', { chatId, runId, requestId, allow }),
@@ -640,7 +634,4 @@ export const api = {
   agentTabsSave: (tabs: AgentTabRef[], active: string | null) =>
     invoke<void>('agent_tabs_save', { tabs, active }),
   agentTabsLoad: () => invoke<AgentTabs>('agent_tabs_load'),
-  /** Estimate token count for mentions + prompt */
-  agentEstimateTokens: (root: string, mentions: AgentMention[], prompt: string) =>
-    invoke<TokenEstimate>('agent_estimate_tokens', { root, mentions, prompt }),
 }

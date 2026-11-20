@@ -1063,8 +1063,7 @@
   border-bottom: 1px solid var(--c-border);
 }
 
-.token-details .usage-section:last-child,
-.token-details .token-estimate-section:last-child {
+.token-details .usage-section:last-child {
   border-bottom: 0;
 }
 
@@ -1075,18 +1074,6 @@
   font-weight: 650;
   letter-spacing: 0.05em;
   text-transform: uppercase;
-}
-
-.token-details .token-estimate-section {
-  padding-top: 8px;
-  border-bottom: 1px solid var(--c-border);
-}
-
-.token-details .token-total {
-  padding: 8px 12px;
-  color: var(--c-fg);
-  font-family: var(--font-mono);
-  font-size: 12px;
 }
 
 .breakdown-item {

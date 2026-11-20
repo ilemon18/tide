@@ -42,11 +42,10 @@ export function updateAction(view: UpdateView): UpdateAction {
     case 'downloading':
       return {
         kind: 'wait',
-        // The percentage is the label itself; do not translate it
-        label: `${view.percent}%`,
+        label: t('update.downloading', { percent: Math.max(0, Math.min(100, view.percent)) }),
         icon: 'download',
         motion: 'none',
-        percent: Math.max(2, Math.min(100, view.percent)),
+        percent: Math.max(0, Math.min(100, view.percent)),
         tone: 'muted',
       }
     case 'installing':
@@ -153,7 +152,7 @@ export function updateTip(view: UpdateView): string {
     case 'installing':
       return t('update.installing')
     case 'ready':
-      return t('update.clickToInstall')
+      return view.error ?? t('update.clickToInstall')
     case 'error':
       return view.error ?? t('settings.about.updateFailed')
     case 'checking':
@@ -186,9 +185,11 @@ function detailText(view: UpdateView): string | null {
     case 'installing':
       return t('update.installing')
     case 'ready':
-      return view.installedTo
-        ? t('settings.about.downloadedInto', { path: view.installedTo })
-        : t('settings.about.downloaded')
+      return view.error ?? (
+        view.installedTo
+          ? t('settings.about.downloadedInto', { path: view.installedTo })
+          : t('settings.about.downloaded')
+      )
     case 'error':
       return view.error ?? t('settings.about.updateFailed')
     case 'available':

@@ -375,7 +375,6 @@ fn main() {
             commands::agent::agent_chat_delete,
             commands::agent::agent_tabs_save,
             commands::agent::agent_tabs_load,
-            commands::agent::agent_estimate_tokens,
             // settings / theme persistence
             commands::theme::load_settings,
             commands::theme::save_settings,

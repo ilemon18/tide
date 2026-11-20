@@ -1,20 +1,20 @@
 // @vitest-environment jsdom
 import React from 'react'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { afterEach, expect, it, vi } from 'vitest'
-const { state } = vi.hoisted(() => ({ state: {
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+const { state, getState } = vi.hoisted(() => ({ getState: vi.fn(), state: {
   chats: { chat: { root: '/repo', status: 'idle', currentContext: { contextTokens: 0, contextWindow: 100,
-    inputTokens: 0, cachedInputTokens: 0, cacheWriteInputTokens: 0, outputTokens: 0, reasoningOutputTokens: 0, totalTokens: 0, costUsd: null },
+    inputTokens: 0, cachedInputTokens: 0, cacheWriteInputTokens: 0, outputTokens: 0, reasoningOutputTokens: 0, totalTokens: 0, costUsd: 1.25 },
     messages: [{ role: 'assistant', usage: { contextTokens: 90, contextWindow: 100 } }] } },
-  chatDrafts: {}, tokenEstimates: {},
 } }))
 vi.mock('../store/agent', () => ({ useAgent: Object.assign((select: (state: unknown) => unknown) => select(state), {
-  getState: () => ({ updateTokenEstimate: vi.fn() }),
+  getState,
 }) }))
 vi.mock('../i18n', () => ({ useT: () => (key: string, params?: { percent: number }) => params ? `${params.percent}%` : key }))
 vi.mock('./Icon', () => ({ Icon: () => null }))
 import { AgentContextUsage } from './AgentContextUsage'
-afterEach(cleanup)
+beforeEach(() => { vi.clearAllMocks() })
+afterEach(() => { cleanup(); vi.useRealTimers() })
 it('uses the persisted zero context snapshot and supports popup click, Escape and focus restoration', () => {
   render(<AgentContextUsage chatId="chat" />)
   const button = screen.getByRole('button', { name: /0%/ })
@@ -24,4 +24,30 @@ it('uses the persisted zero context snapshot and supports popup click, Escape an
   fireEvent.keyDown(document, { key: 'Escape' })
   expect(button.getAttribute('aria-expanded')).toBe('false')
   expect(document.activeElement).toBe(button)
+})
+
+it('shows actual context and token usage without prices, estimates or a prompt breakdown', () => {
+  vi.useFakeTimers()
+  render(<AgentContextUsage chatId="chat" />)
+  fireEvent.click(screen.getByRole('button', { name: /0%/ }))
+  expect(screen.getByText('agent.usage.title')).toBeTruthy()
+  expect(screen.getByText('agent.context.used')).toBeTruthy()
+  expect(screen.getByText('agent.usage.input')).toBeTruthy()
+  expect(screen.getByText('agent.usage.output')).toBeTruthy()
+  expect(screen.getByText('agent.usage.total')).toBeTruthy()
+  for (const label of ['agent.usage.cost', 'agent.usage.costUnavailable', 'agent.context.tokenBreakdown', 'agent.context.prompt']) {
+    expect(screen.queryByText(label)).toBeNull()
+  }
+  expect(screen.queryByText(/\$1\.25|250 tokens/)).toBeNull()
+  expect(document.querySelector('.token-estimate-section')).toBeNull()
+  vi.advanceTimersByTime(1000)
+  expect(getState).not.toHaveBeenCalled()
+})
+
+it('uses the same token usage title for a new chat with no usage', () => {
+  render(<AgentContextUsage chatId="missing" />)
+  fireEvent.click(screen.getByRole('button', { name: /agent.context.unavailable/ }))
+  expect(screen.getByText('agent.usage.title')).toBeTruthy()
+  expect(screen.queryByText('agent.context.tokenBreakdown')).toBeNull()
+  expect(screen.queryByText('agent.usage.cost')).toBeNull()
 })

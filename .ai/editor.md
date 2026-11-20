@@ -5,6 +5,7 @@ scope:
   - src/components/EditorHost.tsx
   - src/components/EditorArea.tsx
   - src/components/TabBar.tsx
+  - src/components/TabBar.test.tsx
   - src/components/MarkdownPreview.tsx
   - src/components/MarkdownRenderer.tsx
   - src/editor/**
@@ -55,6 +56,9 @@ scope:
   `scrollLeft` per frame.
 - **Hooks:** `TabBar` must finish every hook before its `tabs.length === 0` return. Opening the first tab or
   closing the last one must not change the hook order.
+- **Agent close button:** each tab subscribes to its own chat running flag. Running agents have no close
+  button, even on hover/focus; idle, failed or cancelled chats regain it. Pinned tabs keep their pin.
+  Context-menu, middle-click and keyboard close commands retain their existing behavior.
 
 ## Markdown preview
 

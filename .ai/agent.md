@@ -91,6 +91,9 @@ Unknown/new/history-only omit results. Stored titles stay stable for headers/too
 - Footer: context ring/stop/send; popup consumes Escape first. `currentContext`/`sessionUsage` ignore loaded
   history. Ring uses only provider contextTokens/contextWindow (zero valid; missing/invalid unavailable).
   Replace turn contributions or use native session totals; reset stats with session/provider.
+  The popup shows actual context and token counts only: no cost rows, draft token estimates or prompt
+  breakdown. Draft changes do not trigger estimation IPC; the estimate command/store/cache are removed.
+  Provider cost fields remain compatible with persisted usage, but have no price formatter or UI.
 - Chat v:1 open/page/apply/list/clone IPC merges header/message-ID patches, preserving unknown fields and
   unloaded history. Per-file locks serialize windows; atomic writes reject >8 MiB/invalid JSON, preserving
   originals. Failed closing writes retain snapshots for flush/reopen retry.

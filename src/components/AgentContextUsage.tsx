@@ -2,11 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react'
 import { useAgent } from '../store/agent'
 import { useT } from '../i18n'
 import type { AgentUsage } from '../lib/ipc'
-import {
-  agentContextPercent,
-  formatAgentTokens,
-  formatAgentUsd,
-} from '../lib/agentUsage'
+import { agentContextPercent, formatAgentTokens } from '../lib/agentUsage'
 import { Icon } from './Icon'
 
 type Props = {
@@ -15,9 +11,6 @@ type Props = {
 
 export function AgentContextUsage({ chatId }: Props) {
   const t = useT()
-  const draft = useAgent(s => s.chatDrafts[chatId])
-  const root = useAgent(s => s.chats[chatId]?.root)
-  const estimate = useAgent(s => s.tokenEstimates[chatId])
   const running = useAgent(s => s.chats[chatId]?.status === 'running')
   const [showDetails, setShowDetails] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -27,12 +20,6 @@ export function AgentContextUsage({ chatId }: Props) {
   const cumulative = sessionUsage
   const latest = useAgent(s => s.chats[chatId]?.currentContext)
   const contextWindow = latest?.contextWindow
-
-  useEffect(() => {
-    if (!root) return
-    const timer = setTimeout(() => void useAgent.getState().updateTokenEstimate(chatId), 300)
-    return () => clearTimeout(timer)
-  }, [chatId, root, draft])
 
   useEffect(() => {
     if (!showDetails) return
@@ -101,7 +88,7 @@ export function AgentContextUsage({ chatId }: Props) {
       {showDetails && (
         <div id={detailsId} className="token-details">
           <div className="details-header">
-            <span>{cumulative ? t('agent.usage.title') : t('agent.context.tokenBreakdown')}</span>
+            <span>{t('agent.usage.title')}</span>
             <button
               type="button"
               aria-label={t('tabs.close')}
@@ -135,24 +122,6 @@ export function AgentContextUsage({ chatId }: Props) {
           </div>
           {cumulative ? <UsageSection title={t('agent.usage.cumulative')} usage={cumulative} updating={running} /> : null}
           {latest ? <UsageSection title={t('agent.usage.latest')} usage={latest} updating={running} /> : null}
-          {estimate ? (
-            <div className="token-estimate-section">
-              <div className="usage-section-title">{t('agent.context.tokenBreakdown')}</div>
-              <div className="token-total">
-                {t('agent.context.estimate', { count: formatAgentTokens(estimate.total) })}
-              </div>
-              <div className="breakdown-list">
-                {estimate.breakdown.map((item, index) => (
-                  <div key={index} className="breakdown-item">
-                    <span className="label">
-                      {item.kind === 'prompt' ? t('agent.context.prompt') : item.label}
-                    </span>
-                    <span className="tokens">{formatAgentTokens(item.tokens)}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : null}
         </div>
       )}
     </div>
@@ -168,10 +137,6 @@ function ContextRow({ label, value }: { label: string; value: string }) {
   )
 }
 
-function usageCost(usage: AgentUsage, unavailable: string): string {
-  return formatAgentUsd(usage.costUsd) ?? unavailable
-}
-
 function UsageSection({ title, usage, updating }: { title: string; usage: AgentUsage; updating?: boolean }) {
   const t = useT()
   const rows: Array<[string, string]> = [
@@ -181,7 +146,6 @@ function UsageSection({ title, usage, updating }: { title: string; usage: AgentU
     [t('agent.usage.output'), formatAgentTokens(usage.outputTokens)],
     [t('agent.usage.reasoning'), formatAgentTokens(usage.reasoningOutputTokens)],
     [t('agent.usage.total'), formatAgentTokens(usage.totalTokens)],
-    [t('agent.usage.cost'), usageCost(usage, t('agent.usage.costUnavailable'))],
   ]
   return (
     <div className="usage-section">

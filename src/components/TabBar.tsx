@@ -74,6 +74,9 @@ const TabItem = memo(function TabItem({
   onClose,
 }: TabItemProps) {
   const t = useT()
+  const running = useAgent((state) =>
+    tab.kind === 'chat' && state.chats[tab.id.slice('chat:'.length)]?.status === 'running',
+  )
   return (
     <div
       data-tab-id={tab.id}
@@ -121,8 +124,8 @@ const TabItem = memo(function TabItem({
         >
           <Icon name="pin" size={11} />
         </span>
-      ) : (
-        /* The close button always hugs the tab's right edge (never follows a short name) */
+      ) : running ? null : (
+        /* Running agents have no close target, including on hover or keyboard focus. */
         <button
           onClick={(event) => {
             event.stopPropagation()
@@ -134,6 +137,7 @@ const TabItem = memo(function TabItem({
               : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'
           }`}
           data-tip={t('tabs.closeTip')}
+          aria-label={t('tabs.closeTip')}
         >
           <Icon name="close" size={11} strokeWidth={2} />
         </button>

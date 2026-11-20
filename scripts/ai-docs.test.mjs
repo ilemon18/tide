@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url'
 import {
   ROUTING_FIXTURES,
   compileScopeGlob,
+  fixtureBudgetError,
   isGeneratedRouteTableCurrent,
   parseAreaMetadata,
   readAreaMetadataFile,
@@ -17,6 +18,16 @@ import {
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
 const AI_DIR = join(ROOT, '.ai')
+
+test('routing bundles allow up to 24KB including resident context', () => {
+  const residentBytes = 4 * 1024
+  assert.equal(fixtureBudgetError('expanded', residentBytes + 13 * 1024), null)
+  assert.equal(fixtureBudgetError('boundary', residentBytes + 20 * 1024), null)
+  assert.match(
+    fixtureBudgetError('oversized', residentBytes + 20 * 1024 + 1),
+    /routing fixture 'oversized'.*hard limit 24KB/,
+  )
+})
 
 function areaDocs() {
   return readdirSync(AI_DIR)

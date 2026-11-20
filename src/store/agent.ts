@@ -13,7 +13,6 @@ import {
   type AgentProviderInfo,
   type AgentQuestionOption,
   type AgentUsage,
-  type TokenEstimate,
 } from '../lib/ipc'
 import {
   buildAgentPrompt,
@@ -224,9 +223,6 @@ type AgentStore = {
 
   chatDefaults: ChatDefaults
 
-  /** Token estimates per chat */
-  tokenEstimates: Record<string, TokenEstimate>
-
   loadProviders: (force?: boolean) => Promise<void>
   loadCatalog: (provider: string, force?: boolean) => Promise<void>
   resolveDefaults: () => void
@@ -256,8 +252,6 @@ type AgentStore = {
   setChatDraft: (chatId: string, patch: Partial<AgentDraft>) => void
   newChatFrom: (chatId: string) => void
   flushChats: () => void
-
-  updateTokenEstimate: (chatId: string) => Promise<void>
 }
 
 /** Chat records waiting for the debounced write */
@@ -711,8 +705,6 @@ export const useAgent = create<AgentStore>((set, get) => {
 
     chatDefaults: emptyDefaults,
 
-    tokenEstimates: {},
-
     loadProviders: async (force = false) => {
       // A scan is global work: forced rescans leave the in-flight request untouched rather than race it.
       if (get().providersLoading) return
@@ -889,13 +881,11 @@ export const useAgent = create<AgentStore>((set, get) => {
       timers.delete(id)
       // Capture the last transcript before the record leaves memory
       if (leaving) persistLeavingChat(id, leaving)
-      const tokenEstimates = { ...get().tokenEstimates }
-      delete tokenEstimates[id]
       const pages = { ...get().pages }
       delete pages[id]
       const pageLoading = { ...get().pageLoading }
       delete pageLoading[id]
-      set({ chats, running, chatDrafts, queues, tokenEstimates, pages, pageLoading })
+      set({ chats, running, chatDrafts, queues, pages, pageLoading })
     },
 
     openChatTab: (id) => {
@@ -1613,28 +1603,6 @@ export const useAgent = create<AgentStore>((set, get) => {
         const closed = unsavedClosedChats.get(chatId)
         if (closed) persistLeavingChat(chatId, closed)
         else void persistChat(chatId)
-      }
-    },
-
-    updateTokenEstimate: async (chatId) => {
-      const chat = get().chats[chatId]
-      const draft = get().chatDrafts[chatId]
-      if (!chat) return
-
-      const mentions = draft?.mentions || []
-      const text = buildAgentPrompt(normalizeAgentDraft(draft ?? { text: '', mentions: [] }))
-
-      try {
-        const estimate = await api.agentEstimateTokens(chat.root, mentions, text)
-        if (!get().chats[chatId] || get().chatDrafts[chatId] !== draft) return
-        set({
-          tokenEstimates: { ...get().tokenEstimates, [chatId]: estimate }
-        })
-      } catch {
-        if (!get().chats[chatId] || get().chatDrafts[chatId] !== draft) return
-        const tokenEstimates = { ...get().tokenEstimates }
-        delete tokenEstimates[chatId]
-        set({ tokenEstimates })
       }
     },
   }

@@ -140,14 +140,6 @@ export function formatAgentTokens(count: number): string {
   return String(count)
 }
 
-/** Keep small per-turn prices visible instead of rounding a real non-zero cost to `$0.00`. */
-export function formatAgentUsd(cost: number | null): string | null {
-  if (cost === null) return null
-  const fixed = cost.toFixed(6).replace(/0+$/, '')
-  const [whole, fraction = ''] = fixed.split('.')
-  return `$${whole}.${fraction.padEnd(2, '0')}`
-}
-
 /** Replace this turn's contribution; streaming usage snapshots are not independent turns. */
 export function replaceTurnUsage(total: AgentUsage | undefined, previous: AgentUsage | undefined, next: AgentUsage): AgentUsage {
   const keys = ['inputTokens', 'cachedInputTokens', 'cacheWriteInputTokens', 'outputTokens', 'reasoningOutputTokens', 'totalTokens'] as const
