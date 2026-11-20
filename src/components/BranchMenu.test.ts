@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, expect, it } from 'vitest'
 import { searchBranches, selectRecentBranches, sortBranches } from './BranchMenu'
 import type { GitBranch } from '../lib/ipc'

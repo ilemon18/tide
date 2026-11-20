@@ -88,7 +88,13 @@ function ToolStatus({ status }: { status?: AgentItem['status'] }) {
 }
 
 const itemControlClass =
-  'h-5 w-5 pointer-events-none group-hover/item:pointer-events-auto group-focus-within/item:pointer-events-auto opacity-0 transition-opacity duration-fast group-hover/item:opacity-100 group-focus-within/item:opacity-100'
+  'h-[22px] w-[22px] pointer-events-none group-hover/item:pointer-events-auto group-focus-within/item:pointer-events-auto opacity-0 transition-opacity duration-fast group-hover/item:opacity-100 group-focus-within/item:opacity-100'
+
+const replyControlClass =
+  'h-[22px] w-[22px] pointer-events-none group-hover/reply:pointer-events-auto group-focus-within/reply:pointer-events-auto opacity-0 transition-opacity duration-fast group-hover/reply:opacity-100 group-focus-within/reply:opacity-100'
+
+const userControlClass =
+  'h-[22px] w-[22px] pointer-events-none group-hover/user:pointer-events-auto group-focus-within/user:pointer-events-auto opacity-0 transition-opacity duration-fast group-hover/user:opacity-100 group-focus-within/user:opacity-100'
 
 /** Prefer the executable command/path over the provider's generic tool name or JSON input. */
 export function toolCommand(item: AgentItem): string {
@@ -554,7 +560,7 @@ export const UserMessage = memo(function UserMessage({
   const t = useT()
   const copyValue = serializeUserMessage(message)
   return (
-    <div className="group/reply group/item relative ml-auto flex w-fit min-w-0 max-w-[85%] flex-col gap-1.5 text-left rounded-[var(--r-popup)] border border-line-soft bg-panel px-3 py-2">
+    <div className="group/user relative ml-auto flex w-fit min-w-0 max-w-[85%] flex-col gap-1.5 text-left rounded-[var(--r-popup)] border border-line-soft bg-panel px-3 py-2">
       <div className="min-w-0">
         <div className="flex min-w-0 flex-col gap-1.5">
           {message.command || (message.skills && message.skills.length > 0) ? (
@@ -579,7 +585,7 @@ export const UserMessage = memo(function UserMessage({
           label={t('agent.copy.userTurn')}
           tip={t('agent.copy.userTurn')}
           iconOnly
-          className={`${itemControlClass} absolute right-1 top-1 bg-panel shadow-sm`}
+          className={`${userControlClass} absolute right-1 top-1 bg-panel shadow-sm`}
         />
       </div>
     </div>
@@ -602,7 +608,7 @@ export const AssistantMessage = memo(function AssistantMessage({
   const startedAt = useAgent(state => state.running[chatId])
   const copyValue = serializeAssistantMessage(message)
   return (
-    <div className="group/reply group/item flex gap-2">
+    <div className="group/reply flex gap-2">
       {/* 22px box = one 22px reply line: the avatar centre and the first line centre coincide */}
       <div className="flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-[5px] bg-accent/15 text-accent">
         <Icon name="agent" size={13} />
@@ -614,7 +620,7 @@ export const AssistantMessage = memo(function AssistantMessage({
             label={t('agent.copy.assistantReply')}
             tip={t('agent.copy.assistantReply')}
             iconOnly
-            className={itemControlClass}
+            className={replyControlClass}
           />
         </div>
         {items.map(item => <Item key={item.id} chatId={chatId} item={item}

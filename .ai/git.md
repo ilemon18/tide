@@ -22,7 +22,8 @@ scope:
 ## Lifecycle
 
 The branch chooser keeps a fixed 480px dialog (clamped to the viewport), with an independently scrolling
-list. Local and remote branches are separate groups; empty search shows the ten newest commits per group,
+list. Local and remote branches are separate groups; empty search shows ten branches per group, pinning
+the current local branch before filling remaining slots by newest commit (remote branches use recency),
 while name search spans the complete cached list and caps visible matches at 200. Group headings are visual
 only, and keyboard navigation follows branch rows plus the create action.
 

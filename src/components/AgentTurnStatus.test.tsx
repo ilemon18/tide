@@ -43,5 +43,5 @@ it.each([undefined, NaN])('omits unavailable completion timestamps (%s) in older
 it('does not show a completion time while the turn is running', () => {
   render(<AgentTurnStatus message={{ ...message, completedAt: new Date(2026, 10, 20, 9, 5).getTime() }} running />)
   expect(screen.getByRole('status').textContent).toBe('agent.working · Duration 0s')
-  expect(screen.getByTestId('status-icon').className.baseVal).toContain('agent-spinner')
+  expect(screen.getByTestId('status-icon').getAttribute('class')).toContain('agent-spinner')
 })

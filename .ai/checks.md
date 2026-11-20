@@ -19,7 +19,7 @@ scope:
 | Command | Protects |
 |---|---|
 | `pnpm i18n` | Locale key/placeholder/plural parity and error-code coverage |
-| `pnpm i18n:scan` | Hardcoded CJK UI literals; genuine non-UI files are explicitly allowlisted |
+| `pnpm i18n:scan` | Hardcoded CJK UI literals; named IME/Unicode test-data files and other non-UI files are explicitly allowlisted |
 | `pnpm check:workflows` | Workflow shell expansions followed by non-ASCII text after `$var` |
 | `pnpm test:frontend` | Vitest/React Testing Library: local commands, context usage, composer chips, plan completion/actions, persistent Plan/permissions, isolated plan handoff, compact/fork, usage replacement, bounded history, stream flushing, IME send/completion priority, ordered tool previews, native permission decisions, completion persistence, terminal maximize geometry/resident PTYs, tree/watch races, diff scrolling and restoration, provider tab icons and grouped branch search |
 | `pnpm typecheck` | TypeScript types, missing runtime imports (including root React hooks), and complete typed locale records |
@@ -66,12 +66,16 @@ Path, guard or behavior-contract changes update their routed docs in the same ch
 - Frontend tests cover Plan persistence/actions/retries/queue guards, local command selectors, compact
   success/failure, session usage, 160-record/1 MiB windows, stream ordering, footer/status placement and
   usage popup keyboard interaction; tree/watch tests cover transition batches and stale directory reads.
+  Plan execution tests cover all permission modes and legacy missing values; failed read-only question
+  follow-ups preserve the session's permission choice. Branch-menu tests use jsdom and ensure an old
+  current branch stays pinned within the local group's ten-row limit.
 - `src/components/AgentTurnStatus.test.tsx` covers local 24-hour `HH:mm` completion times after duration,
   zero padding, saved times after reopening, omission during runs or without a valid saved timestamp, and
   the running indicator's dedicated spinner class; visual smoothness remains a manual app review surface.
 - Provider/transport tests cover app-server initialization and native thread operations, streamed Unicode
   text/thinking/tool input/output, final snapshots, three permission mappings, read-only override,
   allow/deny, duplicate requests and stop invalidation. Native failures stay explicit; no exec fallback.
+  Request fixtures include required `permissionMode`; tests reject its omission and enforce read-only overrides.
 - Rust watcher tests cover truncation, overflow, continuous event deadlines, rescan/errors and Git-only locks;
   provider capability tests reject missing native fork/app-server entry points. Real-account protocol behavior is not
   established by these tests.

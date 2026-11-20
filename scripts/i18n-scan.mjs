@@ -6,9 +6,10 @@
  * **string literals**: UI copy must go through `t()` / the glossary, otherwise that spot shows the
  * raw Chinese once the user switches to English / Japanese / Spanish.
  *
- * The allowlist covers only two cases:
+ * The allowlist covers:
  * - developer-facing places (console.* logs), which are not user-facing;
  * - the theme `hint` field: it does not reach any UI today (route it through the glossary if it ever does).
+ * - named test files containing IME input and Unicode stream/tool-output fixtures, never UI copy.
  *
  * Usage: pnpm i18n:scan
  */
@@ -24,7 +25,14 @@ const SRC = join(ROOT, 'src')
 // Normalize to forward slashes before comparing, so Windows backslashes do not break the skip rules
 const normalize = (path) => path.split(sep).join('/')
 const SKIP_DIRS = ['/i18n/', '/vendor/', '/assets/']
-const ALLOW_FILES = new Set(['src/theme/palettes.ts'])
+const ALLOW_FILES = new Set([
+  'src/theme/palettes.ts',
+  // IME input and external agent text/tool output exercise Unicode preservation.
+  'src/components/AgentComposer.test.tsx',
+  'src/components/AgentStreamText.test.tsx',
+  'src/lib/agentEvents.test.ts',
+  'src/store/agent.test.ts',
+])
 
 const CJK = /[\u4e00-\u9fff]/
 const STRING_LITERAL = /'([^'\\]*)'|"([^"\\]*)"|`([^`]*)`/g

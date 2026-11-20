@@ -17,7 +17,7 @@ Run from the repository root, individually, continuing after failures so one pas
 | # | Command | Fix when it fails |
 |---|---|---|
 | 1 | `pnpm i18n` | Key-set drift, placeholder mismatch, plural-form count, or a missing `error.<code>` — align the six catalogs. |
-| 2 | `pnpm i18n:scan` | Hardcoded CJK UI copy — use `t()`, and allowlist a file in `scripts/i18n-scan.mjs` only for data or external tool output. |
+| 2 | `pnpm i18n:scan` | Hardcoded CJK UI copy — use `t()`; explicitly allowlist only non-UI data/external output, including named IME/Unicode test fixtures, in `scripts/i18n-scan.mjs`. |
 | 3 | `pnpm check:workflows` | `$var` followed by non-ASCII — insert braces (`${var}`). |
 | 4 | `pnpm typecheck` | Fix the type or DTO in `src/lib/ipc.ts` / Rust, not with `any`. |
 | 5 | `pnpm check:rust` | Fix types and borrows; no `unwrap()` on user input. |

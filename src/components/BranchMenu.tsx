@@ -22,11 +22,10 @@ export function sortBranches(list: GitBranch[]): GitBranch[] {
 
 export function selectRecentBranches(all: GitBranch[], limit = RECENT_LIMIT): GitBranch[] {
   return (['local', 'remote'] as const).flatMap((kind) => {
-    const recent = all
-      .filter((branch) => branch.kind === kind)
-      .sort((a, b) => b.time - a.time)
-      .slice(0, limit)
-    return kind === 'local' ? sortBranches(recent) : recent
+    const branches = all.filter((branch) => branch.kind === kind)
+    // Pin the current local branch before limiting, even when its commit is old.
+    const sorted = kind === 'local' ? sortBranches(branches) : branches.sort((a, b) => b.time - a.time)
+    return sorted.slice(0, limit)
   })
 }
 

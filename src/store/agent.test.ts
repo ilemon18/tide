@@ -194,16 +194,20 @@ describe('plan completion and actions', () => {
     expect(pendingPlan()).not.toBeNull()
   })
 
-  it('executes in the current session once and persists the action', async () => {
+  it.each(['read-only', 'workspace-write', 'full-access', undefined] as const)(
+    'executes in the current session once and preserves or promotes permission mode %s', async permissionMode => {
+    useAgent.setState({ chats: { 'chat-test': { ...chat(), permissionMode } } })
     await startPlanning(); streamPlan(); finishTurn()
     const id = pendingPlan()!.item.id
     const selected = useAgent.getState().resolvePlanAction('chat-test', id, 'implement-current', 'Keep the public API')
     expect(await useAgent.getState().resolvePlanAction('chat-test', id, 'implement-current')).toBe(false)
     expect(await selected).toBe(true)
     expect(api.agentSend).toHaveBeenLastCalledWith(expect.objectContaining({ readOnly: false, sessionAction: 'resume',
+      permissionMode: permissionMode === 'full-access' ? 'full-access' : 'workspace-write',
       sessionId: 'session-1', prompt: expect.stringContaining('Keep the public API') }))
     expect(pendingPlan()).toBeNull()
-    expect(useAgent.getState().chats['chat-test'].permissionMode).toBe('workspace-write')
+    expect(useAgent.getState().chats['chat-test'].permissionMode).toBe(
+      permissionMode === 'read-only' ? 'workspace-write' : permissionMode)
   })
 
   it('hands only the approved plan to an isolated chat in the same project', async () => {
@@ -460,6 +464,7 @@ describe('action recovery and durable session resets', () => {
   })
 
   it('keeps a restored pending question when its read-only answer cannot launch', async () => {
+    useAgent.setState({ chats: { 'chat-test': { ...chat(), permissionMode: 'full-access' } } })
     await startPlanning()
     const current = useAgent.getState().chats['chat-test']
     useAgent.getState().applyEvent({ chatId: current.id, runId: current.activeRunId!, sequence: 1,
@@ -470,7 +475,8 @@ describe('action recovery and durable session resets', () => {
     expect(useAgent.getState().answerQuestion('chat-test', 'q', 'A')).toBe(true)
     await vi.advanceTimersByTimeAsync(0)
     expect(useAgent.getState().chats['chat-test'].messages.flatMap(message => message.items ?? []).find(item => item.id === 'q')?.answer).toBeUndefined()
-    expect(useAgent.getState().chats['chat-test'].permissionMode).toBe('read-only')
+    expect(api.agentSend).toHaveBeenLastCalledWith(expect.objectContaining({ readOnly: true, permissionMode: 'read-only' }))
+    expect(useAgent.getState().chats['chat-test'].permissionMode).toBe('full-access')
   })
 })
 

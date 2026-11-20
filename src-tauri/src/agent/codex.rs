@@ -6,7 +6,7 @@ use std::path::Path;
 use serde_json::Value;
 
 use super::question::{self, Piece};
-use super::{AgentEvent, AgentSessionAction, AgentTurnRequest, AgentUsage, Launch};
+use super::{AgentEvent, AgentTurnRequest, AgentUsage, Launch};
 
 pub fn launch(program: &Path, request: &AgentTurnRequest, _root: &Path) -> Launch {
     let mode = match request.permission() {
@@ -608,6 +608,7 @@ fn translate_server(value: &Value, state: &mut State) -> Vec<AgentEvent> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use super::super::AgentSessionAction;
     use serde_json::json;
 
     fn request(read_only: bool) -> AgentTurnRequest {

@@ -284,7 +284,7 @@ mod tests {
     #[test]
     fn read_only_defaults_to_false() {
         let request: AgentTurnRequest = serde_json::from_str(
-            r#"{"chatId":"chat-1","runId":"run-1","root":"/tmp","provider":"codex","sessionAction":"new","sessionId":null,"model":null,"effort":null,"prompt":"hi","mentions":[]}"#,
+            r#"{"chatId":"chat-1","runId":"run-1","root":"/tmp","provider":"codex","sessionAction":"new","sessionId":null,"model":null,"effort":null,"prompt":"hi","mentions":[],"permissionMode":"workspace-write"}"#,
         )
         .expect("request should deserialize");
         assert!(!request.read_only);
@@ -294,16 +294,17 @@ mod tests {
     #[test]
     fn read_only_deserializes_from_camel_case() {
         let request: AgentTurnRequest = serde_json::from_str(
-            r#"{"chatId":"chat-1","runId":"run-1","root":"/tmp","provider":"codex","sessionAction":"new","sessionId":null,"model":null,"effort":null,"prompt":"hi","mentions":[],"readOnly":true}"#,
+            r#"{"chatId":"chat-1","runId":"run-1","root":"/tmp","provider":"codex","sessionAction":"new","sessionId":null,"model":null,"effort":null,"prompt":"hi","mentions":[],"readOnly":true,"permissionMode":"full-access"}"#,
         )
         .expect("request should deserialize");
         assert!(request.read_only);
+        assert_eq!(request.permission(), AgentPermissionMode::ReadOnly);
     }
 
     #[test]
     fn session_action_deserializes_from_kebab_case() {
         let request: AgentTurnRequest = serde_json::from_str(
-            r#"{"chatId":"chat-1","runId":"run-1","root":"/tmp","provider":"codex","sessionAction":"fork","sessionId":"thread-1","model":null,"effort":null,"prompt":"hi","mentions":[]}"#,
+            r#"{"chatId":"chat-1","runId":"run-1","root":"/tmp","provider":"codex","sessionAction":"fork","sessionId":"thread-1","model":null,"effort":null,"prompt":"hi","mentions":[],"permissionMode":"workspace-write"}"#,
         )
         .expect("request should deserialize");
         assert!(matches!(request.session_action, AgentSessionAction::Fork));
@@ -311,7 +312,14 @@ mod tests {
     #[test]
     fn missing_session_action_is_rejected_instead_of_resetting_a_session() {
         assert!(serde_json::from_str::<AgentTurnRequest>(
-            r#"{"chatId":"chat-1","runId":"run-1","root":"/tmp","provider":"codex","sessionId":"existing","prompt":"hi"}"#
+            r#"{"chatId":"chat-1","runId":"run-1","root":"/tmp","provider":"codex","sessionId":"existing","prompt":"hi","permissionMode":"workspace-write"}"#
+        ).is_err());
+    }
+
+    #[test]
+    fn missing_permission_mode_is_rejected() {
+        assert!(serde_json::from_str::<AgentTurnRequest>(
+            r#"{"chatId":"chat-1","runId":"run-1","root":"/tmp","provider":"codex","sessionAction":"new","prompt":"hi"}"#
         ).is_err());
     }
 }

@@ -70,6 +70,9 @@ it('keeps tool previews and public reasoning in source order without details wra
       { id: 'b', type: 'text', text: 'After' },
     ] }
   const { container, rerender } = render(view(message))
+  expect(container.firstElementChild?.className).toContain('group/reply')
+  expect(container.firstElementChild?.className).not.toContain('group/item')
+  expect(container.querySelector('.group\\/item')?.className).toContain('group/item')
   expect(container.querySelector('details')).toBeNull()
   expect(screen.getByText('pwd')).toBeTruthy()
   expect(screen.getByText('Inspecting files')).toBeTruthy()
@@ -93,6 +96,7 @@ it('right-aligns a shrink-wrapped user bubble and keeps indentation and full cop
   expect(container.firstElementChild?.className).toContain('ml-auto')
   expect(container.firstElementChild?.className).toContain('w-fit')
   expect(screen.getByTestId('user-copy').className).toContain('absolute right-1 top-1')
+  expect(screen.getByTestId('user-copy').className).toContain('h-[22px] w-[22px]')
   expect(screen.getByTestId('user-copy').className).toContain('pointer-events-none')
   expect(screen.getByTestId('user-copy').getAttribute('data-copy')).toBe(serializeUserMessage(message))
   expect(serializeUserMessage(message)).toBe('$audit (/skills/audit)\n@src/a.ts\n  first\n    second\n')
