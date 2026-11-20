@@ -823,7 +823,7 @@ export const es: Messages = {
   'agent.effort.ultra': 'Ultra',
   'settings.agent.card': 'Agente',
   'settings.agent.enable': 'Activar el agente integrado',
-  'settings.agent.enableHint': 'Añade el botón del agente en la barra de título y la entrada con doble clic en el explorador.',
+  'settings.agent.enableHint': 'Añade el botón del agente en la barra de título y activa los chats con el agente.',
   'settings.agent.defaultAgent': 'Agente predeterminado',
   'settings.agent.defaultAgentHint': 'Los chats nuevos usan este CLI. Automático elige el primero instalado.',
   'settings.agent.defaultModel': 'Modelo predeterminado',

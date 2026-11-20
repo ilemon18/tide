@@ -776,7 +776,7 @@ export const zhTW: Messages = {
   'agent.effort.ultra': '超強',
   'settings.agent.card': '智慧代理',
   'settings.agent.enable': '啟用內建智慧代理',
-  'settings.agent.enableHint': '在標題列顯示智慧代理按鈕，並支援在檔案樹中雙擊喚出。',
+  'settings.agent.enableHint': '在標題列顯示智慧代理按鈕，並啟用智慧代理對話。',
   'settings.agent.defaultAgent': '預設智慧代理',
   'settings.agent.defaultAgentHint': '新對話使用此命令列工具；自動會選擇第一個已安裝的。',
   'settings.agent.defaultModel': '預設模型',

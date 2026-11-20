@@ -798,7 +798,7 @@ export const ko: Messages = {
   'agent.effort.ultra': '울트라',
   'settings.agent.card': '에이전트',
   'settings.agent.enable': '내장 에이전트 사용',
-  'settings.agent.enableHint': '제목 표시줄의 버튼과 탐색기에서 두 번 클릭하는 입력을 추가합니다.',
+  'settings.agent.enableHint': '제목 표시줄에 에이전트 버튼을 추가하고 에이전트 채팅을 활성화합니다.',
   'settings.agent.defaultAgent': '기본 에이전트',
   'settings.agent.defaultAgentHint': '새 채팅은 이 CLI로 시작합니다. 자동은 설치된 첫 번째를 선택합니다.',
   'settings.agent.defaultModel': '기본 모델',

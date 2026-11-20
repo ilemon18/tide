@@ -612,18 +612,6 @@ export function FileTree() {
     else void openFile(row.root, row.rel)
   }
 
-  /** Row icon and double-click share one entry; the timestamp also absorbs click + dblclick */
-  const lastAgentOpen = useRef<{ key: string; at: number } | null>(null)
-  const openAgentForRow = (row: Row) => {
-    if (row.kind !== 'node' || row.isSymlink || !agentEnabled) return
-    const now = Date.now()
-    const last = lastAgentOpen.current
-    if (last && last.key === row.key && now - last.at < 400) return
-    lastAgentOpen.current = { key: row.key, at: now }
-    setSelected(row.key)
-    useAgent.getState().newChat(row.root, [{ rel: row.rel || '.', isDir: row.isDir }])
-  }
-
   const searchInFolder = (root: string, rel: string) => {
     useSearch.getState().setScope({ root, rel })
     useUi.getState().setActivityView('search')
@@ -809,30 +797,12 @@ export function FileTree() {
                   )
                 }}
                 onClick={(e) => {
-                  // The first click of a double-click already opened / toggled the row. The second
-                  // one opens the agent chat tab; this also catches a double-click that drifts a pixel
-                  // and was therefore treated as a tiny drag.
-                  if (e.detail > 1) {
-                    if (
-                      e.detail === 2 &&
-                      row.kind === 'node' &&
-                      !row.isDir &&
-                      !row.isSymlink &&
-                      !(e.target as HTMLElement).closest('button, input, [data-tree-chevron]')
-                    ) {
-                      openAgentForRow(row)
-                    }
-                    return
-                  }
+                  // The first click of a double-click opens or toggles the row; ignore the second.
+                  if (e.detail > 1) return
                   // The last gesture was a drag: do not open the row again on release
                   if (wasFileDragJustFinished()) return
                   setSelected(row.key)
                   openRow(row)
-                }}
-                onDoubleClick={(e) => {
-                  if (row.kind !== 'node' || row.isDir || row.isSymlink) return
-                  if ((e.target as HTMLElement).closest('button, input, [data-tree-chevron]')) return
-                  openAgentForRow(row)
                 }}
                 onContextMenu={(e) => {
                   e.preventDefault()

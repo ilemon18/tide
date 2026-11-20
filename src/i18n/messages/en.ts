@@ -855,7 +855,7 @@ export const en = {
   'agent.effort.ultra': 'Ultra',
   'settings.agent.card': 'Agent',
   'settings.agent.enable': 'Enable the built-in agent',
-  'settings.agent.enableHint': 'Adds the agent button in the title bar and the double-click entry in the explorer.',
+  'settings.agent.enableHint': 'Adds the agent button in the title bar and enables agent chats.',
   'settings.agent.defaultAgent': 'Default agent',
   'settings.agent.defaultAgentHint': 'New chats start with this CLI. Automatic picks the first installed one.',
   'settings.agent.defaultModel': 'Default model',

@@ -42,6 +42,8 @@ state/extensions.
 - **Panes:** the first chat creates a row split without moving existing tabs, and ordinary opens go to
   primary while the secondary tab is chat. Tab-bar item widths are measured once and refreshed on resize,
   never stored in tab state, and vertical wheel input writes one `scrollLeft` per frame.
+- **Hooks:** `TabBar` must finish every hook before its `tabs.length === 0` return. Opening the first tab or
+  closing the last one must not change the hook order.
 
 ## Markdown preview
 

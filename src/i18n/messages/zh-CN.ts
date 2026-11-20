@@ -786,7 +786,7 @@ export const zhCN: Messages = {
   'agent.effort.ultra': '超强',
   'settings.agent.card': '智能体',
   'settings.agent.enable': '启用内置智能体',
-  'settings.agent.enableHint': '在标题栏显示智能体按钮，并支持在文件树中双击唤出。',
+  'settings.agent.enableHint': '在标题栏显示智能体按钮，并启用智能体对话。',
   'settings.agent.defaultAgent': '默认智能体',
   'settings.agent.defaultAgentHint': '新对话使用此命令行工具；自动会选择第一个已安装的。',
   'settings.agent.defaultModel': '默认模型',

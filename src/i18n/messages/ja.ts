@@ -798,7 +798,7 @@ export const ja: Messages = {
   'agent.effort.ultra': 'ウルトラ',
   'settings.agent.card': 'エージェント',
   'settings.agent.enable': '組み込みエージェントを有効にする',
-  'settings.agent.enableHint': 'タイトルバーのボタンと、エクスプローラーでのダブルクリック入力を追加します。',
+  'settings.agent.enableHint': 'タイトルバーにエージェントボタンを追加し、エージェントとのチャットを有効にします。',
   'settings.agent.defaultAgent': '既定のエージェント',
   'settings.agent.defaultAgentHint': '新しいチャットはこの CLI で始まります。自動は最初に見つかったものを使います。',
   'settings.agent.defaultModel': '既定のモデル',

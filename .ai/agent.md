@@ -51,6 +51,9 @@ the CLIs own auth, models and tool loops.
 
 ## Providers, UI and persistence
 
+- Agent chats open from the title-bar button or a file-tree row's context menu. Double-clicking a file-tree
+  row remains a normal open/toggle gesture and must not switch chats; disabling `agentEnabled` hides the
+  remaining entry points without changing chat persistence or provider behavior.
 - Claude writable turns use the bypass/dangerously-skip flags; Codex writable ones set
   `-c sandbox_mode="workspace-write" -c approval_policy="never"`. Empty `model` / `effort` means **no flag**,
   so user provider config wins: never auto-fill a catalog model or rewrite the global default from a per-chat
@@ -63,3 +66,5 @@ the CLIs own auth, models and tool loops.
   hard cap and trim limit beside the store/tests; `v: 1` stays and old files must load.
   `<appConfig>/agent/tabs.json` holds the primary window's chat tabs, and both flush on `app:hidden` /
   `beforeunload`.
+- **Hooks:** `AgentChat` must finish every hook before its `!chat` loading/missing return, so hydration and
+  missing-chat states cannot change the hook order.

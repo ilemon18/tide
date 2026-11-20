@@ -308,8 +308,6 @@ export function TabBar({ groupId }: { groupId: TabGroupId }) {
     else strip.scrollLeft = right - measurements.viewportWidth
   }, [drag?.active, groupActiveId, layout, measurements])
 
-  if (tabs.length === 0) return null
-
   const index = menu ? tabs.findIndex((t) => t.id === menu.tabId) : -1
   const menuTab = index >= 0 ? tabs[index] : null
   const menuItems: MenuItem[] = menu
@@ -479,6 +477,9 @@ export function TabBar({ groupId }: { groupId: TabGroupId }) {
   const onClose = useCallback((id: string) => {
     void closeIn(id, groupId)
   }, [closeIn, groupId])
+
+  // Keep the empty state after every hook so opening the first tab cannot change the hook count.
+  if (tabs.length === 0) return null
 
   const groupFocused = activeGroupId === groupId
   const groupActiveTab = tabs.find((t) => t.id === groupActiveId) ?? null

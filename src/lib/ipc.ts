@@ -130,7 +130,7 @@ export type Settings = {
   terminalWebgl: boolean
   /** Lightweight mode: smaller caches, fewer background jobs, off by default */
   lightweightMode: boolean
-  /** Built-in agent service: title-bar entry, explorer double-click, chat tabs */
+  /** Built-in agent service: title-bar entry, explorer context menu, chat tabs */
   agentEnabled: boolean
   /** Provider / model / effort new chats start with; empty = auto or the CLI default */
   agentDefaultProvider: string

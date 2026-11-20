@@ -131,6 +131,22 @@ export function AgentChat({ chatId }: { chatId: string }) {
     if (el) el.scrollTop = el.scrollHeight
   }, [signature, chat?.status, atBottom])
 
+  // What the CLI is doing right now: a running tool beats the tail item, so the strip does
+  // not keep saying “writing” while a long command runs.
+  const activity = useMemo(() => {
+    const items = last?.items ?? []
+    for (let index = items.length - 1; index >= 0; index -= 1) {
+      const item = items[index]
+      if (item.type === 'tool' && item.status === 'running') {
+        return { kind: 'tool' as const, name: item.title ?? '' }
+      }
+    }
+    const tail = items[items.length - 1]
+    if (tail?.type === 'thinking') return { kind: 'thinking' as const, name: '' }
+    if (tail?.type === 'text') return { kind: 'writing' as const, name: '' }
+    return { kind: 'starting' as const, name: '' }
+  }, [last])
+
   if (!chat) {
     return (
       <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-bg text-xs text-muted">
@@ -153,21 +169,6 @@ export function AgentChat({ chatId }: { chatId: string }) {
     providers !== null && (!providerInfo || !providerInfo.installed || !providerInfo.supported)
   const providerLabel =
     providerInfo?.name ?? (chat.provider || t('agent.noAgents'))
-  // What the CLI is doing right now: a running tool beats the tail item, so the strip does
-  // not keep saying “writing” while a long command runs.
-  const activity = useMemo(() => {
-    const items = last?.items ?? []
-    for (let index = items.length - 1; index >= 0; index -= 1) {
-      const item = items[index]
-      if (item.type === 'tool' && item.status === 'running') {
-        return { kind: 'tool' as const, name: item.title ?? '' }
-      }
-    }
-    const tail = items[items.length - 1]
-    if (tail?.type === 'thinking') return { kind: 'thinking' as const, name: '' }
-    if (tail?.type === 'text') return { kind: 'writing' as const, name: '' }
-    return { kind: 'starting' as const, name: '' }
-  }, [last])
   const activityLabel =
     activity.kind === 'tool'
       ? t('agent.activity.tool', { name: activity.name || t('agent.tool') })

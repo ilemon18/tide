@@ -19,6 +19,9 @@ watching, or synchronization between disk, tree, Git and open tabs.
 - `DirEntryInfo.isSymlink` comes from link metadata. Every symlink is a leaf row (`isDir = false`), including
   links to directories, and single-click, ⌘↓ or a pane drop must not call `openFile` or expand it. Tree opens
   show `error.fs.symlinkUnsupported` immediately; rename, delete and move still operate on the link itself.
+- Single click opens a file or toggles a folder. Double-click is only the normal tree gesture: it must not
+  create or switch agent chats, and the second click must not repeat the open or toggle. Agent entry points are
+  the title bar and the row context menu.
 - `resolve_dir_chain` in Rust and `buildRows` in the component are one contract: resolve chains only for
   visible rows and respect the bounded depth/concurrency/cache settings beside the implementation.
 
