@@ -79,7 +79,7 @@ export function serializeAssistantMessage(message: Message): string {
 
 function ToolStatus({ status }: { status?: AgentItem['status'] }) {
   if (status === 'running') {
-    return <Icon name="spinner" size={12} className="shrink-0 animate-spin text-muted" />
+    return <Icon name="spinner" size={12} className="agent-spinner shrink-0 text-accent" />
   }
   if (status === 'error') {
     return <Icon name="alert-circle" size={12} className="shrink-0 text-danger" />
@@ -147,7 +147,7 @@ function ToolCard({ item, separateOutput = false }: { item: AgentItem; separateO
       style={expanded ? undefined : { display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{expanded ? item.output : output.text.replace(/\n…$/, '')}</pre> : null}
     {!expanded && (output.clipped || wrapped.output) ? <div className="text-muted">…</div> : null}
     {canExpand ? <button type="button" aria-expanded={expanded} onClick={() => setExpanded(value => !value)}
-      className="mt-1 text-2xs text-accent">{t(expanded ? 'agent.output.collapse' : 'agent.output.expand')}</button> : null}
+      className="mt-1 cursor-pointer rounded-[var(--r-row)] px-1 text-2xs text-accent transition-colors duration-fast hover:bg-hover hover:text-fg">{t(expanded ? 'agent.output.collapse' : 'agent.output.expand')}</button> : null}
   </div>
 }
 
@@ -175,7 +175,7 @@ function ToolOutputCard({ item, fullOutput }: { item: AgentItem; fullOutput?: st
     </div>
     {!expanded && (preview.clipped || wrapped) ? <div>…</div> : null}
     {preview.clipped || wrapped ? <button type="button" aria-expanded={expanded} onClick={() => setExpanded(value => !value)}
-      className="mt-1 text-2xs text-accent">{t(expanded ? 'agent.output.collapse' : 'agent.output.expand')}</button> : null}
+      className="mt-1 cursor-pointer rounded-[var(--r-row)] px-1 text-2xs text-accent transition-colors duration-fast hover:bg-hover hover:text-fg">{t(expanded ? 'agent.output.collapse' : 'agent.output.expand')}</button> : null}
   </div>
 }
 

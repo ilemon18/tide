@@ -4,7 +4,8 @@ vi.mock('../lib/ipc', () => ({ api: { agentChatOpen: vi.fn(), agentChatApply: vi
   agentChatPage: vi.fn(), agentChatList: vi.fn(), agentChatClone: vi.fn(), agentCancel: vi.fn(), agentPermissionRespond: vi.fn() }, errorText: (error: unknown) => error instanceof Error ? error.message : String(error) }))
 vi.mock('../i18n', () => ({ t: (key: string) => key }))
 vi.mock('./settings', () => ({ useSettings: { getState: () => ({ agentEnabled: true, flush: vi.fn() }) } }))
-vi.mock('./tabs', () => ({ useTabs: { getState: () => ({ setTabName: vi.fn(), openChat: vi.fn(), openChatInRight: vi.fn() }) } }))
+const { setTabName } = vi.hoisted(() => ({ setTabName: vi.fn() }))
+vi.mock('./tabs', () => ({ useTabs: { getState: () => ({ setTabName, openChat: vi.fn(), openChatInRight: vi.fn() }) } }))
 vi.mock('./ui', () => ({ useUi: { getState: () => ({ toast: vi.fn() }) } }))
 vi.mock('./workspace', () => ({ activeRoot: () => null }))
 import { findPendingPlanAction, useAgent, type AgentChat } from './agent'
@@ -36,6 +37,26 @@ afterEach(async () => {
 })
 
 describe('chat protocol state', () => {
+  it.each([
+    { name: 'successful', ok: true, cancelled: false },
+    { name: 'failed', ok: false, cancelled: false },
+    { name: 'cancelled', ok: false, cancelled: true },
+  ])('keeps the chat tab title stable during and after a $name turn', async ({ ok, cancelled }) => {
+    await useAgent.getState().sendMessage('chat-test', { text: 'Continue work', mentions: [] })
+    expect(setTabName).toHaveBeenCalledTimes(1)
+    expect(setTabName).toHaveBeenCalledWith('chat:chat-test', 'test')
+    setTabName.mockClear()
+
+    await vi.advanceTimersByTimeAsync(65_000)
+    expect(useAgent.getState().chats['chat-test'].status).toBe('running')
+    expect(setTabName).not.toHaveBeenCalled()
+
+    finishTurn(ok, cancelled)
+    await vi.advanceTimersByTimeAsync(2_000)
+    expect(setTabName).not.toHaveBeenCalled()
+    expect(useAgent.getState().chats['chat-test'].title).toBe('test')
+  })
+
   it('sends explicit resume and keeps a changed draft while starting', async () => {
     let finish!: () => void
     vi.mocked(api.agentSend).mockReturnValueOnce(new Promise<void>(resolve => { finish = resolve }))
@@ -56,6 +77,8 @@ describe('chat protocol state', () => {
     expect(useAgent.getState().chatDrafts['chat-test'].text).toBe('keep this')
     expect(useAgent.getState().chats['chat-test'].sessionId).toBe('session-1')
     expect(api.agentSend).toHaveBeenCalledTimes(1)
+    expect(setTabName).toHaveBeenCalledTimes(1)
+    expect(setTabName).toHaveBeenCalledWith('chat:chat-test', 'test')
   })
   it('rejects duplicate and stale events and completion', () => {
     useAgent.setState({ chats: { 'chat-test': { ...chat(), status: 'running', activeRunId: 'run-1' } } })

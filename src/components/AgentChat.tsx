@@ -154,7 +154,7 @@ export function AgentChat({ chatId }: { chatId: string }) {
       <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-bg text-xs text-muted">
         {loading ? (
           <>
-            <Icon name="spinner" size={18} className="animate-spin" />
+            <Icon name="spinner" size={18} className="agent-spinner shrink-0 text-accent" />
             {t('agent.loading')}
           </>
         ) : (

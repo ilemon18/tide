@@ -30,7 +30,6 @@ import { useTabs } from './tabs'
 import { useUi } from './ui'
 import { activeRoot } from './workspace'
 import { normalizeAgentUsage, replaceTurnUsage } from '../lib/agentUsage'
-import { elapsedSeconds, formatAgentDuration } from '../lib/agentDuration'
 
 /**
  * One chat tab = one local CLI conversation.
@@ -273,8 +272,6 @@ const catalogTickets = new Map<string, number>()
 let providerTicket = 0
 /** Retain failed closing-tab writes for explicit flush/reopen retries. */
 const unsavedClosedChats = new Map<string, AgentChat>()
-/** Tab title update timers for running agents */
-const tabTitleTimers = new Map<string, ReturnType<typeof setInterval>>()
 
 function queueChatSave(chatId: string, chat: AgentChat): Promise<void> {
   const { messages, ...header } = chat
@@ -352,29 +349,6 @@ function schedulePersist(chatId: string) {
     }, 700),
   )
 }
-
-function startTabTitleTimer(chatId: string, startedAt: number) {
-  stopTabTitleTimer(chatId)
-  const interval = setInterval(() => {
-    const state = useAgent.getState()
-    if (!state.running[chatId]) {
-      stopTabTitleTimer(chatId)
-      return
-    }
-    const duration = formatAgentDuration(elapsedSeconds(startedAt))
-    useTabs.getState().setTabName(chatTabId(chatId), duration)
-  }, 1000)
-  tabTitleTimers.set(chatId, interval)
-}
-
-function stopTabTitleTimer(chatId: string) {
-  const timer = tabTitleTimers.get(chatId)
-  if (timer) {
-    clearInterval(timer)
-    tabTitleTimers.delete(chatId)
-  }
-}
-
 
 async function persistChat(chatId: string) {
   const chat = useAgent.getState().chats[chatId]
@@ -564,7 +538,6 @@ export const useAgent = create<AgentStore>((set, get) => {
       running: { ...get().running, [chatId]: now },
     })
     if (title) useTabs.getState().setTabName(chatTabId(chatId), title)
-    startTabTitleTimer(chatId, now)
     schedulePersist(chatId)
 
     try {
@@ -615,7 +588,6 @@ export const useAgent = create<AgentStore>((set, get) => {
       }
       const running = { ...get().running }
       delete running[chatId]
-      stopTabTitleTimer(chatId)
       set({
         chats: {
           ...get().chats,
@@ -630,8 +602,6 @@ export const useAgent = create<AgentStore>((set, get) => {
         },
         running,
       })
-      // Restore original title after error
-      useTabs.getState().setTabName(chatTabId(chatId), current.title)
       schedulePersist(chatId)
       return false
     }
@@ -1240,7 +1210,6 @@ export const useAgent = create<AgentStore>((set, get) => {
           void get().stop(chatId)
           const running = { ...get().running }
           delete running[chatId]
-          stopTabTitleTimer(chatId)
           set({ chats: { ...get().chats, [chatId]: { ...chat, status: 'error', error: t('agent.local.forkUnsupported') } }, running })
           schedulePersist(chatId)
           return
@@ -1282,7 +1251,6 @@ export const useAgent = create<AgentStore>((set, get) => {
       if (event.kind === 'done') {
         const running = { ...get().running }
         delete running[chatId]
-        stopTabTitleTimer(chatId)
         const status: AgentChatStatus = event.cancelled
           ? 'cancelled'
           : event.ok
@@ -1353,8 +1321,6 @@ export const useAgent = create<AgentStore>((set, get) => {
           }
         }
         set({ chats: { ...get().chats, [chatId]: next }, running })
-        // Restore original title after completion
-        useTabs.getState().setTabName(chatTabId(chatId), next.title)
         schedulePersist(chatId)
 
         if (event.ok && !event.cancelled) drainQueue(chatId)

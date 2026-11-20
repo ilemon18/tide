@@ -66,13 +66,17 @@ Path, guard or behavior-contract changes update their routed docs in the same ch
 - Frontend tests cover Plan persistence/actions/retries/queue guards, local command selectors, compact
   success/failure, session usage, 160-record/1 MiB windows, stream ordering, footer/status placement and
   usage popup keyboard interaction; tree/watch tests cover transition batches and stale directory reads.
+- `src/components/AgentTurnStatus.test.tsx` covers local 24-hour `HH:mm` completion times after duration,
+  zero padding, saved times after reopening, omission during runs or without a valid saved timestamp, and
+  the running indicator's dedicated spinner class; visual smoothness remains a manual app review surface.
 - Provider/transport tests cover app-server initialization and native thread operations, streamed Unicode
   text/thinking/tool input/output, final snapshots, three permission mappings, read-only override,
   allow/deny, duplicate requests and stop invalidation. Native failures stay explicit; no exec fallback.
 - Rust watcher tests cover truncation, overflow, continuous event deadlines, rescan/errors and Git-only locks;
   provider capability tests reject missing native fork/app-server entry points. Real-account protocol behavior is not
   established by these tests.
-- Agent store tests cover exclusive cursors, byte budgets, unknown fields, concurrent patches, and preserving files after failed writes.
+- Agent store tests cover exclusive cursors, byte budgets, unknown fields, concurrent patches, preserving
+  files after failed writes, and stable chat tab titles during runs and after completion/cancellation/failure.
 - Run targeted Rust tests through the verification skill when test code changed, or when the change touches
   update, path containment, settings migration, Git commands or agent providers; installer changes belong to
   the release-check surface. Keep unit tests beside the owning Rust module.

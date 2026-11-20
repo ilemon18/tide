@@ -20,9 +20,13 @@ export function AgentTurnStatus({ message, running, startedAt }: {
     (item.permissionState === 'pending' || item.permissionState === 'submitting'))
   const duration = running ? formatAgentDuration(startedAt ? elapsedSeconds(startedAt) : 0)
     : message.durationMs === undefined ? null : formatAgentDuration(message.durationMs / 1000)
+  const completedAt = !running && message.completedAt !== undefined ? new Date(message.completedAt) : null
+  const completionTime = completedAt && Number.isFinite(completedAt.getTime())
+    ? `${String(completedAt.getHours()).padStart(2, '0')}:${String(completedAt.getMinutes()).padStart(2, '0')}`
+    : null
   return <div role="status" className="flex min-h-5 items-center gap-1.5 text-2xs text-muted">
-    {running ? <Icon name="spinner" size={11} className="animate-spin" /> : null}
+    {running ? <Icon name="spinner" size={12} className="agent-spinner shrink-0 text-accent" /> : null}
     <span>{running ? t(waiting ? 'agent.permission.waiting' : 'agent.working')
-      : t(`agent.completion.${message.completion!}`)}{duration ? ` · ${t('agent.completion.duration', { duration })}` : ''}</span>
+      : t(`agent.completion.${message.completion!}`)}{duration ? ` · ${t('agent.completion.duration', { duration })}` : ''}{completionTime ? ` · ${completionTime}` : ''}</span>
   </div>
 }

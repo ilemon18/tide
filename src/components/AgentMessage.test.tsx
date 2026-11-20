@@ -76,6 +76,8 @@ it('keeps tool previews and public reasoning in source order without details wra
   expect(screen.queryByText(/four/)).toBeNull()
   expect(screen.getByText('Before').compareDocumentPosition(screen.getByText('pwd')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: 'agent.output.expand' }))
+  expect(screen.getByRole('button', { name: 'agent.output.collapse' }).className).toContain('cursor-pointer')
+  expect(screen.getByRole('button', { name: 'agent.output.collapse' }).className).toContain('hover:bg-hover')
   expect(screen.getByText(/four/)).toBeTruthy()
   rerender(view({ ...message, items: message.items!.map(item => item.id === 't' ? { ...item, output: item.output + '\nfive' } : item) }))
   expect(screen.getByText(/five/)).toBeTruthy()

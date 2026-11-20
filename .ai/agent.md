@@ -74,19 +74,27 @@ Claude/Codex CLIs own auth, models and tools; Rust owns one bidirectional stdio 
 Chat tabs subscribe to their chat record's provider and render the shared `AgentProviderIcon` artwork at
 tab size. Unknown or not-yet-loaded providers use the generic agent fallback; the same component is used by
 the cross-pane drag ghost, so provider hydration and changes update both surfaces without adding tab fields.
+Chat tab titles stay on the conversation title during runs and after completion, cancellation or launch
+failure; elapsed time belongs only to the assistant turn's tail status, never a tab-name timer.
 
 - Title-bar/tree-context entry points respect agentEnabled. Tree double-click remains normal open/toggle.
   New chats fill an empty editor or open in a secondary row pane. Only installed/supported providers run;
   new providers need a spec and event translator.
+- Chat loading and running tool indicators use a dedicated SVG spinner animation with a fixed transform box,
+  linear timing and compositor hint, keeping rotation smooth while streamed content rerenders.
 - User bubbles shrink to content at the right edge; body stays left-aligned with indentation/newlines.
   The absolute copy button appears on hover/focus, includes references and never occupies a text column.
 - Items render in source order without tool groups or command details wrappers. Commands show two lines,
   results three; result segments retain their arrival positions across permissions/text, while final snapshots
   reconcile those segments. Wrapped/long content exposes expand-all, retained across deltas. Prefer parsed command/path
   over argument JSON. Full input/result and whole-turn copying use all received bytes.
-- Each assistant turn owns one tail activity/elapsed status (waiting confirmation when applicable).
+  Expand/collapse controls for clipped tool input and output use a visible hover state and pointer cursor.
+- Each assistant turn owns one tail activity/elapsed status (waiting confirmation when applicable); the
+  leading spinner is accent-colored and rotates while the turn runs.
   Done persists completion, completion timestamp and backend duration including approval waits; old records
-  never invent a duration. Scroll follows only at bottom; history expansion pauses following.
+  never invent a duration or timestamp. Finished turns append the saved completion time after duration
+  in local 24-hour `HH:mm` format (both fields zero-padded), including after reopening; live turns omit it.
+  Scroll follows only at bottom; history expansion pauses following.
 - Footer order: context ring, stop, send. Popup handles Escape before stop. Header `currentContext` and
   `sessionUsage` are independent of loaded history: only provider contextTokens/contextWindow drive the
   ring (zero valid, missing/invalid unavailable), never draft estimates or cumulative usage. Replace each
