@@ -589,14 +589,13 @@ export const en = {
   'branch.searchPlaceholder': 'Search branches',
   'branch.loading': 'Reading branches…',
   'branch.noMatch': 'No matching branches',
-  'branch.noRecent': 'No branch active in the last 5 days; try searching',
+  'branch.local': 'Local',
+  'branch.remote': 'Remote',
+  'branch.empty': 'No branches available',
   'branch.create': 'Create branch “{name}”',
   'branch.createTip': 'Create branch {name} from the current commit and switch to it',
   'branch.fromHead': 'from the current commit',
   'branch.truncated': 'Showing the first {count}; keep typing to narrow it down',
-  'branch.showRecentOnly': 'Only branches active in the last 5 days',
-  'branch.showAll': 'Show all {count} branch | Show all {count} branches',
-
   // ---------------------------------------------------------------- Commit hover card / clipboard
   'copy.clipboardUnavailable': 'Clipboard is not available',
   'copy.copied': 'Copied {label}',

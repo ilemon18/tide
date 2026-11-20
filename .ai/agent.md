@@ -71,6 +71,10 @@ Claude/Codex CLIs own auth, models and tools; Rust owns one bidirectional stdio 
 
 ## UI, usage and storage
 
+Chat tabs subscribe to their chat record's provider and render the shared `AgentProviderIcon` artwork at
+tab size. Unknown or not-yet-loaded providers use the generic agent fallback; the same component is used by
+the cross-pane drag ghost, so provider hydration and changes update both surfaces without adding tab fields.
+
 - Title-bar/tree-context entry points respect agentEnabled. Tree double-click remains normal open/toggle.
   New chats fill an empty editor or open in a secondary row pane. Only installed/supported providers run;
   new providers need a spec and event translator.

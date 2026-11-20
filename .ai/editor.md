@@ -58,6 +58,9 @@ scope:
 
 ## Markdown preview
 
+The tab bar uses the chat provider icon beside agent titles, including the cross-pane drag ghost. Provider
+lookup is live from the agent store and has a generic fallback while a session is loading.
+
 Preview state is per pane/tab in `TabGroup.markdownPreview` and records the source-pane ratio: preserve it
 through pane/tab moves and clear it on close, rename away from Markdown, replacement or merge (primary wins).
 Keep the source `EditorView` mounted so `editor/markdownDocs.ts` can publish unsaved source, and lazy-load the

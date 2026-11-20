@@ -7,17 +7,45 @@ import { Icon } from './Icon'
 import type { GitBranch } from '../lib/ipc'
 import { useT } from '../i18n'
 
-/** By default show only branches active in the last 5 days; older ones via search or "show all" */
-const RECENT_DAYS = 5
+/** Default limit per group; search always uses the complete cached branch list. */
+const RECENT_LIMIT = 10
 const SEARCH_LIMIT = 200
 
 /** Current branch -> local branches (newest commit first) -> remote branches (newest commit first) */
-function sortBranches(list: GitBranch[]): GitBranch[] {
+export function sortBranches(list: GitBranch[]): GitBranch[] {
   return [...list].sort((a, b) => {
     if (a.current !== b.current) return a.current ? -1 : 1
     if (a.kind !== b.kind) return a.kind === 'local' ? -1 : 1
     return b.time - a.time
   })
+}
+
+export function selectRecentBranches(all: GitBranch[], limit = RECENT_LIMIT): GitBranch[] {
+  return (['local', 'remote'] as const).flatMap((kind) => {
+    const recent = all
+      .filter((branch) => branch.kind === kind)
+      .sort((a, b) => b.time - a.time)
+      .slice(0, limit)
+    return kind === 'local' ? sortBranches(recent) : recent
+  })
+}
+
+export function searchBranches(all: GitBranch[], query: string): GitBranch[] {
+  const q = query.trim().toLowerCase()
+  if (!q) return []
+  const rank = (branch: GitBranch) => {
+    const name = branch.name.toLowerCase()
+    if (name === q) return 0
+    if (name.startsWith(q) || name.split('/').pop() === q) return 1
+    if (name.includes(`/${q}`)) return 2
+    return 3
+  }
+  return all
+    .filter((branch) => branch.name.toLowerCase().includes(q))
+    .sort((a, b) => {
+      if (a.kind !== b.kind) return a.kind === 'local' ? -1 : 1
+      return rank(a) - rank(b)
+    })
 }
 
 /** Branch dropdown in the status bar's bottom-left: filter + checkout + fetch remote (VS Code style) */
@@ -31,7 +59,6 @@ export function BranchMenu() {
 
   const [query, setQuery] = useState('')
   const [index, setIndex] = useState(0)
-  const [showAll, setShowAll] = useState(false)
   const [creating, setCreating] = useState(false)
   const listRef = useRef<HTMLDivElement>(null)
 
@@ -41,48 +68,39 @@ export function BranchMenu() {
     if (!menu) return
     setQuery('')
     setIndex(0)
-    setShowAll(false)
     void useGit.getState().loadBranches(menu.root)
   }, [menu])
 
   const all = useMemo(() => (data ? sortBranches(data.branches) : []), [data])
 
-  const recentItems = useMemo(() => {
-    const cutoff = Date.now() / 1000 - RECENT_DAYS * 86400
-    // Always keep the current branch so you can see where you are on a detached / old branch
-    return all.filter((b) => b.current || b.time >= cutoff)
-  }, [all])
+  const recentItems = useMemo(() => selectRecentBranches(all), [all])
 
   const searched = useMemo(() => {
-    const q = query.trim().toLowerCase()
-    if (!q) return null
-    // Match branch names only: this used to match commit messages too, so searching master
-    // also listed unrelated branches that mention master in a commit.
-    const hits = all.filter((b) => b.name.toLowerCase().includes(q))
-    const rank = (branch: GitBranch) => {
-      const name = branch.name.toLowerCase()
-      if (name === q) return 0
-      if (name.startsWith(q)) return 1
-      // Remote branches like origin/master: an exact match on the last segment also counts
-      if (name.split('/').pop() === q) return 1
-      if (name.includes(`/${q}`)) return 2
-      return 3
-    }
-    // sort is stable: within a rank the original "current / local / remote + newest first" order holds
-    return [...hits].sort((a, b) => rank(a) - rank(b))
+    if (!query.trim()) return null
+    return searchBranches(all, query)
   }, [all, query])
 
-  const items = searched ?? (showAll ? all : recentItems)
-  const shown = searched ? searched.slice(0, SEARCH_LIMIT) : items
+  const shown = useMemo(
+    () => (searched ? searched.slice(0, SEARCH_LIMIT) : recentItems),
+    [searched, recentItems],
+  )
+  const groups = useMemo(() => {
+    const local = shown.filter((branch) => branch.kind === 'local')
+    const remote = shown.filter((branch) => branch.kind === 'remote')
+    return [
+      { kind: 'local' as const, items: local, offset: 0 },
+      { kind: 'remote' as const, items: remote, offset: local.length },
+    ]
+  }, [shown])
   const truncated = searched ? searched.length > SEARCH_LIMIT : false
 
-  // When no branch matches, allow creating a new branch from the typed name
+  // Allow creating a typed name that does not already exist, after all results.
   const createName = query.trim()
   const canCreate =
     !!searched && createName !== '' && !all.some((b) => b.name === createName)
   const total = shown.length + (canCreate ? 1 : 0)
 
-  useEffect(() => setIndex(0), [query, showAll])
+  useEffect(() => setIndex(0), [query])
 
   // When the result count shrinks (list refreshed, create row gone) pull the highlight back in range
   useEffect(() => {
@@ -91,7 +109,7 @@ export function BranchMenu() {
 
   useEffect(() => {
     listRef.current?.querySelector('[data-active="true"]')?.scrollIntoView({ block: 'nearest' })
-  }, [index])
+  }, [index, shown, canCreate])
 
   if (!menu || !root) return null
 
@@ -117,8 +135,9 @@ export function BranchMenu() {
       onMouseDown={close}
     >
       <div
-        className="flex w-[560px] max-w-[92vw] flex-col overflow-hidden rounded-dialog border border-line-soft bg-panel shadow-dialog"
-        style={{ maxHeight: '60vh' }}
+        role="dialog"
+        aria-label={t('branch.searchPlaceholder')}
+        className="flex h-[480px] max-h-[calc(100dvh-32px)] w-[560px] max-w-[92vw] flex-col overflow-hidden rounded-dialog border border-line-soft bg-panel shadow-dialog"
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="flex shrink-0 items-center gap-1.5 border-b border-line px-3 py-2">
@@ -130,7 +149,7 @@ export function BranchMenu() {
             onKeyDown={(e) => {
               if (e.key === 'ArrowDown') {
                 e.preventDefault()
-                setIndex((i) => Math.min(total - 1, i + 1))
+                setIndex((i) => Math.max(0, Math.min(total - 1, i + 1)))
               } else if (e.key === 'ArrowUp') {
                 e.preventDefault()
                 setIndex((i) => Math.max(0, i - 1))
@@ -148,7 +167,7 @@ export function BranchMenu() {
               }
             }}
             placeholder={t('branch.searchPlaceholder')}
-            className="h-7 flex-1 bg-transparent text-sm outline-none placeholder:text-muted/60"
+            className="h-7 min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted/60"
           />
           {data?.detached ? (
             <span className="shrink-0 rounded-full bg-panel-alt px-1.5 text-2xs text-warning">
@@ -169,24 +188,32 @@ export function BranchMenu() {
           </button>
         </div>
 
-        <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto py-1">
+        <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden py-1">
           {loading && !data ? (
             <div className="px-3 py-8 text-center text-sm text-muted">{t('branch.loading')}</div>
           ) : null}
 
           {shown.length === 0 && data && !canCreate ? (
             <div className="px-3 py-8 text-center text-sm text-muted">
-              {searched ? t('branch.noMatch') : t('branch.noRecent')}
+              {searched ? t('branch.noMatch') : t('branch.empty')}
             </div>
           ) : null}
 
-          {shown.map((branch, i) => (
+          {groups.map((group) => group.items.length > 0 ? (
+            // Group headings are visual only and are excluded from the keyboard index.
+            <section key={group.kind} aria-label={t(group.kind === 'local' ? 'branch.local' : 'branch.remote')}>
+              <h3 className="px-3 pb-1 pt-2 text-2xs font-medium text-muted">
+                {t(group.kind === 'local' ? 'branch.local' : 'branch.remote')}
+              </h3>
+              {group.items.map((branch, groupIndex) => {
+                const i = group.offset + groupIndex
+                return (
             <button
               key={`${branch.kind}:${branch.name}`}
               data-active={i === index}
               onMouseEnter={() => setIndex(i)}
               onClick={() => pick(branch)}
-              className={`flex w-full items-center gap-2 px-3 py-[6px] text-left ${
+              className={`flex w-full items-center gap-2 whitespace-nowrap px-3 py-[6px] text-left ${
                 i === index ? 'bg-active' : ''
               }`}
               title={`${branch.name}${branch.subject ? `\n${branch.subject}` : ''}`}
@@ -199,11 +226,6 @@ export function BranchMenu() {
               <span className="min-w-0 shrink-0 max-w-[46%] truncate text-sm text-fg">
                 {branch.name}
               </span>
-              {branch.kind === 'remote' ? (
-                <span className="shrink-0 rounded-full bg-panel-alt px-1.5 text-2xs text-muted/70">
-                  remote
-                </span>
-              ) : null}
               <span className="min-w-0 flex-1 truncate text-2xs text-muted/60">
                 {branch.subject || branch.sha}
               </span>
@@ -214,7 +236,10 @@ export function BranchMenu() {
               ) : null}
               {branch.current ? <Icon name="check" size={11} className="shrink-0 text-accent" /> : null}
             </button>
-          ))}
+                )
+              })}
+            </section>
+          ) : null)}
 
           {canCreate ? (
             <button
@@ -222,7 +247,7 @@ export function BranchMenu() {
               onMouseEnter={() => setIndex(shown.length)}
               onClick={runCreate}
               disabled={creating || busy !== null}
-              className={`flex w-full items-center gap-2 px-3 py-[6px] text-left disabled:opacity-60 ${
+              className={`flex w-full items-center gap-2 whitespace-nowrap px-3 py-[6px] text-left disabled:opacity-60 ${
                 index === shown.length ? 'bg-active' : ''
               }`}
               title={t('branch.createTip', { name: createName })}
@@ -246,15 +271,6 @@ export function BranchMenu() {
           ) : null}
         </div>
 
-        {!searched && all.length > recentItems.length ? (
-          <button
-            onClick={() => setShowAll((v) => !v)}
-            className="flex shrink-0 items-center justify-center gap-1.5 border-t border-line px-3 py-2 text-xs text-muted hover:bg-hover hover:text-fg"
-          >
-            <Icon name={showAll ? 'chevron-down' : 'chevron-right'} size={11} />
-            {showAll ? t('branch.showRecentOnly') : t('branch.showAll', { count: all.length })}
-          </button>
-        ) : null}
       </div>
     </div>
   )

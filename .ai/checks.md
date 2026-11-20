@@ -21,8 +21,8 @@ scope:
 | `pnpm i18n` | Locale key/placeholder/plural parity and error-code coverage |
 | `pnpm i18n:scan` | Hardcoded CJK UI literals; genuine non-UI files are explicitly allowlisted |
 | `pnpm check:workflows` | Workflow shell expansions followed by non-ASCII text after `$var` |
-| `pnpm test:frontend` | Vitest/React Testing Library: local commands, context usage, composer chips, plan completion/actions, persistent Plan/permissions, isolated plan handoff, compact/fork, usage replacement, bounded history, stream flushing, IME send/completion priority, ordered tool previews, native permission decisions, completion persistence, terminal maximize geometry/resident PTYs, tree/watch races, diff scrolling and restoration |
-| `pnpm typecheck` | TypeScript types, including complete typed locale records |
+| `pnpm test:frontend` | Vitest/React Testing Library: local commands, context usage, composer chips, plan completion/actions, persistent Plan/permissions, isolated plan handoff, compact/fork, usage replacement, bounded history, stream flushing, IME send/completion priority, ordered tool previews, native permission decisions, completion persistence, terminal maximize geometry/resident PTYs, tree/watch races, diff scrolling and restoration, provider tab icons and grouped branch search |
+| `pnpm typecheck` | TypeScript types, missing runtime imports (including root React hooks), and complete typed locale records |
 | `pnpm check:rust` | Rust types/borrows without linking |
 | `pnpm docs:route` | Select only area docs whose scope matches the supplied touched paths |
 | `pnpm docs:sync` | Regenerate the route table in `context.md` from area-doc frontmatter; never hand-edit the generated region |
@@ -57,6 +57,9 @@ Path, guard or behavior-contract changes update their routed docs in the same ch
 
 ## Tests and CI
 
+- `src/App.test.tsx` in `pnpm test:frontend` renders the real root's startup frame before effects to catch
+  render-time failures that would prevent session restoration and its reveal timeout. It does not cover
+  native startup; debug packaging uses Vite transpilation and does not itself run the typecheck guard.
 - Diff tests cover latest scroll input, clamped echoes, independent axes, overview jumps, first-change
   positioning, refresh restoration, folding and cancellation on tab switch/unmount. Native scrolling
   smoothness still needs an explicitly requested app review; jsdom does not model layout or compositing.

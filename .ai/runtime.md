@@ -2,6 +2,7 @@
 summary: App shell, windows, memory, settings and updates
 scope:
   - src/App.tsx
+  - src/App.test.tsx
   - src/main.tsx
   - src/components/TitleBar.tsx
   - src/components/SettingsView.tsx
@@ -42,6 +43,9 @@ scope:
   cannot close them afterwards.
 - Debug builds must not report updates, run quiet checks or show the title-bar update badge, in either
   frontend or backend; `app:open-file` still has no listener, so do not assume it is consumed.
+- The root `App` must render its themed startup frame before session-restoration effects run; a render
+  failure prevents the reveal timer from being installed. `src/App.test.tsx` covers this initial render
+  with real React hooks, without starting native effects.
 
 - The right editor region owns terminal geometry; maximize hides the resident editor wrapper without
   unmounting it or touching the sidebar. See [terminal.md](./terminal.md) for drag/restore ownership.

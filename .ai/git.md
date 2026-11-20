@@ -7,6 +7,8 @@ scope:
   - src/components/diffScroll.ts
   - src/components/diffScroll.test.ts
   - src/components/GitPanel.tsx
+  - src/components/BranchMenu.tsx
+  - src/components/BranchMenu.test.ts
   - src/components/DiffRuler.tsx
   - src/components/diffHighlight.ts
   - src/lib/conflictFiles.ts
@@ -18,6 +20,11 @@ scope:
 # Git, diff and conflicts
 
 ## Lifecycle
+
+The branch chooser keeps a fixed 480px dialog (clamped to the viewport), with an independently scrolling
+list. Local and remote branches are separate groups; empty search shows the ten newest commits per group,
+while name search spans the complete cached list and caps visible matches at 200. Group headings are visual
+only, and keyboard navigation follows branch rows plus the create action.
 
 - Keep status repo-local and subscribe only to the active path/id needed for highlighting. Read porcelain v2
   status once, NUL-delimited, rather than shelling out per file; coalesce refreshes, skip `setState` when data

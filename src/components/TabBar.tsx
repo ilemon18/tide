@@ -19,10 +19,19 @@ import { FileIcon } from './FileIcon'
 import { Icon } from './Icon'
 import { useT } from '../i18n'
 import { tabTitle, tabTooltip } from '../lib/tabTitle'
+import { useAgent } from '../store/agent'
+import { AgentProviderIcon } from './AgentProviderIcon'
 
 const GAP = 2
 /** Position estimate only, until the intrinsic tab width has been measured. */
 const TAB_W = 140
+
+/** Subscribe only to this chat's provider, including late session hydration. */
+function ChatTabIcon({ tabId }: { tabId: string }) {
+  const chatId = tabId.slice('chat:'.length)
+  const provider = useAgent((s) => s.chats[chatId]?.provider ?? '')
+  return <AgentProviderIcon provider={provider} size={14} className="shrink-0 text-accent" />
+}
 
 type DragState = {
   id: string
@@ -82,7 +91,7 @@ const TabItem = memo(function TabItem({
       style={{ transform: `translateX(${x}px)` }}
     >
       {tab.kind === 'chat' ? (
-        <Icon name="agent" size={14} className="shrink-0 text-accent" />
+        <ChatTabIcon tabId={tab.id} />
       ) : tab.kind === 'welcome' ? (
         <Icon name="home" size={14} className="shrink-0 text-muted" />
       ) : tab.kind === 'settings' ? (
@@ -591,7 +600,7 @@ export function TabBar({ groupId }: { groupId: TabGroupId }) {
                 return (
                   <>
                     {tab.kind === 'chat' ? (
-                      <Icon name="agent" size={14} className="shrink-0 text-accent" />
+                      <ChatTabIcon tabId={tab.id} />
                     ) : tab.kind === 'welcome' ? (
                       <Icon name="home" size={14} className="shrink-0 text-muted" />
                     ) : tab.kind === 'settings' ? (
