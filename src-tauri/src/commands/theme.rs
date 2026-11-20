@@ -69,6 +69,8 @@ pub struct Settings {
     pub agent_default_provider: String,
     pub agent_default_model: String,
     pub agent_default_effort: String,
+    /// Manual minimum height of the agent composer textarea; long drafts may grow taller
+    pub agent_composer_height: u32,
     pub sidebar_width: u32,
     pub panel_height: u32,
     pub sidebar_visible: bool,
@@ -110,6 +112,7 @@ impl Default for Settings {
             agent_default_provider: String::new(),
             agent_default_model: String::new(),
             agent_default_effort: String::new(),
+            agent_composer_height: 60,
             sidebar_width: 220,
             panel_height: 240,
             sidebar_visible: true,
@@ -366,6 +369,7 @@ mod compat {
         assert_eq!(settings.format_mode, "off");
         assert_eq!(settings.format_tool, "auto");
         assert_eq!(settings.tab_size, 2);
+        assert_eq!(settings.agent_composer_height, 60);
         assert!(settings.auto_save);
     }
 

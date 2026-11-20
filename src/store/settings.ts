@@ -21,7 +21,9 @@ import { DEFAULT_MONO_FONT } from '../lib/fonts'
 import { applyLocale, DEFAULT_LOCALE, isLocale } from '../i18n'
 import { applyMemoryProfileChange, setMemoryProfile } from '../lib/memoryBudget'
 
-export const SETTINGS_SCHEMA_VERSION = 9
+export const SETTINGS_SCHEMA_VERSION = 10
+export const AGENT_COMPOSER_MIN_HEIGHT = 60
+export const AGENT_COMPOSER_MAX_HEIGHT = 480
 
 export const DEFAULT_SETTINGS: Settings = {
   schemaVersion: SETTINGS_SCHEMA_VERSION,
@@ -51,6 +53,7 @@ export const DEFAULT_SETTINGS: Settings = {
   agentDefaultProvider: '',
   agentDefaultModel: '',
   agentDefaultEffort: '',
+  agentComposerHeight: AGENT_COMPOSER_MIN_HEIGHT,
   sidebarWidth: 220,
   panelHeight: 240,
   sidebarVisible: true,
@@ -101,6 +104,7 @@ const SHARED_KEYS = [
   'agentDefaultProvider',
   'agentDefaultModel',
   'agentDefaultEffort',
+  'agentComposerHeight',
 ] as const satisfies readonly (keyof Settings)[]
 
 /** Compare field by field so JSON key order does not matter */
@@ -189,6 +193,7 @@ function snapshot(s: SettingsStore): Settings {
     agentDefaultProvider: s.agentDefaultProvider,
     agentDefaultModel: s.agentDefaultModel,
     agentDefaultEffort: s.agentDefaultEffort,
+    agentComposerHeight: s.agentComposerHeight,
     sidebarWidth: s.sidebarWidth,
     panelHeight: s.panelHeight,
     sidebarVisible: s.sidebarVisible,
@@ -239,7 +244,8 @@ function migrate(raw: Settings): Settings {
   // an unknown value (added later, then downgraded) also falls back, so the UI never renders empty.
   if (!isLocale(next.locale)) next.locale = DEFAULT_LOCALE
 
-  // v8 -> v9 adds ligatures: DEFAULT_SETTINGS covers it, off by default.
+  // v8 -> v9 adds ligatures, v9 -> v10 adds agentComposerHeight: DEFAULT_SETTINGS covers missing values.
+  // Keep larger stored heights when the current window is short: the composer clamps them for display only.
   next.schemaVersion = SETTINGS_SCHEMA_VERSION
 
   // Theme / icon set / font: only check the type, keep unknown-but-valid strings so an older version does not
@@ -264,6 +270,17 @@ function migrate(raw: Settings): Settings {
   if (typeof next.agentDefaultProvider !== 'string') next.agentDefaultProvider = ''
   if (typeof next.agentDefaultModel !== 'string') next.agentDefaultModel = ''
   if (typeof next.agentDefaultEffort !== 'string') next.agentDefaultEffort = ''
+  if (
+    typeof next.agentComposerHeight !== 'number' ||
+    !Number.isFinite(next.agentComposerHeight)
+  ) {
+    next.agentComposerHeight = AGENT_COMPOSER_MIN_HEIGHT
+  } else {
+    next.agentComposerHeight = Math.max(
+      AGENT_COMPOSER_MIN_HEIGHT,
+      Math.round(next.agentComposerHeight),
+    )
+  }
   return next
 }
 

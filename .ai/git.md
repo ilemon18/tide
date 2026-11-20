@@ -1,9 +1,18 @@
+---
+summary: Git actions, diff views, conflicts and bulk discard
+scope:
+  - src/store/git.ts
+  - src/components/DiffView.tsx
+  - src/components/GitPanel.tsx
+  - src/components/DiffRuler.tsx
+  - src/components/diffHighlight.ts
+  - src/lib/conflictFiles.ts
+  - src/editor/conflicts.ts
+  - src-tauri/src/commands/git.rs
+  - src-tauri/src/paths.rs
+  - src-tauri/src/proc.rs
+---
 # Git, diff and conflicts
-
-**Load when:** changing Git status/actions, diff tabs or highlighting, conflict detection/resolution, bulk
-discard, Git subprocess behavior, or path containment.
-**Code:** `src/store/git.ts`, `src/components/{DiffView,GitPanel}.tsx`, `src/lib/conflictFiles.ts`,
-`src-tauri/src/commands/git.rs`, `src-tauri/src/{paths,proc}.rs`.
 
 ## Lifecycle
 

@@ -1,9 +1,19 @@
+---
+summary: Editor tabs, files, Markdown preview and CodeMirror
+scope:
+  - src/store/tabs.ts
+  - src/components/EditorHost.tsx
+  - src/components/EditorArea.tsx
+  - src/components/TabBar.tsx
+  - src/components/MarkdownPreview.tsx
+  - src/components/MarkdownRenderer.tsx
+  - src/editor/**
+  - src/lib/editorSession.ts
+  - src/lib/markdown.ts
+  - src/lib/untitledDrafts.ts
+  - src/lib/tabTitle.ts
+---
 # Editor, tabs and Markdown
-
-**Load when:** changing file opening/saving, session restore, tab behavior, Markdown preview, or CodeMirror
-state/extensions.
-**Code:** `src/store/tabs.ts`, `src/components/{EditorHost,TabBar}.tsx`, `src/editor/`,
-`src/lib/{editorSession,markdown,untitledDrafts}.ts`.
 
 ## Open, save and restore
 

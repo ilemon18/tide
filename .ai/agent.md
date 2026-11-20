@@ -1,9 +1,13 @@
+---
+summary: Agent chat, providers, composer, planning and persistence
+scope:
+  - src/store/agent.ts
+  - src/lib/agent*.ts
+  - src/components/Agent*.tsx
+  - src-tauri/src/commands/agent.rs
+  - src-tauri/src/agent/**
+---
 # Built-in agent
-
-**Load when:** changing agent chat state/UI, provider lifecycle, composer input, pickers, structured
-questions, read-only planning, or transcript persistence.
-**Code:** `src/store/agent.ts`, `src/lib/agent*.ts`, `src/components/Agent*.tsx`,
-`src-tauri/src/commands/agent.rs`, `src-tauri/src/agent/`.
 
 The agent wraps local Claude/Codex CLIs. One turn is one headless process resumed by provider session id;
 the CLIs own auth, models and tool loops.
@@ -21,6 +25,11 @@ the CLIs own auth, models and tool loops.
 
 ## Composer input and prompt assembly
 
+- The composer textarea has a horizontal splitter on its top edge. `agentComposerHeight` is one global persisted
+  manual minimum (default 60px, settings schema v10, shared across windows and chats); drag up to grow it and
+  down to shrink it. Long drafts still auto-grow above that minimum, then scroll inside at
+  `max(60, min(480, round(window.innerHeight * 0.5)))`. A smaller window clamps the displayed height without
+  overwriting the saved value, so resizing back restores the user's height.
 - `src/lib/agentCommand.ts` owns three triggers — `/` command, `$` skill, `@` mention — resolved to the one
   closest to the caret. `@` and `/` need line start or whitespace; `$` accepts any prefix except a word
   character or `$`, and `$5` stays prose.

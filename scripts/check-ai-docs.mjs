@@ -2,33 +2,45 @@
 /**
  * Guard: AI docs must stay routed, discoverable and honest.
  *
- * Agents load `.ai/context.md` first and then only routed area docs, so a missing route or stale path costs a
- * wasted turn every time that doc is read. This check validates:
+ * Agents load `.ai/context.md` first and then only area docs whose frontmatter scope
+ * matches the paths they touch. This check validates:
  *
- * 1. every top-level area doc is linked from `.ai/context.md` and has `Load when` / `Code` metadata;
- * 2. every skill wrapper has matching frontmatter and links to its canonical `.ai/skills/<name>/SKILL.md`;
- * 3. `CLAUDE.md` imports the root policy instead of maintaining a second copy;
- * 4. repo paths, relative links and `pnpm <script>` names still exist;
- * 5. the on-demand doc set stays within its soft size targets.
- *
- * Size findings are warnings: the budget is a prompt to remove duplication, not a reason to split blindly.
+ * 1. every top-level area doc has valid summary/scope metadata and at least one real match;
+ * 2. the generated route table exactly matches that metadata and every area doc is routed;
+ * 3. representative routing fixtures load exactly the expected docs and stay within budget;
+ * 4. every skill wrapper has matching frontmatter and links to its canonical skill;
+ * 5. `CLAUDE.md` imports the root policy instead of maintaining a second copy;
+ * 6. repo paths, relative links and `pnpm <script>` names still exist;
+ * 7. resident context and routing bundles stay under their hard limits.
  *
  * Usage: pnpm check:docs
  */
 import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from 'node:fs'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import {
+  ROUTING_FIXTURES,
+  compileScopeGlob,
+  parseAreaMetadata,
+  resolveAreaDocsForPaths,
+  roughTokens,
+  syncGeneratedRoutes,
+} from './ai-docs-lib.mjs'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
 const AI_DIR = join(ROOT, '.ai')
 const CONTEXT_FILE = join(AI_DIR, 'context.md')
 const SKILLS_DIR = join(AI_DIR, 'skills')
+const AGENTS_FILE = join(ROOT, 'AGENTS.md')
 const PKG = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'))
 
-const CONTEXT_LIMIT = 4 * 1024
+const CONTEXT_LIMIT = 2 * 1024
+const RESIDENT_LIMIT = 4 * 1024
+const FIXTURE_LIMIT = 16 * 1024
 const OTHER_LIMIT = 6 * 1024
 const AI_TOTAL_TARGET = 36 * 1024
 const ROOT_POLICY_FILES = ['AGENTS.md', 'CLAUDE.md']
+const WALK_SKIP_DIRS = new Set(['.git', 'dist', 'node_modules', 'target'])
 
 /**
  * Skill wrappers outside `.ai`: each one only links to the canonical skill. A stale link there hides the
@@ -82,10 +94,7 @@ function isFile(file) {
   }
 }
 
-/**
- * Recursively collect Markdown docs so nested skills and future area docs are covered. Symlinks are
- * followed once and deduplicated by real path, because `.agents/skills` is linked to `.claude/skills`.
- */
+/** Recursively collect Markdown docs; symlinks are followed once and deduplicated by real path. */
 function markdownFilesUnder(dir) {
   const files = []
   const seen = new Set()
@@ -124,6 +133,39 @@ function markdownFilesUnder(dir) {
   return files
 }
 
+/** Current repository files as POSIX paths, used to prove every scope matches something. */
+function repositoryFiles() {
+  const files = []
+  const seenDirs = new Set()
+
+  function walk(current) {
+    let real
+    try {
+      real = realpathSync(current)
+    } catch {
+      return
+    }
+    if (seenDirs.has(real)) return
+    seenDirs.add(real)
+
+    const entries = readdirSync(current, { withFileTypes: true }).sort((a, b) =>
+      a.name.localeCompare(b.name),
+    )
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        if (!WALK_SKIP_DIRS.has(entry.name)) walk(join(current, entry.name))
+        continue
+      }
+      if (entry.isFile()) {
+        files.push(relative(ROOT, join(current, entry.name)).split(sep).join('/'))
+      }
+    }
+  }
+
+  walk(ROOT)
+  return files.sort((a, b) => a.localeCompare(b))
+}
+
 /** Inline code spans plus markdown link targets: the only places a path is meant literally */
 function pathTokensIn(line) {
   const tokens = []
@@ -150,7 +192,6 @@ function expandBraces(token) {
 
 function isRepoPath(token) {
   if (REPO_PREFIXES.some((prefix) => token.startsWith(prefix))) return true
-  // Links between docs are written relative (`./editor.md`, `../README.md`)
   return token.startsWith('./') || token.startsWith('../')
 }
 
@@ -179,10 +220,6 @@ function parseFrontmatter(text) {
   return fields
 }
 
-function roughTokens(bytes) {
-  return Math.ceil(bytes / 4)
-}
-
 const aiFiles = markdownFilesUnder(AI_DIR)
 if (aiFiles.length === 0) fail('.ai/ contains no markdown file')
 if (!existsSync(CONTEXT_FILE)) fail('.ai/context.md is missing')
@@ -194,32 +231,97 @@ for (const name of ROOT_POLICY_FILES) {
   else rootPolicyFiles.push(file)
 }
 
+const repoFiles = repositoryFiles()
 const areaDocs = readdirSync(AI_DIR)
   .filter((name) => name.endsWith('.md') && name !== 'context.md' && isFile(join(AI_DIR, name)))
   .sort((a, b) => a.localeCompare(b))
-  .map((name) => join(AI_DIR, name))
+  .map((name) => {
+    const file = join(AI_DIR, name)
+    const metadata = parseAreaMetadata(readFileSync(file, 'utf8'))
+    if (metadata.error) {
+      fail(`${relative(ROOT, file)}: ${metadata.error}`)
+      return { doc: name, file, error: metadata.error }
+    }
+
+    let valid = true
+    for (const glob of metadata.scope) {
+      const compiled = compileScopeGlob(glob)
+      if (compiled.error) {
+        fail(`${relative(ROOT, file)}: ${compiled.error}`)
+        valid = false
+        continue
+      }
+      if (!repoFiles.some((path) => compiled.regexp.test(path))) {
+        fail(`${relative(ROOT, file)}: scope '${glob}' matches no repository file`)
+        valid = false
+      }
+    }
+    return { doc: name, file, ...metadata, valid }
+  })
+
+const validAreaDocs = areaDocs.filter((doc) => doc.valid)
+const entries = validAreaDocs.map(({ doc, summary }) => ({ doc, summary }))
+
+const contextBytes = existsSync(CONTEXT_FILE) ? statSync(CONTEXT_FILE).size : 0
+const agentsBytes = existsSync(AGENTS_FILE) ? statSync(AGENTS_FILE).size : 0
+const residentBytes = agentsBytes + contextBytes
+
+if (contextBytes > CONTEXT_LIMIT) {
+  fail(
+    `.ai/context.md is ${(contextBytes / 1024).toFixed(2)}KB (hard limit ${CONTEXT_LIMIT / 1024}KB)`,
+  )
+}
+if (residentBytes > RESIDENT_LIMIT) {
+  fail(
+    `AGENTS.md + .ai/context.md are ${(residentBytes / 1024).toFixed(2)}KB (hard limit ${RESIDENT_LIMIT / 1024}KB)`,
+  )
+}
 
 if (existsSync(CONTEXT_FILE)) {
   const contextText = readFileSync(CONTEXT_FILE, 'utf8')
-  const routed = new Set()
-  for (const raw of markdownLinkTargets(contextText)) {
-    const token = cleanToken(raw)
-    if (!token || /^[A-Za-z][A-Za-z0-9+.-]*:/.test(token)) continue
-    const target = resolve(dirname(CONTEXT_FILE), token)
-    if (existsSync(target) && isFile(target)) routed.add(realpathSync(target))
-  }
-  for (const doc of areaDocs) {
-    if (!routed.has(realpathSync(doc))) {
-      fail(`${relative(ROOT, CONTEXT_FILE)} does not route ${relative(ROOT, doc)}`)
+  if (areaDocs.every((doc) => !doc.error && doc.valid)) {
+    const synced = syncGeneratedRoutes(contextText, entries)
+    if (synced.error) {
+      fail(`.ai/context.md: ${synced.error}`)
+    } else if (synced.text !== contextText) {
+      fail('.ai/context.md generated route table is stale or hand-edited; run pnpm docs:sync')
     }
   }
 }
 
-for (const doc of areaDocs) {
-  const rel = relative(ROOT, doc)
-  const text = readFileSync(doc, 'utf8')
-  if (!/^\*\*Load when:\*\*\s+\S/m.test(text)) fail(`${rel} is missing non-empty **Load when:** metadata`)
-  if (!/^\*\*Code:\*\*\s+\S/m.test(text)) fail(`${rel} is missing non-empty **Code:** metadata`)
+console.log(
+  `Resident context: .ai/context.md ${(contextBytes / 1024).toFixed(2)}KB (~${roughTokens(contextBytes)} tokens); AGENTS.md + context ${(residentBytes / 1024).toFixed(2)}KB (~${roughTokens(residentBytes)} tokens)`,
+)
+
+for (const fixture of ROUTING_FIXTURES) {
+  for (const path of fixture.paths) {
+    if (!isFile(join(ROOT, path))) fail(`routing fixture '${fixture.name}' references missing path ${path}`)
+  }
+  const loaded = resolveAreaDocsForPaths(validAreaDocs, fixture.paths)
+  const expected = [...fixture.expected].sort((a, b) => a.localeCompare(b))
+  if (loaded.length !== expected.length || loaded.some((doc, index) => doc !== expected[index])) {
+    fail(
+      `routing fixture '${fixture.name}' loaded [${loaded.join(', ')}], expected [${expected.join(', ')}]`,
+    )
+  }
+
+  const loadedBytes = loaded.reduce((sum, doc) => {
+    const record = validAreaDocs.find((candidate) => candidate.doc === doc)
+    return sum + (record ? statSync(record.file).size : 0)
+  }, 0)
+  const bundleBytes = residentBytes + loadedBytes
+  if (bundleBytes > FIXTURE_LIMIT) {
+    fail(
+      `routing fixture '${fixture.name}' bundle is ${(bundleBytes / 1024).toFixed(2)}KB (hard limit ${FIXTURE_LIMIT / 1024}KB)`,
+    )
+  }
+  const breakdown = loaded.map((doc) => {
+    const record = validAreaDocs.find((candidate) => candidate.doc === doc)
+    return record ? `${doc} ${(statSync(record.file).size / 1024).toFixed(2)}KB` : doc
+  })
+  console.log(
+    `  ${fixture.name}: ${breakdown.join(' + ') || '(no docs)'} -> bundle ${(bundleBytes / 1024).toFixed(2)}KB (~${roughTokens(bundleBytes)} tokens)`,
+  )
 }
 
 const files = [...aiFiles, ...rootPolicyFiles]
@@ -286,12 +388,12 @@ if (aiTotal > AI_TOTAL_TARGET) {
 }
 
 for (const file of files) {
+  if (file === CONTEXT_FILE) continue
   const rel = relative(ROOT, file)
   const size = statSync(file).size
-  const limit = file === CONTEXT_FILE ? CONTEXT_LIMIT : OTHER_LIMIT
-  if (size > limit) {
+  if (size > OTHER_LIMIT) {
     warnings.push(
-      `${rel} is ${(size / 1024).toFixed(1)}KB (~${roughTokens(size)} tokens; soft limit ${limit / 1024}KB) — remove duplication or tighten it before splitting`,
+      `${rel} is ${(size / 1024).toFixed(1)}KB (~${roughTokens(size)} tokens; soft limit ${OTHER_LIMIT / 1024}KB) — remove duplication or tighten it before splitting`,
     )
   }
 }
@@ -308,7 +410,6 @@ for (const file of checkedFiles) {
       if (/[*<>$|]/.test(token)) continue
 
       for (const candidate of expandBraces(token)) {
-        // Relative links resolve against the doc that contains them, repo paths against the root
         const target = candidate.startsWith('./') || candidate.startsWith('../')
           ? resolve(dirname(file), candidate)
           : join(ROOT, candidate.split('/').join(sep))
@@ -317,7 +418,6 @@ for (const file of checkedFiles) {
     }
   })
 
-  // `pnpm <script>`: the doc tells an agent to run it, so the script has to be there
   lines.forEach((line, index) => {
     for (const match of line.matchAll(/\bpnpm (?:run )?([a-z][\w:-]*)/g)) {
       const script = match[1]

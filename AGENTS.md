@@ -13,7 +13,7 @@ them in this conversation:
 - no `pnpm check`, `pnpm verify`, `pnpm i18n`, `pnpm i18n:scan`, `pnpm check:workflows`, `pnpm typecheck`,
   `pnpm check:rust`, `pnpm check:docs`, and no `pnpm release:check` without a release-check request;
 - no `cargo check`, `cargo test`, `tsc`, `pnpm build`, `pnpm app:build`, `pnpm app:build:win`,
-  `pnpm app:release`, `pnpm tauri build`;
+  `pnpm tauri build`;
 - no GUI or app smoke test.
 
 Write or update tests with the implementation but never execute them; execution belongs to a user-triggered

@@ -1,10 +1,32 @@
+---
+summary: App shell, windows, memory, settings and updates
+scope:
+  - src/App.tsx
+  - src/main.tsx
+  - src/components/TitleBar.tsx
+  - src/components/SettingsView.tsx
+  - src/components/ThemeMenu.tsx
+  - src/components/UpdateBadge.tsx
+  - src/lib/memoryBudget.ts
+  - src/lib/displayScale.ts
+  - src/lib/update.ts
+  - src/lib/updateView.ts
+  - src/lib/settingsSections.ts
+  - src/lib/fonts.ts
+  - src/lib/iconTheme.ts
+  - src/store/settings.ts
+  - src/store/update.ts
+  - src/theme/**
+  - src-tauri/src/main.rs
+  - src-tauri/src/state.rs
+  - src-tauri/src/update.rs
+  - src-tauri/src/commands/theme.rs
+  - src-tauri/capabilities/**
+  - vite.config.ts
+  - src-tauri/tauri.conf.json
+  - public/theme-boot.js
+---
 # Runtime, memory, settings and updates
-
-**Load when:** changing the app shell/window lifecycle, platform chrome, memory release, settings
-persistence/migration, update/install behavior, or build/runtime configuration.
-**Code:** `src/App.tsx`, `src/main.tsx`, `src/components/TitleBar.tsx`,
-`src/lib/{memoryBudget,displayScale,update}.ts`, `src-tauri/src/{main,state,update}.rs`,
-`src-tauri/src/commands/theme.rs`, `vite.config.ts`, `src-tauri/tauri.conf.json`.
 
 ## Windows and app shell
 

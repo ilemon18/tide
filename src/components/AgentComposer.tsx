@@ -12,9 +12,15 @@ import { basename, modKey } from '../lib/paths'
 import { fuzzyMatch } from '../lib/fuzzy'
 import { useFileIndex } from '../store/fileIndex'
 import { useAgent } from '../store/agent'
+import {
+  AGENT_COMPOSER_MAX_HEIGHT,
+  AGENT_COMPOSER_MIN_HEIGHT,
+  useSettings,
+} from '../store/settings'
 import { useT } from '../i18n'
 import { FileIcon } from './FileIcon'
 import { Icon } from './Icon'
+import { Splitter } from './Splitter'
 import { AgentPicker, EffortPicker, ModelPicker } from './AgentPickers'
 import { COMMAND_DESCRIPTIONS, CommandChip, SkillChip, commandLabel } from './AgentTags'
 
@@ -77,6 +83,16 @@ function MentionChip({
   )
 }
 
+const clamp = (value: number, min: number, max: number) =>
+  Math.min(max, Math.max(min, value))
+
+function composerMaxHeight() {
+  return Math.max(
+    AGENT_COMPOSER_MIN_HEIGHT,
+    Math.round(Math.min(AGENT_COMPOSER_MAX_HEIGHT, window.innerHeight * 0.5)),
+  )
+}
+
 /**
  * A chat tab input: command / skill / mention chips, `@` / `/` / `$` pickers,
  * agent/model/complexity picks and one send/stop slot.
@@ -109,8 +125,11 @@ export function AgentComposer({
 }: Props) {
   const t = useT()
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const composerDragHeight = useRef<number | null>(null)
   const [trigger, setTrigger] = useState<ComposerTrigger | null>(null)
   const [highlight, setHighlight] = useState(0)
+  const agentComposerHeight = useSettings((s) => s.agentComposerHeight)
+  const [maxComposerHeight, setMaxComposerHeight] = useState(composerMaxHeight)
   const index = useFileIndex((s) => (root ? s.byRoot[root] : undefined))
   const skillCatalog = useAgent((s) => (root ? s.skillsByRoot[root] : undefined))
   const skillsLoading = useAgent((s) => (root ? s.skillsLoading[root] : false))
@@ -129,13 +148,23 @@ export function AgentComposer({
     textareaRef.current?.focus()
   }, [autoFocusKey])
 
-  // Auto-grow up to roughly eight lines, then scroll inside the box
+  // Display-only clamp: a height saved in a larger window is restored when the window grows again.
+  useEffect(() => {
+    const updateMaxHeight = () => setMaxComposerHeight(composerMaxHeight())
+    updateMaxHeight()
+    window.addEventListener('resize', updateMaxHeight)
+    return () => window.removeEventListener('resize', updateMaxHeight)
+  }, [])
+
+  const effectiveComposerHeight = Math.min(agentComposerHeight, maxComposerHeight)
+
+  // The persisted height is the minimum; content grows the textarea until it scrolls at the window cap.
   useLayoutEffect(() => {
     const el = textareaRef.current
     if (!el) return
     el.style.height = '0px'
-    el.style.height = `${Math.min(Math.max(el.scrollHeight, 60), 168)}px`
-  }, [draft])
+    el.style.height = `${clamp(el.scrollHeight, effectiveComposerHeight, maxComposerHeight)}px`
+  }, [draft, effectiveComposerHeight, maxComposerHeight])
 
   // Skills are scanned lazily: most chats never open the `$` picker
   useEffect(() => {
@@ -240,6 +269,31 @@ export function AgentComposer({
     : running
       ? t('agent.queue.send')
       : t('agent.send')
+
+  const resizeComposer = (deltaY: number) => {
+    // Deltas arrive per animation frame. Keep the intended drag height so an auto-grown textarea does not
+    // swallow the first drag before React commits the new manual minimum.
+    const current =
+      composerDragHeight.current ??
+      Math.round(
+        textareaRef.current?.getBoundingClientRect().height ?? effectiveComposerHeight,
+      )
+    const next = clamp(
+      Math.round(current - deltaY),
+      AGENT_COMPOSER_MIN_HEIGHT,
+      maxComposerHeight,
+    )
+    composerDragHeight.current = next
+    if (next === useSettings.getState().agentComposerHeight) return
+    useSettings.getState().patch({
+      agentComposerHeight: next,
+    })
+  }
+
+  const finishComposerResize = () => {
+    composerDragHeight.current = null
+    useSettings.getState().flush()
+  }
 
   return (
     <div className="relative flex flex-col gap-1.5">
@@ -356,7 +410,13 @@ export function AgentComposer({
         </div>
       ) : null}
 
-      <div className="relative">
+      <div className="relative flex flex-col">
+        <Splitter
+          direction="h"
+          tone="editor"
+          onDrag={resizeComposer}
+          onCommit={finishComposerResize}
+        />
         <textarea
           ref={textareaRef}
           value={draft}
@@ -444,7 +504,8 @@ export function AgentComposer({
               }
             }
           }}
-          className="max-h-[168px] min-h-[60px] w-full resize-none bg-transparent py-1 text-sm leading-relaxed text-fg outline-none placeholder:text-muted/60 disabled:cursor-not-allowed"
+          style={{ height: effectiveComposerHeight, maxHeight: maxComposerHeight }}
+          className="w-full resize-none overflow-y-auto bg-transparent py-1 text-sm leading-relaxed text-fg outline-none placeholder:text-muted/60 disabled:cursor-not-allowed"
         />
       </div>
 

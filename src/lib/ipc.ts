@@ -136,6 +136,8 @@ export type Settings = {
   agentDefaultProvider: string
   agentDefaultModel: string
   agentDefaultEffort: string
+  /** Manual minimum height of the agent composer textarea; long drafts may grow taller */
+  agentComposerHeight: number
   sidebarWidth: number
   panelHeight: number
   sidebarVisible: boolean

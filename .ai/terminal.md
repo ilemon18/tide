@@ -1,9 +1,14 @@
+---
+summary: PTY lifecycle, terminal output, keyboard and IME
+scope:
+  - src/components/TerminalView.tsx
+  - src/components/TerminalPanel.tsx
+  - src/store/terminal.ts
+  - src/lib/keys.ts
+  - src-tauri/src/commands/terminal.rs
+  - src-tauri/src/state.rs
+---
 # Terminal and PTY
-
-**Load when:** changing PTY lifecycle, terminal output/backpressure, hidden terminal behavior, keyboard
-forwarding, or IME handling.
-**Code:** `src/components/TerminalView.tsx`, `src/store/terminal.ts`, `src/lib/keys.ts`,
-`src-tauri/src/commands/terminal.rs`, `src-tauri/src/state.rs`.
 
 ## PTY ownership and output
 

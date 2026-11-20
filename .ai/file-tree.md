@@ -1,9 +1,15 @@
+---
+summary: Workspace tree, folders, refresh and watcher sync
+scope:
+  - src/components/FileTree.tsx
+  - src/store/workspace.ts
+  - src/store/fileIndex.ts
+  - src/store/folderChain.ts
+  - src/store/watcher.ts
+  - src-tauri/src/commands/fs.rs
+  - src-tauri/src/watcher.rs
+---
 # File tree and workspace refresh
-
-**Load when:** changing folder expansion/location, merged folder chains, tree virtualization, workspace
-watching, or synchronization between disk, tree, Git and open tabs.
-**Code:** `src/components/FileTree.tsx`, `src/store/{workspace,fileIndex,folderChain,watcher}.ts`,
-`src-tauri/src/commands/fs.rs`, `src-tauri/src/watcher.rs`.
 
 ## Expansion and locating
 
