@@ -4,6 +4,8 @@
 2. Before implementing, read [`.ai/context.md`](./.ai/context.md), then only the area docs routed by the
    paths you touch; cross-domain changes may load several.
 3. Load a skill only when its explicit trigger applies.
+4. Search targeted paths first, then read the relevant sections; expand the scope when needed.
+   Keep command output focused while retaining the context required for correctness.
 
 ## Run policy
 

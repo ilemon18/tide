@@ -20,7 +20,32 @@ it('keeps a permissions-only read-only query on the requested topic', () => {
   const prompt = buildAgentPrompt({ text: 'Explain this function', mentions: [] }, true)
   expect(prompt).toContain('Read-only mode:')
   expect(prompt).toContain('Explain this function')
+  expect(prompt).toContain('Do not modify files or run commands with side effects')
+  expect(prompt).toContain('only after the user explicitly switches to writable mode')
   expect(prompt).not.toContain('return the final decision-ready plan')
+})
+
+it('includes a valid structured question example in normal, read-only and planning prompts', () => {
+  const prompts = [
+    buildAgentPrompt({ text: 'Investigate', mentions: [] }),
+    buildAgentPrompt({ text: 'Investigate', mentions: [] }, true),
+    buildAgentPrompt({ text: 'Investigate', mentions: [], command: 'plan' }),
+  ]
+  for (const prompt of prompts) {
+    expect(prompt).toContain('at most once per turn')
+    expect(prompt).toContain('outside code fences')
+    const marker = prompt.match(/<TIDE_QUESTION>(.*?)<\/TIDE_QUESTION>/)
+    expect(marker).not.toBeNull()
+    const question = JSON.parse(marker![1])
+    expect(question.header).toBeTruthy()
+    expect(question.question).toBeTruthy()
+    expect(question.multiSelect).toBe(false)
+    expect(question.options).toHaveLength(2)
+    for (const option of question.options) {
+      expect(option.label).toBeTruthy()
+      expect(option.description).toBeTruthy()
+    }
+  }
 })
 
 it('preserves user whitespace and indentation when normalizing plain text and command bodies', () => {

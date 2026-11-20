@@ -201,9 +201,8 @@ pub enum AgentEvent {
 
 pub fn workspace_note(root: &Path) -> String {
     format!(
-        "You are running inside the Tide editor. The workspace root is {}. Keep file changes \
-         inside that directory unless the user explicitly asks otherwise. Prefer reading files \
-         from the workspace instead of guessing.",
+        "Tide workspace root: {}. Keep file changes inside it unless the user explicitly asks \
+         otherwise. Prefer reading workspace files over guessing.",
         root.display()
     )
 }
@@ -280,6 +279,14 @@ fn format_uuid(mut bytes: [u8; 16]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn workspace_note_keeps_root_and_explicit_change_boundary() {
+        let note = workspace_note(Path::new("/example workspace"));
+        assert!(note.contains("/example workspace"));
+        assert!(note.contains("Keep file changes inside it unless the user explicitly asks"));
+        assert!(note.contains("Prefer reading workspace files over guessing"));
+    }
 
     #[test]
     fn read_only_defaults_to_false() {

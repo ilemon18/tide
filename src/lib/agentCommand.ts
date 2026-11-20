@@ -91,24 +91,19 @@ export function isAgentSkillRef(value: unknown): value is AgentSkillRef {
 
 const PLAN_INSTRUCTIONS = `
 Planning mode:
-- This turn is strictly read-only. Inspect the repository, but do not modify files or run commands with side effects.
-- Ask the user only when a critical decision cannot be inferred from the repository or request. Ask at most one question per turn.
-- If there is no blocking ambiguity, return a complete, decision-ready plan with the files and steps the implementation will touch.
-- After a question is answered, continue from the same planning work. Ask again only if another critical decision remains; otherwise return the final plan.
+This turn is strictly read-only: inspect the repository, but do not modify files or run commands with side effects.
+Ask only about critical decisions that cannot be inferred. Otherwise return a complete, decision-ready plan with implementation files and steps.
+After an answer, continue the same plan; ask again only if another critical decision remains.
 `.trim()
 
 const READ_ONLY_CONTINUATION = `
 Read-only mode:
-Answer the request without modifying files or running commands with side effects. Inspect the repository as needed. Do not implement changes unless the user explicitly switches to writable mode.
+Answer the request; inspect as needed. Do not modify files or run commands with side effects. Implement only after the user explicitly switches to writable mode.
 `.trim()
 
 const QUESTION_PROTOCOL = `
-Structured questions (only when the user must make a decision):
-- Prefer discovering the answer from the repository. Do not ask about facts you can inspect.
-- Ask at most one question in this turn. Never use a question marker for a status update, progress report, or confirmation that is not required.
-- A question must have 2 to 4 options. Every option needs a non-empty label and a non-empty description.
-- Set multiSelect to true only when several choices may be valid together. The UI also lets the user enter a custom answer.
-- Emit exactly one marker as plain text, not inside a code fence, and use this shape:
+Structured questions: inspect the repository for facts first. Ask only when the user must decide, at most once per turn; never mark status updates or unneeded confirmations as questions.
+Emit one plain-text marker outside code fences, with a non-empty header and question and 2–4 options with non-empty labels and descriptions. Set multiSelect true only when multiple choices can apply; the UI allows a custom answer:
 <TIDE_QUESTION>{"header":"Short title","question":"The decision needed","multiSelect":false,"options":[{"label":"Option A","description":"What this choice means"},{"label":"Option B","description":"What this choice means"}]}</TIDE_QUESTION>
 `.trim()
 

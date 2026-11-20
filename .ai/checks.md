@@ -28,6 +28,8 @@ scope:
 | `pnpm docs:sync` | Regenerate the route table in `context.md` from area-doc frontmatter; never hand-edit the generated region |
 | `pnpm check:docs` | AI-doc tests, metadata, route precision/24KB bundle boundaries, skill metadata, plus paths, relative links and `pnpm` script names in docs and wrappers |
 
+Agent command tests cover prompt tags, read-only guidance and the structured-question marker example.
+
 Agent transcript/terminal native behavior is a manual review surface (only when explicitly requested):
 IME event order, incremental Markdown, bottom-only following, tool expansion, one activity/elapsed label
 at each turn's tail, completion duration after reopening, and terminal maximize/drag/restore feel.
@@ -40,6 +42,9 @@ or pending-action banners, accessible question inputs, and contextual settings/s
 [the verification skill](./skills/release-verify/SKILL.md) runs them.
 
 ## AI docs
+
+The root policy also calls for targeted searches and focused command output; this is an agent workflow
+guideline, not an automated guard.
 
 Area docs declare a one-line `summary` and a block-list `scope` of repository-relative POSIX globs in
 frontmatter. `pnpm docs:sync` rewrites only the marked route region in `context.md`; `pnpm check:docs` rejects

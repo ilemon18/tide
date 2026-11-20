@@ -17,6 +17,8 @@ Claude/Codex CLIs own auth, models and tools; Rust owns one bidirectional stdio 
 - `agent_send` authorizes the root and launches the CLI there with prompts on stdin. Rust owns four-turn
   concurrency, one turn/chat and process-group cleanup on stop/close/exit/disable. Reap before Done,
   release only the matching run; EOF/error never implies success.
+- Keep per-turn workspace and question guidance concise while preserving workspace boundaries, read-only
+  restrictions and the complete structured-question contract.
 - Codex uses app-server initialize/initialized, thread start/resume/fork and turn start/interrupt; Claude
   uses bidirectional stream-json, partial messages and stdio approvals. `transport.rs` keeps stdin writable,
   bounds handshakes and closes completed processes. Native schemas govern; unsupported protocols require
