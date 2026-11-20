@@ -147,6 +147,7 @@ export const zhTW: Messages = {
   'settings.about.repository': '程式碼倉庫',
   'settings.about.updates': '更新',
   'settings.about.checkUpdates': '檢查更新',
+  'settings.about.checkLatest': '檢查最新',
   'settings.about.checking': '正在檢查…',
   'settings.about.download': '下載更新',
   'settings.about.restartUpdate': '重新啟動更新',

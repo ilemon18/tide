@@ -65,8 +65,11 @@ export const updateApi = {
   appVersion: () => invoke<string>('app_version'),
   /** Debug builds only offer updates from Settings → About; the title bar stays quiet */
   isDebugBuild: () => invoke<boolean>('is_debug_build'),
-  /** `manual` = the user clicked: re-checks the network, while startup may answer from the cache */
-  check: (manual: boolean) => invoke<UpdateInfo>('update_check', { manual }),
+  /**
+   * `manual` = the user clicked: re-checks the network, while startup may answer from the cache.
+   * `force` = "check latest": bypasses the local cache and forbids a cached fallback.
+   */
+  check: (manual: boolean, force = false) => invoke<UpdateInfo>('update_check', { manual, force }),
   download: (url: string, fileName: string, checksum: string) =>
     invoke<string>('update_download', { url, fileName, checksum }),
   install: (version: string) => invoke<InstallOutcome>('update_install', { version }),

@@ -152,6 +152,7 @@ export const es: Messages = {
   'settings.about.repository': 'Repositorio',
   'settings.about.updates': 'Actualizaciones',
   'settings.about.checkUpdates': 'Buscar actualizaciones',
+  'settings.about.checkLatest': 'Buscar la última',
   'settings.about.checking': 'Comprobando…',
   'settings.about.download': 'Descargar actualización',
   'settings.about.restartUpdate': 'Reiniciar para actualizar',

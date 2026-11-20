@@ -150,6 +150,7 @@ export const ja: Messages = {
   'settings.about.repository': 'リポジトリ',
   'settings.about.updates': 'アップデート',
   'settings.about.checkUpdates': 'アップデートを確認',
+  'settings.about.checkLatest': '最新を確認',
   'settings.about.checking': '確認中…',
   'settings.about.download': 'アップデートをダウンロード',
   'settings.about.restartUpdate': '再起動して更新',

@@ -192,6 +192,7 @@ export function SettingsView() {
   const updatePercent = useUpdate((s) => s.percent)
   const updateError = useUpdate((s) => s.error)
   const installedTo = useUpdate((s) => s.installedTo)
+  const checkLatest = useUpdate((s) => s.checkLatest)
   const revealLog = useUpdate((s) => s.revealLog)
 
   const updateView: UpdateView = {
@@ -205,6 +206,8 @@ export function SettingsView() {
   const action = updateAction(updateView)
   const detail = updateDetail(updateView)
   const busy = action.kind === 'wait'
+  const latestBusy =
+    updateStatus === 'checking' || updateStatus === 'downloading' || updateStatus === 'installing'
 
   const current = SETTINGS_SECTIONS.find((item) => item.id === section) ?? SETTINGS_SECTIONS[0]
 
@@ -658,36 +661,47 @@ export function SettingsView() {
 
         <Card title={t('settings.about.updates')}>
           <div className="px-4 py-3">
-            <button
-              type="button"
-              onClick={() => runUpdateAction(action.kind)}
-              // aria-disabled instead of disabled: a disabled button swallows pointer events,
-              // and "downloading 42%" is exactly the busy-state hint worth keeping
-              aria-disabled={busy}
-              aria-busy={busy}
-              className={`flex items-center gap-2 rounded-[var(--r-control)] px-3 py-1.5 text-sm transition-colors duration-fast ${
-                busy
-                  ? 'cursor-default bg-active/60 text-muted'
-                  : action.tone === 'accent'
-                    ? 'bg-accent/15 text-accent hover:bg-accent/25'
-                    : action.tone === 'danger'
-                      ? 'bg-warning/15 text-warning hover:bg-warning/25'
-                      : 'border border-line text-fg/80 hover:bg-hover'
-              }`}
-            >
-              <Icon
-                name={action.icon}
-                size={13}
-                className={
-                  action.motion === 'spin'
-                    ? 'animate-spin'
-                    : action.motion === 'pulse'
-                      ? 'animate-pulse'
-                      : ''
-                }
-              />
-              <span className="tabular-nums">{action.label}</span>
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => runUpdateAction(action.kind)}
+                // aria-disabled instead of disabled: a disabled button swallows pointer events,
+                // and "downloading 42%" is exactly the busy-state hint worth keeping
+                aria-disabled={busy}
+                aria-busy={busy}
+                className={`flex items-center gap-2 rounded-[var(--r-control)] px-3 py-1.5 text-sm transition-colors duration-fast ${
+                  busy
+                    ? 'cursor-default bg-active/60 text-muted'
+                    : action.tone === 'accent'
+                      ? 'bg-accent/15 text-accent hover:bg-accent/25'
+                      : action.tone === 'danger'
+                        ? 'bg-warning/15 text-warning hover:bg-warning/25'
+                        : 'border border-line text-fg/80 hover:bg-hover'
+                }`}
+              >
+                <Icon
+                  name={action.icon}
+                  size={13}
+                  className={
+                    action.motion === 'spin'
+                      ? 'animate-spin'
+                      : action.motion === 'pulse'
+                        ? 'animate-pulse'
+                        : ''
+                  }
+                />
+                <span className="tabular-nums">{action.label}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => void checkLatest()}
+                disabled={latestBusy}
+                className="flex items-center gap-2 rounded-[var(--r-control)] border border-line px-3 py-1.5 text-sm text-fg/80 transition-colors duration-fast hover:bg-hover disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <Icon name="refresh" size={13} />
+                <span>{t('settings.about.checkLatest')}</span>
+              </button>
+            </div>
             {detail ? (
               <p className="mt-2 text-xs leading-relaxed text-muted">{detail}</p>
             ) : null}

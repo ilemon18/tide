@@ -344,6 +344,22 @@ fn client() -> AppResult<reqwest::Client> {
         .map_err(|err| AppError::p("update.network", [("error", err.to_string())]))
 }
 
+/// Build a version lookup request. Forced checks ask every HTTP cache on the way for a
+/// revalidation instead of a stored response.
+fn check_request(
+    http: &reqwest::Client,
+    url: &str,
+    accept: &str,
+    force: bool,
+) -> reqwest::RequestBuilder {
+    let request = http.get(url).header("Accept", accept);
+    if force {
+        request.header("Cache-Control", "no-cache")
+    } else {
+        request
+    }
+}
+
 fn network(err: impl std::fmt::Display) -> AppError {
     AppError::p("update.network", [("error", err.to_string())])
 }
@@ -427,9 +443,16 @@ fn cache_file<R: Runtime>(app: &AppHandle<R>) -> Option<PathBuf> {
 /// Should a cached answer be reused instead of asking GitHub again?
 ///
 /// A click is deliberate, so only a click a few seconds old is reused (a double click must not
-/// cost two requests); the quiet startup check is happy with hours. Kept pure for the tests.
-fn cache_is_fresh(age_ms: u64, manual: bool) -> bool {
-    age_ms < if manual { CACHE_CLICK_MS } else { CACHE_FRESH_MS }
+/// cost two requests); the quiet startup check is happy with hours. A forced check bypasses the
+/// cache entirely. Kept pure for the tests.
+fn cache_is_fresh(age_ms: u64, manual: bool, force: bool) -> bool {
+    !force && age_ms < if manual { CACHE_CLICK_MS } else { CACHE_FRESH_MS }
+}
+
+/// A normal check may answer from the last successful result when the network fails. A forced
+/// check must surface that failure instead of pretending an old answer is the latest one.
+fn cache_fallback_allowed(force: bool) -> bool {
+    !force
 }
 
 /// `None` = never checked, or the file is unreadable — both mean "ask GitHub"
@@ -534,12 +557,19 @@ fn background_update_allowed(debug_build: bool, manual: bool) -> bool {
 ///
 /// `manual` = the user clicked "check for updates": that always goes to the network (except for a
 /// double click a few seconds apart), while the quiet startup check trusts the cache for hours.
+/// `force` = "check latest": skip the local cache, request a revalidation from GitHub, and do not
+/// fall back to an old answer when the network fails. A successful forced answer is still cached
+/// for the next launch.
 ///
 /// Every path below is served by the release CDN or the release feed. No REST API call: its
 /// 60-per-hour budget is per IP and shared by everyone behind the same NAT, and exhausting it
 /// used to replace every answer with "rate limited".
 #[tauri::command]
-pub async fn update_check<R: Runtime>(app: AppHandle<R>, manual: bool) -> AppResult<UpdateInfo> {
+pub async fn update_check<R: Runtime>(
+    app: AppHandle<R>,
+    manual: bool,
+    force: bool,
+) -> AppResult<UpdateInfo> {
     if !background_update_allowed(cfg!(debug_assertions), manual) {
         // The frontend skips this path in debug builds too. Keep the backend guard so a stale or
         // manually invoked automatic check still cannot touch the network.
@@ -547,51 +577,65 @@ pub async fn update_check<R: Runtime>(app: AppHandle<R>, manual: bool) -> AppRes
     }
 
     let current = app.package_info().version.to_string();
-    let cached = read_cache(&app).map(|mut cache| {
-        cache.info = calibrate_cached_info(cache.info, &current);
-        cache
-    });
+    let cached = if force {
+        None
+    } else {
+        read_cache(&app).map(|mut cache| {
+            cache.info = calibrate_cached_info(cache.info, &current);
+            cache
+        })
+    };
 
     if let Some(cache) = &cached {
-        if cache_is_fresh(now_ms().saturating_sub(cache.at), manual) {
+        if cache_is_fresh(now_ms().saturating_sub(cache.at), manual, force) {
             return Ok(cache.info.clone());
         }
     }
 
     let http = client()?;
-    match check_online(&http, &current).await {
+    match check_online(&http, &current, force).await {
         Ok(info) => {
             let info = write_cache(&app, info);
             Ok(info)
         }
         Err(err) => {
             // Offline, a CDN hiccup, or GitHub rate-limiting the CDN: yesterday's answer beats a
-            // red error, as long as the UI can say it is older than this check
-            if let Some(mut cache) = cached {
-                write_log(&app, &format!("update check failed, answering from cache: {err}"));
-                cache.info.stale = true;
-                return Ok(cache.info);
+            // red error, as long as the UI can say it is older than this check. A forced check
+            // explicitly asked for a fresh answer, so it never takes this path.
+            if cache_fallback_allowed(force) {
+                if let Some(mut cache) = cached {
+                    write_log(&app, &format!("update check failed, answering from cache: {err}"));
+                    cache.info.stale = true;
+                    return Ok(cache.info);
+                }
             }
-            write_log(&app, &format!("update check failed: {err}"));
+            let prefix = if force { "forced update check failed" } else { "update check failed" };
+            write_log(&app, &format!("{prefix}: {err}"));
             Err(err)
         }
     }
 }
 
 /// The quota-free lookup chain: newest manifest -> newest tag -> tag manifest -> tag only.
-async fn check_online(http: &reqwest::Client, current: &str) -> AppResult<UpdateInfo> {
+async fn check_online(
+    http: &reqwest::Client,
+    current: &str,
+    force: bool,
+) -> AppResult<UpdateInfo> {
     // 1. The manifest attached to the newest stable release (CDN, no quota)
-    if let ManifestLookup::Found(manifest) = fetch_manifest(http, &manifest_url()).await? {
+    if let ManifestLookup::Found(manifest) = fetch_manifest(http, &manifest_url(), force).await? {
         return Ok(info_from_manifest(*manifest, current, current_platform()));
     }
 
     // 2. `releases/latest` skips prereleases, and the manifest hangs on the tagged release, so
     //    the feed names the newest tag and the manifest is read from there
-    let Some((tag, page_url)) = fetch_newest_tag(http).await? else {
+    let Some((tag, page_url)) = fetch_newest_tag(http, force).await? else {
         // Nothing published yet (or the repo does not exist yet): nothing to offer
         return Ok(UpdateInfo::up_to_date(current));
     };
-    if let ManifestLookup::Found(manifest) = fetch_manifest(http, &tag_manifest_url(&tag)).await? {
+    if let ManifestLookup::Found(manifest) =
+        fetch_manifest(http, &tag_manifest_url(&tag), force).await?
+    {
         return Ok(info_from_manifest(*manifest, current, current_platform()));
     }
 
@@ -603,10 +647,12 @@ async fn check_online(http: &reqwest::Client, current: &str) -> AppResult<Update
 /// Read one `latest.json`. `Missing` = this release has none (prerelease, hand-made release, or
 /// a broken file) and the caller should try the next step; `Err` = transport, rate limiting or a
 /// server problem, a retry would fail the same way.
-async fn fetch_manifest(http: &reqwest::Client, url: &str) -> AppResult<ManifestLookup> {
-    let response = http
-        .get(url)
-        .header("Accept", "application/json")
+async fn fetch_manifest(
+    http: &reqwest::Client,
+    url: &str,
+    force: bool,
+) -> AppResult<ManifestLookup> {
+    let response = check_request(http, url, "application/json", force)
         .send()
         .await
         .map_err(network)?;
@@ -635,10 +681,11 @@ async fn fetch_manifest(http: &reqwest::Client, url: &str) -> AppResult<Manifest
 }
 
 /// Newest release from `releases.atom` as `(tag, page url)`.
-async fn fetch_newest_tag(http: &reqwest::Client) -> AppResult<Option<(String, String)>> {
-    let response = http
-        .get(release_feed_url())
-        .header("Accept", "application/atom+xml")
+async fn fetch_newest_tag(
+    http: &reqwest::Client,
+    force: bool,
+) -> AppResult<Option<(String, String)>> {
+    let response = check_request(http, &release_feed_url(), "application/atom+xml", force)
         .send()
         .await
         .map_err(network)?;
@@ -1764,12 +1811,37 @@ mod tests {
     #[test]
     fn cache_answers_a_startup_check_much_longer_than_a_click() {
         // A startup check trusts an answer for hours; a click re-checks after a moment
-        assert!(cache_is_fresh(0, false));
-        assert!(cache_is_fresh(CACHE_FRESH_MS - 1, false));
-        assert!(!cache_is_fresh(CACHE_FRESH_MS, false));
+        assert!(cache_is_fresh(0, false, false));
+        assert!(cache_is_fresh(CACHE_FRESH_MS - 1, false, false));
+        assert!(!cache_is_fresh(CACHE_FRESH_MS, false, false));
         // A double click is served from the cache, a click a minute later is not
-        assert!(cache_is_fresh(1_000, true));
-        assert!(!cache_is_fresh(CACHE_CLICK_MS, true));
+        assert!(cache_is_fresh(1_000, true, false));
+        assert!(!cache_is_fresh(CACHE_CLICK_MS, true, false));
+    }
+
+    #[test]
+    fn forced_checks_bypass_even_a_fresh_cache_and_never_fall_back() {
+        assert!(!cache_is_fresh(0, false, true));
+        assert!(!cache_is_fresh(0, true, true));
+        assert!(cache_fallback_allowed(false));
+        assert!(!cache_fallback_allowed(true));
+    }
+
+    #[test]
+    fn forced_requests_disable_http_cache_revalidation() {
+        let http = client().unwrap();
+        let forced = check_request(&http, &manifest_url(), "application/json", true)
+            .build()
+            .unwrap();
+        let normal = check_request(&http, &manifest_url(), "application/json", false)
+            .build()
+            .unwrap();
+
+        assert_eq!(
+            forced.headers().get("Cache-Control").map(|value| value.to_str().unwrap()),
+            Some("no-cache")
+        );
+        assert!(normal.headers().get("Cache-Control").is_none());
     }
 
     #[test]

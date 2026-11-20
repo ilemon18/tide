@@ -150,6 +150,7 @@ export const ko: Messages = {
   'settings.about.repository': '저장소',
   'settings.about.updates': '업데이트',
   'settings.about.checkUpdates': '업데이트 확인',
+  'settings.about.checkLatest': '최신 확인',
   'settings.about.checking': '확인 중…',
   'settings.about.download': '업데이트 다운로드',
   'settings.about.restartUpdate': '재시작하여 업데이트',

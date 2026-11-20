@@ -171,6 +171,7 @@ export const en = {
   'settings.about.repository': 'Repository',
   'settings.about.updates': 'Updates',
   'settings.about.checkUpdates': 'Check for updates',
+  'settings.about.checkLatest': 'Check latest',
   'settings.about.checking': 'Checking…',
   'settings.about.download': 'Download update',
   'settings.about.restartUpdate': 'Restart to update',

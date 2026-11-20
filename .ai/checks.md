@@ -35,6 +35,8 @@ change.
 - Run targeted Rust tests through the verification skill when test code changed, or when the change touches
   update, path containment, settings migration, Git commands or agent providers; installer changes belong to
   the release-check surface. Keep unit tests beside the owning Rust module.
+- Update tests must keep startup/manual cache freshness unchanged, prove forced checks bypass a fresh cache
+  and forbid cached fallback, and assert forced lookup requests carry `Cache-Control: no-cache`.
 - Never weaken or delete a guard or test to make a check pass. If a guard is wrong, change the script, this
   map and the owning skill in one edit.
 - `.github/workflows/ci.yml` runs frontend guard/build jobs and Rust test jobs on supported platforms, with
