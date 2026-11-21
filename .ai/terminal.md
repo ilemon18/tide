@@ -1,6 +1,7 @@
 ---
-summary: PTY lifecycle, terminal output, keyboard and IME
+summary: PTY output, keyboard, IME and geometry
 scope:
+  - .ai/terminal.md
   - src/components/TerminalView.tsx
   - src/components/TerminalPanel.tsx
   - src/components/TerminalPanel.test.tsx
@@ -9,41 +10,44 @@ scope:
   - src/lib/keys.ts
   - src-tauri/src/commands/terminal.rs
   - src-tauri/src/state.rs
+keywords:
+  - terminal
+  - pty
+  - xterm
+  - keyboard
+  - 终端
+  - 键盘
 ---
 # Terminal and PTY
 
-## PTY ownership and output
+## Ownership and output
 
-- PTY lifetime is entirely in Rust (`state.ptys`); the frontend sends only input, resize and close over
-  `api.*`, and `pty:data` / `pty:exit` are protocol events, not permission to move process ownership into the
-  webview. Closing a workspace's last reference, window destruction, app exit and terminal close all go
-  through the Rust-owning cleanup path.
-- A workspace's terminal stays alive while hidden: pause frontend parsing/writes and retain state instead of
-  recreating the xterm instance. Visible terminals write through `requestAnimationFrame` in bounded chunks
-  with a timer fallback, because occluded WKWebViews can stop animation frames; hidden tabs must not call
-  `term.write` at all, keeping only the newest bounded tail to replay on activation.
-- Never trim or chunk inside a UTF-16 surrogate pair — drop complete leading units and keep a valid suffix.
-  Tail size, chunk size, scrollback and WebGL defaults are owned by `memoryBudget.ts`, terminal settings or
-  the terminal itself; read them at use time.
+- Rust state.ptys owns PTY lifetime. Frontend only sends input/resize/close; pty:data/pty:exit remain
+  protocol events. Last workspace reference, window destruction, app exit and terminal close all reap in Rust.
+- Hidden workspace terminals remain alive; pause parsing/writes, retain xterm state and only the newest
+  bounded tail. Never term.write while hidden. Visible writes use bounded requestAnimationFrame chunks
+  with a timer fallback for occluded WKWebViews. Activation replays the tail without recreating xterm.
+- Trimming/chunking must not split UTF-16 surrogate pairs. Read tail/chunk/scrollback/WebGL limits from
+  memoryBudget, settings or terminal implementation at use time, without copying ceilings.
 
 ## Keyboard and IME
 
-- App capture-phase shortcuts run before xterm. After them, `TerminalView` forwards printable punctuation
-  held with `Cmd` on macOS or `Ctrl+Shift` on Windows/Linux, which xterm otherwise drops; `Cmd/Ctrl +/-` stay
-  visible-character inputs, and plain `Ctrl+punctuation` stays terminal control input.
-- macOS `Cmd+/` is a direct ASCII `?` input, including while a Chinese IME is active. Detect the physical slash
-  key before composition handling, prevent the browser/xterm path, and write `?` to the PTY on keydown; never
-  wait for `Process`/key code 229 to commit or poll the textarea.
-- Keep shortcut definitions in `src/lib/keys.ts` and the forwarding exception together with the platform
-  tests; changing one without the other causes duplicate, dropped or control-sequence input.
+- App capture shortcuts precede xterm. Forward printable punctuation held with macOS Cmd or Windows/Linux
+  Ctrl+Shift after app shortcuts. Cmd/Ctrl +/- remain visible input; plain Ctrl+punctuation stays control input.
+- macOS Cmd+/ sends ASCII ? directly on physical-slash keydown, including Chinese IME. Prevent browser/
+  xterm handling before composition; never wait for Process/keyCode 229 commit or poll the textarea.
 
 ## Panel geometry
 
-- Terminal maximize fills only the right editor region, including its tab-bar space. The file tree stays.
-  `App` measures that region with ResizeObserver; `terminalLayout.ts` subtracts the persistent 4px splitter
-  and retains the 120px terminal minimum. Never use a window-height offset as the available height.
-- Maximize is window-memory state in the terminal store. Button restore uses the unchanged saved normal
-  height; dragging upward to the top maximizes, dragging down starts continuously from the actual current
-  region height and resumes normal persisted height updates. Hidden/last-closed panels exit maximize.
-- EditorArea and TerminalView stay mounted across geometry changes; no generation/PTY replacement occurs.
-  Existing terminal ResizeObserver/fit sends native PTY resize after layout changes.
+- Maximize fills the right editor region including tab bar; sidebar stays. App measures via ResizeObserver;
+  terminalLayout subtracts the persistent 4px splitter and retains the 120px minimum. Never derive height
+  from a window offset. EditorArea/TerminalView stay mounted; no generation or PTY replacement.
+- Maximize is window-memory state. Restore uses saved normal height unchanged. Drag upward to top maximizes;
+  drag downward starts continuously at current region height and resumes normal persisted updates.
+  Hidden/last-closed panels exit maximize. Existing resize/fit sends native PTY resize after layout changes.
+
+## Change map and verification
+
+Update src/lib/keys.ts, forwarding exceptions and platform tests together to prevent duplicate/dropped/
+control input. Geometry changes coordinate App, terminalLayout, store and panel tests. Native IME and
+maximize/drag/restore need explicit manual verification. Gate policy: [checks.md](./checks.md).

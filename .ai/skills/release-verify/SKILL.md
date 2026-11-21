@@ -21,7 +21,7 @@ Run from the repository root, individually, continuing after failures so one pas
 | 3 | `pnpm check:workflows` | `$var` followed by non-ASCII — insert braces (`${var}`). |
 | 4 | `pnpm typecheck` | Fix the type or DTO in `src/lib/ipc.ts` / Rust, not with `any`. |
 | 5 | `pnpm check:rust` | Fix types and borrows; no `unwrap()` on user input. |
-| 6 | `pnpm check:docs` | Update the stale path, link or `pnpm <script>` in the AI docs. |
+| 6 | `pnpm check:docs` | Fix metadata, path/query fixtures, budgets, generated routes, links or script references in the owning AI doc. |
 
 ## Tests
 

@@ -1,6 +1,7 @@
 ---
-summary: Editor tabs, files, Markdown preview and CodeMirror
+summary: Tabs, files, Markdown and CodeMirror
 scope:
+  - .ai/editor.md
   - src/store/tabs.ts
   - src/components/EditorHost.tsx
   - src/components/EditorArea.tsx
@@ -13,73 +14,70 @@ scope:
   - src/lib/markdown.ts
   - src/lib/untitledDrafts.ts
   - src/lib/tabTitle.ts
+keywords:
+  - editor
+  - tab
+  - markdown
+  - preview
+  - codemirror
+  - 编辑器
+  - 标签
+  - 预览
 ---
 # Editor, tabs and Markdown
 
+## Ownership
+
+The tabs store owns open/save/restore. CodeMirror views belong to panes; stateCache owns per-tab states.
+EditorHost selects tab kinds; markdown helpers own contained links and images.
+
 ## Open, save and restore
 
-- **Open:** `FileTree` → `useTabs.openFile(root, rel)` → `api.readTextFile` → `editor/openState` picks the
-  size tier and lazily imports language support → `view.setState` → `editor/scrollMemory` restores
-  cursor/scroll. A failed read must not replace or close the current tab.
-- **Symlinks:** `stat_file`, `read_text_file` and `read_image_file` reject a final symlink component with
-  `fs.symlinkUnsupported`, including Quick Open, Agent mentions and Markdown image paths. Check workspace
-  containment first, so an escaping link still reports `path.outsideWorkspace`; the file tree blocks tree
-  opens before a tab is created.
-- **Save:** a change marks the tab dirty and autosave calls `useTabs.save` → restores `tab.eol` →
-  `api.writeTextFile` (atomic temp-file + rename) → clears dirty → optionally formats. Every write path must
-  restore `tab.eol`: CodeMirror documents are always `\n`, so an untranslated CRLF write rewrites every line.
-- Indent and newline are per file (`tab.indentSize`, `tab.useTabs`, `tab.eol`), with `settings.tabSize` only a
-  fallback. Untitled tabs have state but no path: `takeUntitledSeed` supplies initial text, drafts mirror to
-  `untitledDrafts`, and saving goes through Save As.
-- **Restore:** `App` shows only the themed background until hydration completes, and project/root/chain/tab
-  restoration is one gate. A restored tab starts as metadata only: content and `EditorState` appear on first
-  activation, and an undefined `tab.eol` before that is safe because a tab without state cannot be saved.
-  File/cursor state restores only within the same project, and virtual or chat tabs never enter the
-  file-layout session.
+- Open through FileTree → useTabs.openFile(root, rel) → api.readTextFile → editor/openState (size tier,
+  lazy language import) → view.setState → scrollMemory. Failed reads preserve the current tab.
+- stat_file/read_text_file/read_image_file reject final-component symlinks with fs.symlinkUnsupported,
+  including Quick Open, Agent mentions and Markdown images. Containment runs first so escapes report
+  path.outsideWorkspace. FileTree rejects symlink opens before creating tabs.
+- Save restores tab.eol before api.writeTextFile, clears dirty after success, then optionally formats.
+  CodeMirror always uses LF; every save path must restore CRLF. Writes follow the context atomic contract.
+- Indent/newline are per-file (indentSize/useTabs/eol); settings.tabSize is fallback. Untitled tabs have
+  state without paths: takeUntitledSeed seeds text, untitledDrafts mirrors it, Save As assigns the path.
+- Hydrate project/root/chain/tabs as one gate behind the themed startup frame. Restore metadata first;
+  load content/state on activation. Missing eol is safe only while there is no state to save. Restore
+  file/cursor state only within the same project; virtual/chat tabs never enter file-layout persistence.
 
-## Tab model
+## Tab and pane contracts
 
-- Kinds are `file | diff | image | welcome | settings | untitled | chat`. `diff` and `image` have no
-  `EditorState`; `welcome` and `settings` are rootless virtual tabs that are never persisted, never enter
-  `closedTabs` and keep no cached state. Chat restoration belongs to [agent.md](./agent.md).
-- A new or changed kind must cover `editor/openState.ts`, `tabs.activate`, the persisted-tab filter in
-  `lib/editorSession.ts` and TabBar's icon/title; chat also needs `lib/agentSession.ts` and `AgentChat`
-  wiring in `EditorHost`.
-- **Preview tabs:** ordinary file/image opens are temporary and replace only the target pane's single clean,
-  unpinned temporary tab. A first edit, double-click, pin, drag threshold, split or other explicit preserve
-  action promotes it permanently, and undoing the edit must not demote it. Replaced state and caches release
-  only when no pane still shows that tab, it never enters `closedTabs`, and restored or virtual tabs are
-  never temporary. Only the title styling differs.
-- **Panes:** a chat opened with no tabs fills the only pane; with existing tabs it creates a row split
-  without moving them, and ordinary opens go to primary while the secondary tab is chat. Tab-bar item widths
-  are measured once and refreshed on resize, never stored in tab state, and vertical wheel input writes one
-  `scrollLeft` per frame.
-- **Hooks:** `TabBar` must finish every hook before its `tabs.length === 0` return. Opening the first tab or
-  closing the last one must not change the hook order.
-- **Agent close button:** each tab subscribes to its own chat running flag. Running agents have no close
-  button, even on hover/focus; idle, failed or cancelled chats regain it. Pinned tabs keep their pin.
-  Context-menu, middle-click and keyboard close commands retain their existing behavior.
+- Kinds: file/diff/image/welcome/settings/untitled/chat. Diff/image have no EditorState. Welcome/settings
+  are rootless, unpersisted, absent from closedTabs and state caches. Chat history: [agent-storage.md](./agent-storage.md).
+- A kind change updates editor/openState.ts, tabs.activate, lib/editorSession.ts's persisted filter and
+  TabBar icon/title; chat also updates lib/agentSession.ts and AgentChat wiring in EditorHost.
+- Each pane has one clean, unpinned temporary file/image tab. Edit/double-click/pin/drag/split or explicit
+  preserve promotes it permanently; undo never demotes. Replacement never enters closedTabs and releases
+  caches only when no pane shows it. Restored/virtual tabs are permanent; only title styling differs.
+- Chat fills an empty editor; otherwise opens a secondary row split without moving existing tabs. Ordinary
+  opens target primary. Measure tab widths once and on resize, outside tab state; wheel writes scrollLeft
+  once/frame. TabBar hooks must precede its empty return, including first-open/last-close transitions.
+- Each tab selects its own chat-running flag. Running agents hide close buttons even on hover/focus;
+  idle/failed/cancelled restore them; pinned tabs keep pins. Other close commands retain their behavior.
+- Chat tabs/drag ghosts use live provider icon + Agent + optional execution status, with generic loading
+  fallback. tabTitle returns Agent; tooltips/headers keep conversation titles. Reply links reuse
+  openFile/openAt with the owning root and normalized relative path.
 
-## Markdown preview
+## Markdown and CodeMirror
 
-Chat tabs/drag ghosts show provider icon + Agent + optional execution icon. Provider lookup is live with
-a generic loading fallback. `tabTitle` returns Agent; tooltips and chat headers retain conversation titles.
-Agent reply file links reuse openFile/openAt with the owning root and a normalized relative path.
+- TabGroup.markdownPreview is per pane/tab and retains the source-pane ratio. Preserve through moves;
+  clear on close, rename away from Markdown, replacement or merge (primary wins). Keep source EditorView
+  mounted so markdownDocs publishes unsaved text; lazy-load rendering. Reject raw HTML, navigation and
+  remote/absolute/escaping/SVG images; lib/markdown.ts and api.readImage allow contained relative raster images.
+- One EditorView/pane; stateCache swaps per-tab states through view.setState. editor/mirror.ts forwards
+  split ChangeSets. Never store views/states in zustand or share a state between views.
+- Reconfigure theme/font/blame/wrap via Compartments; rebuilding state discards undo. DOM extensions
+  (conflicts/blame/folds) need editor/locale.ts effects and destroy-time watchLocale unsubscribe. Large-file
+  outline traversal must tolerate viewport-only Lezer trees.
 
-Preview state is per pane/tab in `TabGroup.markdownPreview` and records the source-pane ratio: preserve it
-through pane/tab moves and clear it on close, rename away from Markdown, replacement or merge (primary wins).
-Keep the source `EditorView` mounted so `editor/markdownDocs.ts` can publish unsaved source, and lazy-load the
-renderer: skip raw HTML, never navigate links, and allow only relative workspace raster images, because
-`lib/markdown.ts` plus `api.readImage` must reject remote, absolute, escaping and SVG paths.
+## Change map and verification
 
-## CodeMirror and undo history
-
-- One `EditorView` per pane; per-tab `EditorState` lives in `editor/stateCache.ts` and swaps through
-  `view.setState`, while `editor/mirror.ts` forwards split-pane ChangeSets. Never put views/states in
-  zustand, never share a state between views.
-- Theme, font size, blame, word wrap and other toggleable extensions use `Compartment.reconfigure`;
-  rebuilding state for a setting discards undo history and must be avoided.
-- **DOM-producing extensions** (conflict controls, inline blame, fold arrows) do not rerender with React: a
-  locale change must dispatch `editor/locale.ts`'s locale effect, and every plugin must unsubscribe
-  `watchLocale` from `destroy()`. The structure outline walks the Lezer tree, and a very large file may expose
-  only a viewport syntax tree, so never assume a full parse.
+Coordinate tab-kind changes across openState, persistence and TabBar; Markdown paths cross Rust containment.
+Existing editor/tab/Markdown tests cover replacement, EOL, restoration and links. Native layout/scrolling
+needs explicit manual verification. Gate policy: [checks.md](./checks.md).

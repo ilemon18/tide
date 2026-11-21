@@ -1,9 +1,11 @@
 #!/usr/bin/env node
-/** Print only the area docs whose frontmatter scope matches the supplied repo paths. */
-import { readdirSync, statSync } from 'node:fs'
+/** Route paths exactly, or recommend candidates using bounded area metadata. */
+import { statSync } from 'node:fs'
 import { isAbsolute, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { readAreaMetadataFile, resolveAreaDocsForPaths, roughTokens } from './ai-docs-lib.mjs'
+import {
+  BUNDLE_TARGET, explainPathRoutes, parseRouteArgs, queryAreaDocs, readAreaDocs, roughTokens,
+} from './ai-docs-lib.mjs'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
 const AI_DIR = join(ROOT, '.ai')
@@ -13,36 +15,48 @@ function normalizePath(path) {
   return repoRelative.replace(/^\.\//, '').split('\\').join('/')
 }
 
-const paths = process.argv.slice(2).map(normalizePath).filter(Boolean)
-if (paths.length === 0) {
-  console.error('Usage: pnpm docs:route <repo-relative-file> [...more files]')
+const options = parseRouteArgs(process.argv.slice(2))
+if (options.error) {
+  console.error(options.error)
+  console.error('Usage: pnpm docs:route [--explain] <repo-relative-file> [...more files]')
+  console.error('       pnpm docs:route --query "task description"')
   process.exit(1)
 }
 
-const docs = []
-for (const name of readdirSync(AI_DIR).sort((a, b) => a.localeCompare(b))) {
-  if (!name.endsWith('.md') || name === 'context.md') continue
-  const file = join(AI_DIR, name)
-  if (!statSync(file).isFile()) continue
-  const metadata = readAreaMetadataFile(file)
-  if (metadata.error) {
-    console.error(`.ai/${name}: ${metadata.error}`)
-    process.exit(1)
-  }
-  docs.push({ doc: name, file, summary: metadata.summary, scope: metadata.scope })
+let docs
+try {
+  docs = readAreaDocs(AI_DIR)
+} catch (error) {
+  console.error('.ai/' + error.message)
+  process.exit(1)
 }
-
-const loaded = resolveAreaDocsForPaths(docs, paths)
+const paths = [...new Set(options.paths.map(normalizePath).filter(Boolean))]
+const candidates = options.query !== null
+const loaded = candidates ? queryAreaDocs(docs, options.query) : explainPathRoutes(docs, paths)
 if (loaded.length === 0) {
-  console.log('No area docs match the supplied paths.')
-  process.exit(0)
+  console.log(candidates ? 'No area docs match the query. Locate code, then route its paths.'
+    : 'No area docs match the supplied paths.')
+} else {
+  console.log(candidates ? 'Candidates (locate code and confirm path scopes before loading):'
+    : 'Load ' + loaded.length + ' area doc(s):')
 }
-
-console.log(`Load ${loaded.length} area doc(s):`)
-for (const name of loaded) {
-  const record = docs.find((candidate) => candidate.doc === name)
+let loadedBytes = 0
+for (const record of loaded) {
   const size = statSync(record.file).size
-  console.log(
-    `- .ai/${name} — ${record.summary} (${(size / 1024).toFixed(2)}KB, ~${roughTokens(size)} tokens)`,
-  )
+  loadedBytes += size
+  console.log('- .ai/' + record.doc + ' — ' + record.summary + ' (' + (size / 1024).toFixed(2)
+    + 'KB, ~' + roughTokens(size) + ' tokens)')
+  if (candidates) {
+    const reasons = [...record.keywordsMatched.map((word) => 'keyword: ' + word),
+      ...record.summaryMatched.map((word) => 'summary: ' + word)]
+    console.log('  score ' + record.score + '; ' + reasons.join('; '))
+  } else if (options.explain) {
+    for (const { path, glob } of record.matches) console.log('  ' + path + ' matches ' + glob)
+  }
 }
+const resident = ['AGENTS.md', '.ai/context.md'].reduce((sum, file) => sum + statSync(join(ROOT, file)).size, 0)
+const total = resident + loadedBytes
+console.log('Resident: ' + resident + ' bytes; ' + (candidates ? 'candidate' : 'routed') + ' docs: '
+  + loadedBytes + ' bytes; bundle: ' + total + ' bytes (~' + roughTokens(total)
+  + ' tokens; rough bytes/4 estimate).')
+if (total > BUNDLE_TARGET) console.log('Above 16KB target; all matches retained. Narrow the task before loading candidates.')

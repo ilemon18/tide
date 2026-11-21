@@ -5,7 +5,7 @@
  * Agents load `.ai/context.md` first and then only area docs whose frontmatter scope
  * matches the paths they touch. This check validates:
  *
- * 1. every top-level area doc has valid summary/scope metadata and at least one real match;
+ * 1. every top-level area doc has valid summary/scope/keyword metadata and at least one real match;
  * 2. the generated route table exactly matches that metadata and every area doc is routed;
  * 3. representative routing fixtures load exactly the expected docs and stay within budget;
  * 4. every skill wrapper has matching frontmatter and links to its canonical skill;
@@ -20,6 +20,10 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'nod
 import { fileURLToPath } from 'node:url'
 import {
   ROUTING_FIXTURES,
+  QUERY_FIXTURES,
+  BUNDLE_TARGET,
+  duplicateParagraphs,
+  queryAreaDocs,
   compileScopeGlob,
   fixtureBudgetError,
   parseAreaMetadata,
@@ -244,6 +248,17 @@ const areaDocs = readdirSync(AI_DIR)
     }
 
     let valid = true
+    if (!metadata.keywords?.length) {
+      fail(relative(ROOT, file) + ': missing non-empty keywords')
+      valid = false
+    }
+    if (!metadata.scope.some((glob) => {
+      const compiled = compileScopeGlob(glob)
+      return !compiled.error && compiled.regexp.test('.ai/' + name)
+    })) {
+      fail(relative(ROOT, file) + ': scope must include its own area doc')
+      valid = false
+    }
     for (const glob of metadata.scope) {
       const compiled = compileScopeGlob(glob)
       if (compiled.error) {
@@ -312,6 +327,7 @@ for (const fixture of ROUTING_FIXTURES) {
   const bundleBytes = residentBytes + loadedBytes
   const budgetError = fixtureBudgetError(fixture.name, bundleBytes)
   if (budgetError) fail(budgetError)
+  if (bundleBytes > BUNDLE_TARGET) warnings.push("routing fixture '" + fixture.name + "' exceeds the 16KB target")
   const breakdown = loaded.map((doc) => {
     const record = validAreaDocs.find((candidate) => candidate.doc === doc)
     return record ? `${doc} ${(statSync(record.file).size / 1024).toFixed(2)}KB` : doc
@@ -319,6 +335,19 @@ for (const fixture of ROUTING_FIXTURES) {
   console.log(
     `  ${fixture.name}: ${breakdown.join(' + ') || '(no docs)'} -> bundle ${(bundleBytes / 1024).toFixed(2)}KB (~${roughTokens(bundleBytes)} tokens)`,
   )
+}
+
+for (const fixture of QUERY_FIXTURES) {
+  const actual = queryAreaDocs(validAreaDocs, fixture.query).map(({ doc }) => doc)
+  if (JSON.stringify(actual) !== JSON.stringify(fixture.expected)) {
+    fail('query ' + JSON.stringify(fixture.query) + ' returned [' + actual.join(', ')
+      + '], expected [' + fixture.expected.join(', ') + ']')
+  }
+}
+for (const duplicate of duplicateParagraphs(validAreaDocs.map(({ doc, file }) => ({
+  doc, text: readFileSync(file, 'utf8'),
+})))) {
+  warnings.push('Repeated prose in ' + duplicate.docs.join(', ') + ': ' + duplicate.text.slice(0, 100) + '…')
 }
 
 const files = [...aiFiles, ...rootPolicyFiles]

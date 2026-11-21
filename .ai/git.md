@@ -1,6 +1,7 @@
 ---
-summary: Git actions, diff views, conflicts and bulk discard
+summary: Git actions, diffs and conflicts
 scope:
+  - .ai/git.md
   - src/store/git.ts
   - src/components/DiffView.tsx
   - src/components/DiffView.test.tsx
@@ -16,70 +17,73 @@ scope:
   - src-tauri/src/commands/git.rs
   - src-tauri/src/paths.rs
   - src-tauri/src/proc.rs
+keywords:
+  - git
+  - diff
+  - checkout
+  - branch
+  - conflict
+  - discard
+  - 分支
+  - 差异
+  - 冲突
+  - 丢弃
 ---
 # Git, diff and conflicts
 
-## Lifecycle
+## Ownership
 
-The branch chooser keeps a fixed 480px dialog (clamped to the viewport), with an independently scrolling
-list. Local and remote branches are separate groups; empty search shows ten branches per group, pinning
-the current local branch before filling remaining slots by newest commit (remote branches use recency),
-while name search spans the complete cached list and caps visible matches at 200. Group headings are visual
-only, and keyboard navigation follows branch rows plus the create action.
+The Git store owns repo-local status/actions. Rust git commands own mutations; paths/proc own containment
+and subprocess policy. DiffView/diffScroll own positioning; editor/conflicts owns resolution edits.
 
-- Keep status repo-local and subscribe only to the active path/id needed for highlighting. Read porcelain v2
-  status once, NUL-delimited, rather than shelling out per file; coalesce refreshes, skip `setState` when data
-  is unchanged, cache branch metadata with the store TTL.
-- Fetch refreshes branches and status only: it does not touch the worktree, so it must not rebuild the
-  explorer tree or refresh open file/diff contents, and its metadata-only watcher batch is suppressed.
-- A diff tab refreshes by bumping `useTabs.diffEpoch[root]` plus the tab's `diffEpoch`, never by closing and
-  recreating it, and a path-scoped refresh bumps only matching tabs.
+## Branches and refresh
 
-## Bulk discard and save safety
+- Branch dialog is 480px clamped to viewport with a scrolling list. Separate local/remote groups; empty
+  search shows ten/group, current local pinned then newest commits (remote recency). Name search spans
+  all cached branches, capped at 200 visible matches. Headings are visual; keyboard visits rows/create.
+- Read NUL-delimited porcelain v2 once, never per file. Select active path/id, coalesce status refreshes,
+  skip unchanged setState and respect branch-cache TTL. Fetch only refreshes branches/status; pure Git
+  watcher batches must not rebuild tree or reload files/diffs. Mixed batches follow [file-tree.md](./file-tree.md).
+- Refresh diffs via root and tab diffEpoch, only matching tabs for scoped paths; never close/recreate.
 
-`useGit.discardAllChanges(root)` is a destructive multi-file snapshot operation: after confirmation take a
-fresh snapshot, compute separate restore/delete counts, hide `changes`/`untracked` optimistically, suppress
-watcher and focus refreshes, and suspend target saves (`suspendFileSaves` in `store/tabs.ts`) while waiting
-for in-flight writes.
+## Bulk discard transaction
 
-`api.gitDiscardChanges` / `git_discard_changes` validates every path, conflict state, directory placeholder
-and Git category before mutating, and a category change rejects the whole snapshot: tracked files are restored
-from the index in one `git restore` (staged content preserved), untracked ones are probed with `git ls-files`
-before unlinking, never by recursive directory delete. Stop at the first failure and return processed paths
-plus an optional coded error; the legacy `api.gitDiscard` / `git_discard` keeps single-file behavior.
+- useGit.discardAllChanges(root): after confirmation take a fresh snapshot, count restore/delete
+  separately, optimistically hide changes/untracked, suppress watcher/focus refresh, suspend target saves
+  with suspendFileSaves, and wait for in-flight writes.
+- git_discard_changes validates every path, conflict, directory placeholder and Git category before any
+  mutation. Category drift rejects the whole snapshot. Restore tracked files from index in one git restore
+  (preserve staged content); probe untracked via git ls-files before unlinking, never recursive deletion.
+  Stop at first failure; return processed paths plus optional coded error. Legacy git_discard stays single-file.
+- Success closes deleted tabs and force-reloads restored tabs. Failed forced reload closes obsolete text
+  tabs to prevent writeback. IPC failure restores the whole snapshot; partial backend failure restores only
+  unprocessed rows. Status refresh waits for older requests.
 
-On success, close tabs for deleted paths and force-reload restored ones, and a failed forced reload closes
-the obsolete text tab so it cannot write discarded content back. An IPC-level failure restores the whole
-snapshot, a partial backend failure only unprocessed rows, and status refresh waits for older requests.
+## Diff and conflict contracts
 
-## Diff semantics
+- Compare against /dev/null only for untracked files (is_tracked). Empty unstaged worktree=index or staged
+  index=HEAD becomes a normal tab with scroll preserved. Deleted/folder/oversized paths close only the diff.
+- memoryBudget.diffRows and git_diff_full both bound large diffs; profile generated files before raising limits.
+- Synchronize latest real input per axis/frame; detect echoes from actual/clamped offsets, never drop all
+  frame-locked events. Narrow-pane vertical movement must not reset the other pane's horizontal position.
+- First-change/overview/restore share diffScroll.jumpTo and cancel queued sync. Capture refresh progress
+  immediately before response application so intervening input wins. Scroll/ruler/fold invalidates restores;
+  settle before folding. Cancel old layout/tab/restore callbacks on replacement/unmount. Only the overview
+  viewport slider updates during scrolling; coalesce measurements/frame.
+- conflictFiles skips IPC without markers; with markers use loaded status unless stale, then git ls-files -u.
+  Terminal cherry-pick can stale status. Conflict accepts preserve scrollDOM scrollTop/Left through
+  view.requestMeasure and never set scrollIntoView=true.
 
-- An empty diff does not mean a new file: the “compare against `/dev/null`” fallback is only for **untracked**
-  files (`is_tracked`). An empty unstaged tab whose worktree equals the index, or staged tab whose index
-  equals HEAD, becomes the normal file tab and keeps its scroll; a deleted path, folder or oversized file
-  closes only the diff tab.
-- Large diffs are bounded twice: `memoryBudget.diffRows()` limits frontend rows/parsing and `git_diff_full`
-  truncates oversized patches. Do not raise either bound without profiling generated-file diffs.
-- Diff scroll synchronization coalesces the latest real input per axis each frame; recognize echoes by
-  actual (possibly clamped) offsets, never by dropping every event behind a frame lock. Vertical movement
-  on a narrower pane must not pull the other pane's horizontal position back.
-- First-change positioning, overview jumps and refresh restoration share `diffScroll.jumpTo`, cancelling
-  queued synchronization. Capture refresh progress immediately before applying the response, so input during a background fetch
-  wins. Subsequent scrolls, ruler jumps and folds invalidate pending restores. Settle movement before folding; cancel
-  old layout/tab work and restoration callbacks on replacement/unmount. Only the overview viewport
-  slider updates during scrolling, with measurements coalesced per frame.
+## Subprocess and path boundaries
 
-## Conflicts and subprocess
+- Use git -C root, GIT_TERMINAL_PROMPT=0, GIT_OPTIONAL_LOCKS=0, disabled editors/pager, LC_ALL=C, closed stdin.
+  Read-only probes and checkout preflight get short deadlines; network gets proc.rs's longer timeout;
+  checkout itself never uses the short deadline.
+- Shared component comparison equates Windows drive/verbatim and UNC/verbatim-UNC roots; never globally
+  strip verbatim prefixes. Errors and relative IPC paths follow [context.md](./context.md).
 
-- Detection is two-stage in `src/lib/conflictFiles.ts`: content without a marker needs no IPC, and with a
-  marker the loaded status cache is used unless it may be stale — only files that really contain markers ask
-  the backend (`git ls-files -u`), because status can be stale right after a terminal cherry-pick.
-- Conflict accepts preserve viewport position: `editor/conflicts.ts` records `scrollDOM.scrollTop/Left` and
-  restores them with `view.requestMeasure`, and a resolve transaction never gets `scrollIntoView: true`.
-- Git runs as `git -C <root>` with `GIT_TERMINAL_PROMPT=0`, `GIT_OPTIONAL_LOCKS=0`, editors and pager
-  disabled, `LC_ALL=C` and stdin closed. Read-only probes and checkout preflight use a short deadline; network
-  operations use the longer timeout in `proc.rs`, and checkout itself never gets the short deadline.
-- Windows containment treats `C:\...` and `\\?\C:\...`, plus `\\server\share` and `\\?\UNC\server\share`, as
-  the same root in the shared path-component comparison, not by stripping verbatim prefixes globally. Return
-  `AppResult<T>` with coded `AppError::c` / `AppError::p` for UI failures, and keep paths workspace-relative
-  at the IPC boundary.
+## Change map and verification
+
+Coordinate Git snapshots, tab save suspension and watcher transitions. Diff tests protect axes, echoes,
+refresh input, folds and cancellation; Rust tests protect path/mutation/subprocess invariants. Native scroll
+smoothness needs an explicit manual request. Gate policy: [checks.md](./checks.md).

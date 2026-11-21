@@ -1,95 +1,79 @@
 ---
-summary: App shell, windows, memory, settings and updates
+summary: Windows, settings, themes and memory
 scope:
+  - .ai/runtime.md
   - src/App.tsx
   - src/App.test.tsx
   - src/main.tsx
   - src/components/TitleBar.tsx
   - src/components/SettingsView.tsx
   - src/components/ThemeMenu.tsx
-  - src/components/UpdateBadge.tsx
-  - src/components/UpdateBadge.test.tsx
   - src/lib/memoryBudget.ts
   - src/lib/displayScale.ts
-  - src/lib/update.ts
-  - src/lib/updateView.ts
-  - src/lib/updateView.test.ts
   - src/lib/settingsSections.ts
   - src/lib/fonts.ts
   - src/lib/iconTheme.ts
   - src/store/settings.ts
   - src/store/settings.test.ts
-  - src/store/update.ts
-  - src/store/update.test.ts
   - src/theme/**
   - src-tauri/src/main.rs
   - src-tauri/src/state.rs
-  - src-tauri/src/update.rs
   - src-tauri/src/commands/theme.rs
   - src-tauri/capabilities/**
   - vite.config.ts
   - src-tauri/tauri.conf.json
   - public/theme-boot.js
+keywords:
+  - runtime
+  - settings
+  - window
+  - theme
+  - memory
+  - 设置
+  - 窗口
+  - 主题
+  - 内存
 ---
-# Runtime, memory, settings and updates
+# Runtime, windows and settings
 
-## Windows and app shell
+## Ownership
 
-- One window owns exactly one project; several projects mean several app windows. Only the primary window
-  persists session/chat state (`IS_PRIMARY_WINDOW`), and secondaries receive their project on the window URL
-  without overwriting primary state.
-- macOS keeps the native traffic-light inset; Windows/Linux use a custom title bar (`TitleBar` owns the drag
-  region and right-side controls), and every window command needs the matching `core:window:allow-*`
-  capability in `src-tauri/capabilities/default.json`.
-- Closing the main window on macOS hides it instead of quitting: Rust prevents close, gives the frontend a
-  short grace period to flush settings/session, then destroys it, and the frontend releases memory on
-  `app:hidden`. `WindowEvent::Destroyed` reaps that window's PTYs and workspace grants, so the frontend
-  cannot close them afterwards.
-- Debug builds must not report updates, run quiet checks or show the title-bar update badge, in either
-  frontend or backend; `app:open-file` still has no listener, so do not assume it is consumed.
-- The root `App` must render its themed startup frame before session-restoration effects run; a render
-  failure prevents the reveal timer from being installed. `src/App.test.tsx` covers this initial render
-  with real React hooks, without starting native effects.
+App owns hydration/window coordination; the settings store and Rust theme commands own migration/defaults.
+`src/lib/memoryBudget.ts` owns memory limits. Updates: [updates.md](./updates.md).
 
-- The right editor region owns terminal geometry; maximize hides the resident editor wrapper without
-  unmounting it or touching the sidebar. See [terminal.md](./terminal.md) for drag/restore ownership.
+## Windows and startup
 
-## Memory and settings
+- One window/project. Only `IS_PRIMARY_WINDOW` persists session/chat state; secondaries use the window URL
+  project without overwriting primary state. `app:open-file` has no listener; do not assume consumption.
+- macOS retains traffic-light inset; Windows/Linux use TitleBar's custom drag/control region. Every window
+  command needs its `core:window:allow-*` capability in `src-tauri/capabilities/default.json`.
+- macOS main-window close hides instead of quitting: Rust prevents close, allows a short frontend
+  settings/session flush, then destroys; `app:hidden` releases frontend memory. WindowEvent::Destroyed
+  reaps PTYs/grants, so frontend cleanup cannot close them afterward.
+- Render the themed startup frame before restoration effects; render failure prevents the reveal timer.
+  `src/App.test.tsx` covers initial render with real hooks, without native effects.
+- Right editor region owns terminal geometry. Maximize hides its wrapper without unmount/sidebar changes;
+  follow [terminal.md](./terminal.md) for drag/restore.
 
-- Settings keep helper text for non-obvious effects (such as reloads and per-file defaults); format-auto
-  and icon-theme explanations live in option tooltips instead of persistent secondary descriptions.
-- `src/lib/memoryBudget.ts` is the single source for editor state, search/index and terminal budgets, and
-  lightweight mode switches the shared profile: read `budget.*` / `feature.*` at use time and never copy
-  ceilings into docs or components. The strategy is bounded caches plus explicit release — evict inactive
-  editor states while preserving active/dirty tabs, and release them, search results and the quick-open index
-  on `app:hidden`.
-- Defaults exist twice, `DEFAULT_SETTINGS` (`src/store/settings.ts`) and `Settings::default`
-  (`src-tauri/src/commands/theme.rs`), and must stay identical. A fresh install starts from Rust defaults at
-  schema version 0, migrates in the frontend and writes back; after that `settings.json` wins.
-- Adding a setting touches both types, both defaults, the migration path, `SHARED_KEYS` if every window must
-  react, and the settings UI; retiring one removes both defaults and adds the old key to `RETIRED_KEYS`, or it
-  is written back forever. Preserve unknown fields from newer versions.
-- Schema v11 adds `agentDefaultPermissionMode` (workspace-write); invalid values fall back without resetting
-  other settings. Agent provider/model/effort/permission defaults write immediately and sync across windows;
-  settings UI updates related fields in one patch. Historical chats retain their saved options.
-- `settings.json` and `session.json` live in `app_config_dir()` under the lock in
-  `src-tauri/src/commands/theme.rs`; agent storage is in [agent.md](./agent.md). `public/theme-boot.js` paints
-  the first theme before React and must stay CSP-compatible: no inline script.
+## Settings and memory
 
-## Updates
+- Keep helper copy for non-obvious reload/per-file effects. Format-auto/icon-theme help uses tooltips.
+- Read memoryBudget's budget/feature at use time, including lightweight profiles; never copy ceilings.
+  Bound caches and explicitly release: evict inactive editor states, preserve active/dirty ones; release
+  them, search results and quick-open index on app:hidden.
+- `DEFAULT_SETTINGS` in `src/store/settings.ts` and `Settings::default` in
+  `src-tauri/src/commands/theme.rs` stay identical. Fresh install uses Rust schema-0 defaults, frontend
+  migration and writeback; afterward settings.json wins. Preserve unknown fields from newer versions.
+- Add settings in both types/defaults, migration, UI and SHARED_KEYS when shared across windows. Retirement
+  removes both defaults and adds RETIRED_KEYS or the old key is written back forever.
+- Schema v11 adds agentDefaultPermissionMode=workspace-write. Invalid values fall back without resetting
+  other settings. Provider/model/effort/permission defaults write immediately and sync windows; UI patches
+  related fields together. Historical chats keep saved options; temporary plan options never become defaults.
+- settings.json/session.json use app_config_dir and the Rust theme lock; chat storage follows
+  [agent-storage.md](./agent-storage.md). `public/theme-boot.js` paints before React with CSP-safe external JS.
 
-- Check/download/install is a Rust state machine driven by the webview. Release builds may run one quiet
-  startup check, but download and install require an explicit user action. Only HTTPS GitHub URLs are
-  accepted, and artifact byte count plus `latest.json` SHA-256 must match before use; never commit generated
-  `latest.json`.
-- Settings → About has one state-driven update action. Its initial manual check maps to
-  `check(true, true)` / `update_check { force: true }`: it skips `update-cache.json`, sends
-  `Cache-Control: no-cache` on every lookup, never falls back to an old cache on failure, and writes a
-  successful answer back to the cache. When an installer is available the action changes to **Update to
-  latest**: one explicit click downloads, verifies, saves the initiating window and starts installation/restart.
-  Checks alone never download. Remaining dirty tabs or a failed subscription/download/save/install produce
-  a retryable error; busy states reject duplicate actions. Native manual-install outcomes still reveal the
-  package, and a restart timeout returns to the install action with its error visible.
-- Title bar and Settings share action labels and state. The release primary-window badge shows the available
-  action as text; downloads use a fixed 16px SVG circle beside the localized percentage, with 8px gap and
-  horizontal padding. It never measures text for progress geometry. Missing installers open the release page.
+## Change map and verification
+
+Synchronize setting types/defaults, migrations, shared keys and UI. Theme changes coordinate UI/CodeMirror/
+xterm palettes using theme tokens; generated assets retain their generators. App/settings tests protect
+startup and migration. Gate execution: [checks.md](./checks.md).

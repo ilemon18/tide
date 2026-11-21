@@ -1,6 +1,7 @@
 ---
-summary: Workspace tree, folders, refresh and watcher sync
+summary: Workspace tree, folder chains and watchers
 scope:
+  - .ai/file-tree.md
   - src/components/FileTree.tsx
   - src/store/workspace.ts
   - src/store/fileIndex.ts
@@ -8,58 +9,57 @@ scope:
   - src/store/watcher.ts
   - src-tauri/src/commands/fs.rs
   - src-tauri/src/watcher.rs
+keywords:
+  - tree
+  - workspace
+  - folder
+  - watcher
+  - 文件树
+  - 目录
+  - 监听
 ---
 # File tree and workspace refresh
 
-## Expansion and locating
+## Ownership
 
-- Opening or locating a file expands its chain through `workspace.expandChain`, which fetches levels in
-  parallel and commits once; do not loop `await expandDir`, because incremental commits cause pop-in.
-- With `compactFolders`, a merged row is the deepest directory in the chain and every action targets that
-  row — intermediate directories have no row. Call `folderChain.invalidate(root, dir)` on content change or
-  the chain keeps the old shape.
-- The chain probe and the tree share one entry filter: `.DS_Store`, and dot-entries when hidden files are
-  off, are the only special exclusions. Switching tabs scrolls only the current file's directory row into
-  view through the `followed` ref and never alters expansion; follow a file once, or row rebuilds fight user
-  scrolling.
-- `DirEntryInfo.isSymlink` comes from link metadata. Every symlink is a leaf row (`isDir = false`), including
-  links to directories, and single-click, ⌘↓ or a pane drop must not call `openFile` or expand it. Tree opens
-  show `error.fs.symlinkUnsupported` immediately; rename, delete and move still operate on the link itself.
-- Single click opens a file or toggles a folder. Double-click is only the normal tree gesture: it must not
-  create or switch agent chats, and the second click must not repeat the open or toggle. Agent entry points are
-  the title bar and the row context menu.
-- `resolve_dir_chain` in Rust and `buildRows` in the component are one contract: resolve chains only for
-  visible rows and respect the bounded depth/concurrency/cache settings beside the implementation.
+FileTree renders rows; workspace/fileIndex own directory data; folderChain owns compact chains. Rust
+watcher emits fs:changed; the frontend watcher coordinates directory, Git and open-file refresh.
 
-## Virtual scrolling
+## Expansion and rows
 
-While the scrollbar moves, keep the last settled chain snapshot and defer visible-chain resolution until
-scroll idle — mid-scroll async results change row count under the thumb and cause flicker — and on snapshot
-change anchor the row under the viewport by stable `root + start` identity, or stay at the bottom when already
-there. When row count shrinks, clamp `scrollTop` to the new content height and again in the render window with
-the current `maxScroll`, or absolutely positioned rows keep the old range and leave empty space. Row height is
-shared layout data, and only pointer drag hit testing measures geometry.
+- Locate/open expands through workspace.expandChain: fetch levels in parallel, commit once. Sequential
+  expandDir causes pop-in. Compact rows represent the deepest directory; every action targets it.
+  Invalidate folderChain(root, dir) on content changes or stale shapes persist.
+- Tree and chain probes share one filter: .DS_Store and (when hidden files are off) dot-entries. Follow
+  each file once through the followed ref; scroll only its directory row, never alter expansion or refollow
+  on row rebuilds. Rust resolve_dir_chain and frontend buildRows resolve visible rows with local bounds.
+- isSymlink comes from link metadata. All symlinks are leaves (isDir=false), even directory links.
+  Single click, ⌘↓ and pane drop reject open/expand with error.fs.symlinkUnsupported; rename/delete/move
+  operate on the link itself. Double-click remains the tree gesture; its second click must not repeat
+  open/toggle or create/switch agent chats. Agent entry points are title bar and row context menu.
+- During scrollbar motion retain the settled chain snapshot; defer visible-chain resolution until idle.
+  On snapshot change anchor by stable root+start row identity, or stay bottom when already there. Clamp
+  scrollTop after row shrink and again against current maxScroll in the render window to avoid blanks.
+  Row height is shared layout data; only pointer drag hit testing measures geometry.
 
-## Watcher and state synchronization
+## Refresh contracts
 
-- `src-tauri/src/watcher.rs` batches path changes and emits `fs:changed`; the frontend watcher store
-  coordinates directory refresh, Git status refresh and disk reload, with debounce and batching bounded in
-  the watcher itself.
-- Refresh directories through the file index/workspace APIs, Git through [git.md](./git.md), and open tabs
-  through `refreshFromDisk`, comparing metadata before re-reading and bumping the matching `diffEpoch` so
-  diff tabs refresh in place. A status refresh that finds `isRepo` changed syncs that back to the root, so a
-  terminal `git init` is noticed, and a fetch — which only updates remote-tracking refs — has its pure `.git`
-  batch suppressed, while worktree paths in the same batch still refresh.
-- **Never close a tab because Git status changed**, only a file that really vanished from disk; the one
-  exception is an empty diff tab, which Git/diff logic may replace with the normal file tab.
-- During an explicit checkout/create, `beginBranchTransition` suppresses the watcher's duplicate `.git` batch,
-  with a short grace window after success. Accumulate mixed worktree paths and replay them once after the
-  transition; rescan/ignore changes always refresh, and fetch still suppresses only pure Git metadata.
-- Batch refresh preserves loaded page counts and unreadable caches, deleting only confirmed missing
-  subtrees. Directory versions and workspace lifetimes protect refresh, pagination, chain expansion and
-  expand-all: collapse/reopen, root replacement or newer cache reads cannot resurrect obsolete nodes.
-  Worktree `.lock` files are watched; temporary lock suppression applies only inside Git metadata.
-- Rust tests cover payload truncation, overflow, continuous-flow deadlines and error/rescan notifications;
-  frontend tests cover mixed branch batches, ignore rules, cache races, permissions and missing subtrees.
-- Workspace roots are refcounted: dropping the last reference reaps its PTY and watcher resources in Rust, so
-  never model workspace lifetime only in the frontend.
+- Rust owns debounce/batch limits. Refresh via fileIndex/workspace, Git via [git.md](./git.md), tabs via
+  refreshFromDisk. Compare metadata before reads; bump matching diffEpoch to refresh diffs in place.
+  Sync changed isRepo back to roots so terminal git init is noticed.
+- Fetch suppresses pure .git batches; mixed worktree paths still refresh. Explicit checkout/create uses
+  beginBranchTransition plus a short post-success grace period to suppress duplicate .git refreshes;
+  accumulate mixed worktree paths and replay once afterward. Rescan/ignore changes always refresh.
+- Git status changes never close a file tab. Only confirmed disk disappearance does; empty diffs may
+  become ordinary tabs under the Git rules. Preserve loaded page counts/unreadable caches; remove only
+  confirmed missing subtrees. Directory versions and workspace lifetimes reject obsolete refresh,
+  pagination, chain and expand-all results after collapse/reopen, root replacement or newer reads.
+- Worktree .lock files are watched; temporary lock suppression applies only within Git metadata.
+  Roots are refcounted; dropping the last reference reaps Rust PTYs/watchers.
+
+## Change map and verification
+
+Keep Rust watcher payloads, IPC and frontend batching aligned; checkout/fetch changes also follow git.md.
+Rust tests cover truncation, overflow, continuous-flow deadlines and rescan/errors. Frontend workspace/
+watcher tests cover branch batches, ignore rules, cache races, permissions and missing subtrees.
+Run gates only as authorized in [checks.md](./checks.md).

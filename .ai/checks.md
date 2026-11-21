@@ -1,72 +1,83 @@
 ---
-summary: Scripts, guards, tests, CI, release and verification
+summary: Guards, docs, CI and release
 scope:
+  - .ai/checks.md
   - package.json
   - pnpm-lock.yaml
   - scripts/**
   - .github/workflows/**
-  - .ai/checks.md
   - .ai/context.md
   - .ai/skills/**
   - AGENTS.md
   - CLAUDE.md
   - install.sh
+keywords:
+  - docs
+  - documentation
+  - routing
+  - guard
+  - ci
+  - release
+  - verify
+  - 文档
+  - 路由
+  - 校验
+  - 检查
+  - 发布
 ---
-# Checks, tests and release wiring
+# Checks, docs and release
+
+## Ownership
+
+Package scripts define commands; scripts/ai-docs-lib.mjs owns doc metadata/routing/budgets. CI runs guards;
+canonical gate procedures live in .ai/skills. Local execution remains explicitly user-triggered under AGENTS.md.
 
 ## Guard map
 
 | Command | Protects |
 |---|---|
-| `pnpm i18n` | Locale key/placeholder/plural parity and error-code coverage |
-| `pnpm i18n:scan` | Hardcoded CJK UI literals; named IME/Unicode test-data files and other non-UI files are explicitly allowlisted |
-| `pnpm check:workflows` | Workflow shell expansions followed by non-ASCII text after `$var` |
-| `pnpm test:frontend` | Vitest/React Testing Library coverage for agent commands, persistence, providers, composer/IME behavior, terminal geometry, tree/watch races, diffs, updates and file links |
-| `pnpm typecheck` | TypeScript types, missing runtime imports (including root React hooks), and complete typed locale records |
+| `pnpm i18n` | Six-locale keys/placeholders/plurals and emitted error coverage |
+| `pnpm i18n:scan` | CJK UI literals; only explicit non-UI/IME/Unicode fixture allowlists |
+| `pnpm check:workflows` | Non-ASCII text immediately after shell variable expansions |
+| `pnpm test:frontend` | Agent/settings, providers, IME, tabs, terminal, tree/watch, diffs, updates and links |
+| `pnpm typecheck` | Types, missing runtime imports/hooks and complete locale records |
 | `pnpm check:rust` | Rust types/borrows without linking |
-| `pnpm docs:route` | Select only area docs whose scope matches the supplied touched paths |
-| `pnpm docs:sync` | Regenerate the route table in `context.md` from area-doc frontmatter; never hand-edit the generated region |
-| `pnpm check:docs` | AI-doc tests, metadata, route precision/24KB bundle boundaries, skill metadata, plus paths, relative links and `pnpm` script names in docs and wrappers |
+| `pnpm docs:route` | All matching scopes; --explain reasons; --query metadata-only candidate search |
+| `pnpm docs:sync` | Deterministic context route table; only its marked region is written |
+| `pnpm check:docs` | Doc tests, metadata, path/query fixtures, budgets, index, wrappers, links and script names |
 
-Agent command tests cover prompt tags, read-only guidance and the structured-question marker example.
-Native provider approval, IME event order, incremental Markdown, bottom-only following and terminal
-maximize/drag/restore remain manual review surfaces when explicitly requested. Automated tests do not
-establish real-account compatibility or native visual appearance.
+`pnpm check` runs frontend guards; `pnpm verify` adds Rust/doc checks. Outside CI follow
+[verify](./skills/release-verify/SKILL.md). Agent command tests protect prompt/read-only/question guidance.
+Automated tests do not establish native-account compatibility, IME ordering or native layout/scrolling;
+manual surfaces require an explicit request.
 
-`pnpm check` is the frontend guard set and `pnpm verify` adds Rust and doc checks; outside CI only
-[the verification skill](./skills/release-verify/SKILL.md) runs them.
+## Documentation contract
 
-## AI docs
+- Top-level .ai Markdown (except context) has one-line summary, nonempty scope globs and short English/
+  Chinese keywords in block lists. Scope is repository-relative POSIX and each glob must match real files.
+  Shared files may route several docs. Each area doc also scopes itself, so maintenance loads its contract.
+- Scope is authoritative. Query normalizes case/Unicode/whitespace, matches Latin words and CJK phrases,
+  scores keyword hits above summary words, and breaks ties by filename. Output is candidate advice; locate
+  code and confirm paths. Queries never search bodies or silently load all docs. Paths never drop matches
+  to meet a budget. Use -- before dash-prefixed filenames; do not combine paths and --query.
+- docs:sync generates the context table from metadata; never hand-edit that region. check:docs rejects stale
+  tables, invalid metadata, unmatched globs, missing paths/links/scripts and inaccurate fixture doc sets.
+  Repeated long prose produces advisory warnings, never automatic deletion.
+- Hard limits: context ≤2KB, AGENTS + context ≤4KB, fixture bundle ≤24KB. Bundle includes resident context
+  and all routed docs. Target ≤16KB; warn above 6KB/document and 36KB .ai Markdown. Prefer deduplication
+  before splitting; split only where independent scopes reduce reads. Token counts are rough bytes/4;
+  metadata reads retain the separate 16KB cap. Routing output reports resident/docs/total separately.
+- Skill wrappers require directory-matching name, description and a canonical .ai/skills link. CLAUDE.md
+  imports AGENTS.md; .agents/skills links .claude/skills, deduplicated by real path. Preserve existing gate
+  names, trigger restrictions and release behavior when editing documentation.
 
-The root policy also calls for targeted searches and focused command output; this is an agent workflow
-guideline, not an automated guard.
+## Change map and verification
 
-Area docs declare a one-line `summary` and a block-list `scope` of repository-relative POSIX globs in
-frontmatter. `pnpm docs:sync` rewrites only the marked route region in `context.md`; `pnpm check:docs` rejects
-missing/empty metadata, invalid or unmatched globs, stale/hand-edited routing, and every area doc missing from
-the generated table. Repeated hits are valid for cross-domain work, but routing fixtures must resolve exactly
-their expected doc set.
+Keep metadata parser, route/sync, guard and tests aligned; scope/index changes update fixtures and regenerated
+context together. Guard changes also update this map and [verify](./skills/release-verify/SKILL.md).
+Keep tests beside owners. Run targeted tests through the requested gate when test code or update/path/
+settings/Git/provider behavior changes; installer work belongs to [release-check](./skills/release-check/SKILL.md).
+Never weaken/delete a guard or test to pass.
 
-Wrappers must have frontmatter whose `name` matches their directory and a non-empty `description`, and must
-link to the canonical `.ai/skills/**/SKILL.md`; `CLAUDE.md` must import `AGENTS.md`. `.agents/skills` symlinks
-`.claude/skills`, which the guard deduplicates by real path.
-
-Hard limits are `context.md` <=2KB, `AGENTS.md` + `context.md` <=4KB, and each fixture bundle <=24KB. Other
-docs warn above 6KB and `.ai` Markdown above 36KB. When over budget, delete duplication before splitting.
-The bundle limit includes resident context and routed area docs; `scripts/ai-docs-lib.mjs` shares the
-budget decision with the guard and boundary tests. Its separate 16KB metadata-prefix read cap is unchanged.
-Path, guard or behavior-contract changes update their routed docs in the same change.
-
-## Tests and CI
-
-- Keep tests beside the owning module. The frontend suite covers agent/settings persistence and provider
-  events, editor and diff behavior, tree/watch races, terminal geometry and update recovery; Rust tests cover
-  protocol, watcher, settings, Git and path-containment invariants.
-- Run targeted Rust or frontend tests through the verification skill when test code changes or when a change
-  touches update, path containment, settings migration, Git commands or agent providers. Installer changes
-  belong to the release-check surface.
-- Never weaken or delete a guard or test to make a check pass. If a guard is wrong, change the script, this
-  map and the owning skill in one edit.
-- `.github/workflows/ci.yml` runs frontend guard/build jobs and Rust test jobs on supported platforms.
-  `.github/workflows/release.yml` is tag-driven and does not replace the
-  [release-check skill](./skills/release-check/SKILL.md).
+CI runs independent doc checks plus existing frontend guards/build and Rust tests on supported platforms.
+The tag-driven release workflow remains separate and does not replace release-check.

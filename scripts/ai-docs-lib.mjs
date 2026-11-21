@@ -1,11 +1,13 @@
 /** Shared metadata, routing and generated-index helpers for Tide's AI docs. */
-import { closeSync, openSync, readSync } from 'node:fs'
+import { closeSync, openSync, readSync, readdirSync, statSync } from 'node:fs'
+import { join } from 'node:path'
 
 export const GENERATED_ROUTES_BEGIN = '<!-- BEGIN GENERATED ROUTES -->'
 export const GENERATED_ROUTES_END = '<!-- END GENERATED ROUTES -->'
 
 /** Total resident context plus the area docs selected by one routing fixture. */
 export const FIXTURE_LIMIT = 24 * 1024
+export const BUNDLE_TARGET = 16 * 1024
 
 export function fixtureBudgetError(name, bundleBytes) {
   if (bundleBytes <= FIXTURE_LIMIT) return null
@@ -17,7 +19,7 @@ export const ROUTING_FIXTURES = Object.freeze([
   {
     name: 'Agent composer',
     paths: ['src/components/AgentComposer.tsx'],
-    expected: ['agent.md'],
+    expected: ['agent-composer.md'],
   },
   {
     name: 'Agent composer settings migration',
@@ -26,7 +28,37 @@ export const ROUTING_FIXTURES = Object.freeze([
       'src/store/settings.ts',
       'src-tauri/src/commands/theme.rs',
     ],
-    expected: ['agent.md', 'runtime.md'],
+    expected: ['agent-composer.md', 'runtime.md'],
+  },
+  {
+    name: 'Agent history',
+    paths: ['src-tauri/src/agent/store.rs'],
+    expected: ['agent-storage.md'],
+  },
+  {
+    name: 'Shared agent state',
+    paths: ['src/store/agent.ts'],
+    expected: ['agent-composer.md', 'agent-storage.md', 'agent.md'],
+  },
+  {
+    name: 'Settings migration',
+    paths: ['src/store/settings.ts', 'src-tauri/src/commands/theme.rs'],
+    expected: ['runtime.md'],
+  },
+  {
+    name: 'Editor',
+    paths: ['src/components/EditorArea.tsx'],
+    expected: ['editor.md'],
+  },
+  {
+    name: 'Git and watcher',
+    paths: ['src/store/git.ts', 'src/store/watcher.ts'],
+    expected: ['file-tree.md', 'git.md'],
+  },
+  {
+    name: 'Update backend',
+    paths: ['src-tauri/src/update.rs'],
+    expected: ['updates.md'],
   },
   {
     name: 'Locale catalog',
@@ -38,6 +70,17 @@ export const ROUTING_FIXTURES = Object.freeze([
     paths: ['scripts/check-ai-docs.mjs', '.github/workflows/ci.yml'],
     expected: ['checks.md'],
   },
+])
+
+/** Candidate order is part of the metadata search contract, including no-hit behavior. */
+export const QUERY_FIXTURES = Object.freeze([
+  { query: 'history', expected: ['agent-storage.md'] },
+  { query: 'Agent 历史恢复', expected: ['agent-storage.md', 'agent.md'] },
+  { query: '历史分页', expected: ['agent-storage.md'] },
+  { query: ' COMPOSER ', expected: ['agent-composer.md'] },
+  { query: 'settings', expected: ['runtime.md'] },
+  { query: 'Git watcher', expected: ['git.md', 'file-tree.md'] },
+  { query: 'quantumzebra', expected: [] },
 ])
 
 function decodeScalar(value) {
@@ -55,7 +98,7 @@ function decodeScalar(value) {
 
 /**
  * Parse the deliberately small area-doc frontmatter contract:
- * a scalar `summary` and a block list of repository-relative POSIX globs in `scope`.
+ * a scalar summary, repository-relative scope globs and optional keyword aliases.
  */
 export function parseAreaMetadata(text) {
   const frontmatter = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(text)
@@ -63,18 +106,20 @@ export function parseAreaMetadata(text) {
 
   const fields = new Map()
   const scope = []
+  const keywords = []
   let activeList = null
 
   for (const [index, raw] of frontmatter[1].split(/\r?\n/).entries()) {
     if (!raw.trim()) continue
     const listItem = /^\s+-\s*(.*?)\s*$/.exec(raw)
     if (listItem) {
-      if (activeList !== 'scope') {
-        return { error: `frontmatter line ${index + 2} has a list item outside scope` }
+      if (activeList !== 'scope' && activeList !== 'keywords') {
+        return { error: `frontmatter line ${index + 2} has a list item outside scope/keywords` }
       }
       const item = decodeScalar(listItem[1])
-      if (!item) return { error: 'scope contains an empty entry' }
-      scope.push(item)
+      if (!item || /[\r\n]/.test(item)) return { error: activeList + ' contains an empty or multiline entry' }
+      const list = activeList === 'scope' ? scope : keywords
+      list.push(item)
       continue
     }
 
@@ -102,6 +147,20 @@ export function parseAreaMetadata(text) {
     uniqueScope.add(glob)
   }
 
+  if (fields.has('keywords')) {
+    if (fields.get('keywords') !== '' || keywords.length === 0) {
+      return { error: 'keywords must be a non-empty block list' }
+    }
+    const unique = new Set()
+    for (const keyword of keywords) {
+      const normalized = normalizeQuery(keyword)
+      if (!normalized) return { error: 'keywords contains an empty entry' }
+      if (unique.has(normalized)) return { error: "duplicate keyword '" + keyword + "'" }
+      unique.add(normalized)
+    }
+    return { summary, scope, keywords }
+  }
+  // Older metadata remains readable; the repository guard requires aliases on current area docs.
   return { summary, scope }
 }
 
@@ -197,6 +256,95 @@ export function resolveAreaDocsForPaths(docs, paths) {
     )
     .map((doc) => doc.doc)
     .sort((a, b) => a.localeCompare(b))
+}
+
+/** Shared discovery for route/sync; only bounded frontmatter metadata is returned. */
+export function readAreaDocs(dir) {
+  return readdirSync(dir).sort((a, b) => a.localeCompare(b))
+    .filter((doc) => doc.endsWith('.md') && doc !== 'context.md' && statSync(join(dir, doc)).isFile())
+    .map((doc) => {
+      const file = join(dir, doc)
+      const metadata = readAreaMetadataFile(file)
+      if (metadata.error) throw new Error(doc + ': ' + metadata.error)
+      return { doc, file, ...metadata }
+    })
+}
+
+/** Explain every path hit; shared files deliberately retain all matching documents. */
+export function explainPathRoutes(docs, paths) {
+  return docs.map((doc) => ({
+    ...doc,
+    matches: paths.flatMap((path) => doc.scope.filter((glob) => scopeMatchesPath(glob, path))
+      .map((glob) => ({ path, glob }))),
+  })).filter((doc) => doc.matches.length > 0).sort((a, b) => a.doc.localeCompare(b.doc))
+}
+
+function normalizeQuery(value) {
+  return value.normalize('NFKC').toLowerCase().replace(/\s+/gu, ' ').trim()
+}
+
+function containsTerm(query, term) {
+  // Latin terms match complete words (plan must not match planet); CJK aliases match phrases.
+  if (/^[a-z0-9 -]+$/.test(term)) {
+    const escaped = term.replace(/[.*+?^$(){}|[\]\\]/g, '\\$&')
+    return new RegExp('(?:^|[^a-z0-9])' + escaped + '(?=$|[^a-z0-9])', 'u').test(query)
+  }
+  return query.includes(term)
+}
+
+/** Metadata-only candidate search. Scores rank results; they never truncate path contracts. */
+export function queryAreaDocs(docs, query) {
+  const normalized = normalizeQuery(query)
+  if (!normalized) return []
+  const stopWords = new Set(['and', 'the', 'for', 'with', 'from'])
+  return docs.map((doc) => {
+    const keywords = (doc.keywords ?? []).filter((word) => containsTerm(normalized, normalizeQuery(word)))
+    const summary = [...new Set(normalizeQuery(doc.summary).match(/[a-z]{3,}/g) ?? [])]
+      .filter((word) => !stopWords.has(word) && containsTerm(normalized, word))
+    return { ...doc, keywordsMatched: keywords, summaryMatched: summary,
+      score: keywords.length * 4 + summary.length }
+  }).filter((doc) => doc.score > 0)
+    .sort((a, b) => b.score - a.score || a.doc.localeCompare(b.doc))
+}
+
+/** Keep positional paths compatible; -- ends option parsing for dash-prefixed filenames. */
+export function parseRouteArgs(args) {
+  const paths = []
+  let query = null
+  let explain = false
+  let positional = false
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index]
+    if (positional) paths.push(arg)
+    else if (arg === '--') positional = true
+    else if (arg === '--explain') explain = true
+    else if (arg === '--query') {
+      if (query !== null || !args[index + 1]?.trim() || args[index + 1].startsWith('--')) {
+        return { error: '--query requires one non-empty query and cannot be repeated' }
+      }
+      query = args[++index]
+    } else if (arg.startsWith('--')) return { error: 'Unknown option: ' + arg }
+    else if (arg) paths.push(arg)
+  }
+  if (query !== null && paths.length) return { error: 'Use either paths or --query, not both' }
+  if (query === null && !paths.length) return { error: 'Supply paths or --query' }
+  return { paths, query, explain }
+}
+
+/** Advisory only: repeated long prose deserves review, never automatic deletion. */
+export function duplicateParagraphs(docs) {
+  const seen = new Map()
+  for (const { doc, text } of docs) {
+    const body = text.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, '')
+    for (const paragraph of body.split(/\r?\n\s*\r?\n/)) {
+      const normalized = paragraph.replace(/\s+/g, ' ').trim()
+      if (normalized.length < 180 || normalized.startsWith('#') || normalized.startsWith('|')) continue
+      if (!seen.has(normalized)) seen.set(normalized, new Set())
+      seen.get(normalized).add(doc)
+    }
+  }
+  return [...seen].filter(([, docs]) => docs.size > 1)
+    .map(([text, docs]) => ({ text, docs: [...docs].sort() }))
 }
 
 export function roughTokens(bytes) {
