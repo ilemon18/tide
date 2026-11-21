@@ -71,7 +71,8 @@ App owns hydration/window coordination; the settings store and Rust theme comman
   preserve larger saved heights, and only clamp for the current window in the composer.
 - Add settings in both types/defaults, migration, UI and SHARED_KEYS when shared across windows. Retirement
   removes both defaults and adds RETIRED_KEYS or the old key is written back forever.
-- Schema v11 adds agentDefaultPermissionMode=workspace-write and schema v12 adds autoUpdate=false. Invalid
+- Schema v11 adds agentDefaultPermissionMode=workspace-write, schema v12 adds autoUpdate=false, and schema
+  v13 adds agentHistoryEnabled=true. Invalid
   values fall back without resetting other settings. Provider/model/effort/permission and update preferences
   write immediately and sync windows; UI patches related fields together. Historical chats keep saved options;
   temporary plan options never become defaults.

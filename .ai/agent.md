@@ -81,6 +81,8 @@ CLIs own auth/models/tools; Rust owns processes; the agent store owns queues/UI.
 - Tab failures override completion. Replies use GFM/code-copy, reject HTML/remote images and accept only
   contained owning-root file links (`:line:col`/`#LlineCcol`). Entry points respect agentEnabled; tree double-click
   stays a tree gesture. Items preserve source order, reconcile IDs and retain expansion.
+- History opens on demand for the active project and validates roots on resume; native session IDs preserve
+  provider continuation. Its preference is independent from agentEnabled.
 - Tail reports activity/elapsed/confirmation waits; persist completion time and backend duration. Finished
   reopened turns show local HH:mm, live ones omit it. History expansion pauses following.
 - The live tail status is isolated from streamed assistant content and receives primitive status fields, so

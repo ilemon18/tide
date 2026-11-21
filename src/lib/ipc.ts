@@ -144,6 +144,8 @@ export type Settings = {
   autoUpdate: boolean
   /** Built-in agent service: title-bar entry, explorer context menu, chat tabs */
   agentEnabled: boolean
+  /** Show the lazily loaded history list for this project */
+  agentHistoryEnabled: boolean
   /** Provider / model / effort new chats start with; empty = auto or the CLI default */
   agentDefaultProvider: string
   agentDefaultModel: string
@@ -463,6 +465,10 @@ export type AgentChatSummary = {
   updatedAt: number
   messageCount: number
 }
+export type AgentChatListPage = {
+  chats: AgentChatSummary[]
+  nextOffset: number | null
+}
 
 export const api = {
   agentPermissionRespond: (chatId: string, runId: string, requestId: string, allow: boolean) =>
@@ -623,8 +629,8 @@ export const api = {
   agentSkills: (root: string) => invoke<AgentSkillInfo[]>('agent_skills', { root }),
   agentSend: (request: AgentTurnRequest) => invoke<void>('agent_send', { request }),
   agentCancel: (chatId: string) => invoke<void>('agent_cancel', { chatId }),
-  agentChatOpen: (id: string, recentLimit: number) =>
-    invoke<AgentChatPage | null>('agent_chat_open', { id, recentLimit }),
+  agentChatOpen: (id: string, recentLimit: number, root?: string) =>
+    invoke<AgentChatPage | null>('agent_chat_open', { id, recentLimit, root }),
   agentChatPage: (
     id: string,
     page: { beforeId?: string | null; afterId?: string | null; limit: number },
@@ -633,7 +639,8 @@ export const api = {
     invoke<AgentChatPage>('agent_chat_apply', { id, patch }),
   agentChatReset: (id: string, header: AgentChatRecord) =>
     invoke<AgentChatPage>('agent_chat_reset', { id, header }),
-  agentChatList: (root: string) => invoke<AgentChatSummary[]>('agent_chat_list', { root }),
+  agentChatList: (root: string, offset = 0, limit = 5) =>
+    invoke<AgentChatListPage>('agent_chat_list', { root, offset, limit }),
   agentChatClone: (fromId: string, header: AgentChatRecord) =>
     invoke<AgentChatPage>('agent_chat_clone', { fromId, header }),
   agentChatDelete: (id: string) => invoke<void>('agent_chat_delete', { id }),

@@ -203,6 +203,8 @@ export function applyToolOutput(items: AgentItem[], toolId: string, text: string
 }
 
 type Running = Record<string, number>
+const AGENT_HISTORY_PAGE_SIZE = 5
+export type AgentHistory = { chats: AgentChatSummary[]; nextOffset: number | null; loading: boolean; loaded: boolean; error: boolean }
 
 type AgentStore = {
   providers: AgentProviderInfo[] | null
@@ -224,18 +226,22 @@ type AgentStore = {
   interjecting: Record<string, string>
 
   chatDefaults: ChatDefaults
+  historyByRoot: Record<string, AgentHistory>
+  loadHistory: (root: string, reset?: boolean) => Promise<void>
+  clearHistory: () => void
+  resumeChat: (id: string, root: string) => Promise<boolean>
 
   loadProviders: (force?: boolean) => Promise<void>
   loadCatalog: (provider: string, force?: boolean) => Promise<void>
   resolveDefaults: () => void
 
-  localPicker: { chatId: string; kind: 'resume' | 'model' | 'permissions'; chats?: AgentChatSummary[] } | null
+  localPicker: { chatId: string; kind: 'resume' | 'model' | 'permissions' } | null
   focusRequests: Record<string, number>
   restartSession: (chatId: string) => void
   pages: Record<string, AgentChatPage>
   pageLoading: Record<string, boolean>
   loadPage: (id: string, direction: 'earlier' | 'later' | 'latest' | 'pending') => Promise<void>
-  loadChat: (id: string) => Promise<void>
+  loadChat: (id: string, expectedRoot?: string) => Promise<void>
   forgetChat: (id: string) => void
   openChatTab: (id: string) => void
   /** Open a chat tab; mentions seed the composer with @file / @folder chips */
@@ -270,6 +276,7 @@ const resetLocks = new Map<string, Promise<boolean>>()
 const catalogTickets = new Map<string, number>()
 /** Identifies the active provider scan so only its response may finish the loading state */
 let providerTicket = 0
+let historyTicket = 0
 /** Retain failed closing-tab writes for explicit flush/reopen retries. */
 const unsavedClosedChats = new Map<string, AgentChat>()
 
@@ -703,6 +710,52 @@ export const useAgent = create<AgentStore>((set, get) => {
     },
     pages: {},
     pageLoading: {},
+    historyByRoot: {},
+    clearHistory: () => {
+      historyTicket++
+      set({ historyByRoot: {} })
+    },
+    loadHistory: async (root, reset = false) => {
+      if (!useSettings.getState().agentHistoryEnabled || !root) return
+      const current = get().historyByRoot[root]
+      if (current?.loading || (current?.loaded && !reset && current.nextOffset === null)) return
+      const ticket = ++historyTicket
+      const offset = reset ? 0 : current?.nextOffset ?? 0
+      // Retain summaries for only the project currently being browsed. A different root invalidates old requests.
+      set({ historyByRoot: { [root]: {
+        chats: reset ? [] : current?.chats ?? [], nextOffset: reset ? null : current?.nextOffset ?? null,
+        loaded: reset ? false : current?.loaded ?? false, loading: true, error: false,
+      } } })
+      try {
+        const ids = Object.values(get().chats).filter(chat => chat.root === root).map(chat => chat.id)
+        await Promise.all(ids.map(id => persistChat(id)))
+        await Promise.all(ids.map(id => writeQueues.get(id)))
+        if (ticket !== historyTicket || !useSettings.getState().agentHistoryEnabled) return
+        const page = await api.agentChatList(root, offset, AGENT_HISTORY_PAGE_SIZE)
+        if (ticket !== historyTicket) return
+        if (!useSettings.getState().agentHistoryEnabled) {
+          const latest = get().historyByRoot[root]
+          if (latest) set({ historyByRoot: { ...get().historyByRoot, [root]: { ...latest, loading: false } } })
+          return
+        }
+        const latest = get().historyByRoot[root]
+        const chats = [...new Map([...(reset ? [] : latest?.chats ?? []), ...page.chats]
+          .filter(chat => chat.root === root).map(chat => [chat.id, chat])).values()]
+        set({ historyByRoot: { ...get().historyByRoot, [root]: { chats, nextOffset: page.nextOffset, loading: false, loaded: true, error: false } } })
+      } catch (error) {
+        if (ticket !== historyTicket) return
+        const latest = get().historyByRoot[root]
+        set({ historyByRoot: { ...get().historyByRoot, [root]: { chats: latest?.chats ?? [], nextOffset: latest?.nextOffset ?? null, loading: false, loaded: latest?.loaded ?? false, error: true } } })
+        useUi.getState().toast(errorText(error), 'error')
+      }
+    },
+    resumeChat: async (id, root) => {
+      await get().loadChat(id, root)
+      const chat = get().chats[id]
+      if (!chat || chat.root !== root) return false
+      get().openChatTab(id)
+      return true
+    },
     providers: null,
     providersLoading: false,
     catalogs: {},
@@ -793,9 +846,10 @@ export const useAgent = create<AgentStore>((set, get) => {
       }
     },
 
-    loadChat: async (id) => {
+    loadChat: async (id, expectedRoot) => {
       const unsaved = unsavedClosedChats.get(id)
       if (unsaved) {
+        if (expectedRoot && unsaved.root !== expectedRoot) return
         unsavedClosedChats.delete(id)
         set({ chats: { ...get().chats, [id]: unsaved } })
         schedulePersist(id)
@@ -804,9 +858,9 @@ export const useAgent = create<AgentStore>((set, get) => {
       if (get().chats[id] || get().loadingChats[id]) return
       set({ loadingChats: { ...get().loadingChats, [id]: true } })
       try {
-        const page = await api.agentChatOpen(id, 80)
+        const page = expectedRoot ? await api.agentChatOpen(id, 80, expectedRoot) : await api.agentChatOpen(id, 80)
         const chat = page ? normalizeChat({ ...page.header, messages: page.messages }, true) : null
-        if (chat) {
+        if (chat && chat.id === id && (!expectedRoot || chat.root === expectedRoot)) {
           set({
             pages: { ...get().pages, ...(page ? { [id]: page } : {}) },
             chats: { ...get().chats, [id]: chat },
@@ -995,11 +1049,12 @@ export const useAgent = create<AgentStore>((set, get) => {
             return
           }
           if (local.id === 'resume') {
-            const matches = await api.agentChatList(chat.root)
-            if (!local.args) { set({ localPicker: { chatId, kind: 'resume', chats: matches } }); return }
-            if (!matches.some(item => item.id === local.args)) throw new Error(t('agent.missingChat'))
-            await get().loadChat(local.args)
-            get().openChatTab(local.args)
+            if (!local.args) {
+              if (!useSettings.getState().agentHistoryEnabled) throw new Error(t('agent.local.unavailable'))
+              set({ localPicker: { chatId, kind: 'resume' } })
+              return
+            }
+            if (!await get().resumeChat(local.args, chat.root)) throw new Error(t('agent.missingChat'))
             return
           }
           if (local.id === 'compact') {

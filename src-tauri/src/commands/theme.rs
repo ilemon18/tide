@@ -67,6 +67,8 @@ pub struct Settings {
     pub auto_update: bool,
     /// Built-in agent service: title-bar entry, explorer double-click entry, chat tabs
     pub agent_enabled: bool,
+    /// Show the lazily loaded project agent history list
+    pub agent_history_enabled: bool,
     /// Last chosen provider / model / effort: new chats start here (empty = auto / CLI default)
     pub agent_default_provider: String,
     pub agent_default_model: String,
@@ -127,6 +129,7 @@ impl Default for Settings {
             lightweight_mode: false,
             auto_update: false,
             agent_enabled: true,
+            agent_history_enabled: true,
             agent_default_provider: String::new(),
             agent_default_model: String::new(),
             agent_default_effort: String::new(),
@@ -390,6 +393,7 @@ mod compat {
         assert_eq!(settings.tab_size, 2);
         assert_eq!(settings.agent_composer_height, 90);
         assert_eq!(settings.agent_default_permission_mode, "workspace-write");
+        assert!(settings.agent_history_enabled);
         assert!(settings.auto_save);
     }
 
@@ -412,6 +416,16 @@ mod compat {
             assert_eq!(out["agentDefaultPermissionMode"], mode);
             assert_eq!(out["futurePreference"], true);
         }
+    }
+
+    #[test]
+    fn agent_history_preference_defaults_on_and_round_trips_off() {
+        let legacy: Settings = serde_json::from_str(r#"{"schemaVersion":12}"#).expect("legacy settings");
+        assert!(legacy.agent_history_enabled);
+        let settings: Settings = serde_json::from_value(serde_json::json!({ "agentHistoryEnabled": false }))
+            .expect("settings");
+        let out = serde_json::to_value(settings).expect("serialize settings");
+        assert_eq!(out["agentHistoryEnabled"], false);
     }
 
     #[test]

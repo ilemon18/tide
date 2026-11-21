@@ -29,6 +29,10 @@ restores primary-window tabs. Keep transcript v:1 compatible.
 
 - Open/page/apply/list/clone merge patches, preserve unknown/unloaded data and lock each file. Atomic writes
   reject invalid JSON or >8 MiB without damaging originals; failed close writes retry.
+- Project history lists are fetched only when opened, authorize/filter by the owning root, and return five
+  summaries per page in updated-time order (`AGENT_HISTORY_PAGE_SIZE` in `src/store/agent.ts`). Transcript
+  pages remain independently lazy-loaded on selection; project-root restore validates the saved root again.
+  Flush open chats before listing so a new turn is visible immediately, but discard the list when its panel closes.
 - Initial page: 80 records/512 KiB, then 40/load. Loaded window: 160 records/1 MiB; oversized record alone.
   Persist before eviction/navigation; retain cursors/anchor, scan pending cards across full history, flush
   agent/tabs.json on hide/unload. Eviction/reopen never loses question/plan send gates. In-place /new uses

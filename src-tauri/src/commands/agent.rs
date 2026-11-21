@@ -467,9 +467,15 @@ pub fn agent_permission_respond(
 #[tauri::command(async)]
 pub fn agent_chat_open(
     app: AppHandle,
+    state: State<'_, AppState>,
     id: String,
     recent_limit: usize,
+    root: Option<String>,
 ) -> AppResult<Option<store::AgentChatPage>> {
+    if let Some(root) = root {
+        let root = state.authorize(&root)?;
+        return store::open_project_chat(&app, &id, recent_limit, &root.to_string_lossy());
+    }
     store::open_chat(&app, &id, recent_limit)
 }
 
@@ -507,9 +513,11 @@ pub fn agent_chat_list(
     app: AppHandle,
     state: State<'_, AppState>,
     root: String,
-) -> AppResult<Vec<store::AgentChatSummary>> {
+    offset: usize,
+    limit: usize,
+) -> AppResult<store::AgentChatListPage> {
     let root = state.authorize(&root)?;
-    store::list_chats(&app, &root.to_string_lossy())
+    store::list_chats(&app, &root.to_string_lossy(), offset, limit)
 }
 
 #[tauri::command(async)]

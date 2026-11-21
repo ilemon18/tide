@@ -21,7 +21,7 @@ import { DEFAULT_MONO_FONT } from '../lib/fonts'
 import { applyLocale, DEFAULT_LOCALE, isLocale } from '../i18n'
 import { applyMemoryProfileChange, setMemoryProfile } from '../lib/memoryBudget'
 
-export const SETTINGS_SCHEMA_VERSION = 12
+export const SETTINGS_SCHEMA_VERSION = 13
 export const AGENT_COMPOSER_MIN_HEIGHT = 90
 export const AGENT_COMPOSER_MAX_HEIGHT = 480
 
@@ -51,6 +51,7 @@ export const DEFAULT_SETTINGS: Settings = {
   lightweightMode: false,
   autoUpdate: false,
   agentEnabled: true,
+  agentHistoryEnabled: true,
   agentDefaultProvider: '',
   agentDefaultModel: '',
   agentDefaultEffort: '',
@@ -104,6 +105,7 @@ const SHARED_KEYS = [
   'lightweightMode',
   'autoUpdate',
   'agentEnabled',
+  'agentHistoryEnabled',
   'agentDefaultProvider',
   'agentDefaultModel',
   'agentDefaultEffort',
@@ -195,6 +197,7 @@ function snapshot(s: SettingsStore): Settings {
     lightweightMode: s.lightweightMode,
     autoUpdate: s.autoUpdate,
     agentEnabled: s.agentEnabled,
+    agentHistoryEnabled: s.agentHistoryEnabled,
     agentDefaultProvider: s.agentDefaultProvider,
     agentDefaultModel: s.agentDefaultModel,
     agentDefaultEffort: s.agentDefaultEffort,
@@ -251,7 +254,8 @@ function migrate(raw: Settings): Settings {
   if (!isLocale(next.locale)) next.locale = DEFAULT_LOCALE
 
   // v8 -> v9 adds ligatures, v9 -> v10 adds agentComposerHeight, v10 -> v11 adds
-  // agentDefaultPermissionMode, and v11 -> v12 adds autoUpdate. DEFAULT_SETTINGS covers
+  // agentDefaultPermissionMode, v11 -> v12 adds autoUpdate, and v12 -> v13 adds agentHistoryEnabled.
+  // DEFAULT_SETTINGS covers
   // missing values for each of these additions.
   // Keep larger stored heights when the current window is short: the composer clamps them for display only.
   next.schemaVersion = SETTINGS_SCHEMA_VERSION
@@ -275,6 +279,7 @@ function migrate(raw: Settings): Settings {
   // Agent defaults: free-form ids stay as written (a provider may add models later); only
   // the switch itself is normalized, so a corrupt value cannot hide the feature.
   if (typeof next.agentEnabled !== 'boolean') next.agentEnabled = true
+  if (typeof next.agentHistoryEnabled !== 'boolean') next.agentHistoryEnabled = true
   if (typeof next.autoUpdate !== 'boolean') next.autoUpdate = false
   if (typeof next.agentDefaultProvider !== 'string') next.agentDefaultProvider = ''
   if (typeof next.agentDefaultModel !== 'string') next.agentDefaultModel = ''
@@ -362,6 +367,7 @@ export const useSettings = create<SettingsStore>((set, get) => ({
       patch.fontFamily !== undefined ||
       patch.uiFontSize !== undefined ||
       patch.autoUpdate !== undefined ||
+      patch.agentHistoryEnabled !== undefined ||
       patch.agentDefaultProvider !== undefined ||
       patch.agentDefaultModel !== undefined ||
       patch.agentDefaultEffort !== undefined ||

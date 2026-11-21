@@ -67,6 +67,11 @@ export const en = {
   'agent.history.earlier': "Earlier messages",
   'agent.history.later': "Later messages",
   'agent.history.pending': "Open pending request",
+  'agent.history.title': 'Chat history',
+  'agent.history.loading': 'Loading history…',
+  'agent.history.empty': 'No saved chats for this project yet.',
+  'agent.history.more': 'Load 5 more',
+  'agent.history.retry': 'Could not load history. Retry',
   'error.agent.invalidChat': "The chat file is invalid. The original file has been preserved.",
   // ---------------------------------------------------------------- Common
   'common.cancel': 'Cancel',
@@ -231,6 +236,8 @@ export const en = {
 
   // ---------------------------------------------------------------- Settings: about
   'settings.about.version': 'Version',
+  'settings.about.agentHistory': 'Project chat history',
+  'settings.about.agentHistoryHint': 'Show saved chats for the current project. History loads only when opened.',
   'settings.about.settingsFile': 'Settings file',
   'settings.about.repository': 'Repository',
   'settings.about.updates': 'Updates',

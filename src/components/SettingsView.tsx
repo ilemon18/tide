@@ -55,15 +55,18 @@ function Toggle({
   value,
   onChange,
   disabled,
+  ariaLabel,
 }: {
   value: boolean
   onChange: (v: boolean) => void
   disabled?: boolean
+  ariaLabel?: string
 }) {
   return (
     <button
       onClick={() => onChange(!value)}
       disabled={disabled}
+      aria-label={ariaLabel}
       className={`relative h-[18px] w-[32px] rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
         value ? 'bg-accent' : 'bg-active'
       }`}
@@ -674,6 +677,11 @@ export function SettingsView() {
 
     about: (
       <>
+        <Card title={t('settings.about.agentHistory')}>
+          <Row label={t('settings.about.agentHistory')} hint={t('settings.about.agentHistoryHint')}>
+            <Toggle ariaLabel={t('settings.about.agentHistory')} value={settings.agentHistoryEnabled} onChange={(value) => set('agentHistoryEnabled', value)} />
+          </Row>
+        </Card>
         <Card>
           <div className="flex min-h-[88px] items-center justify-between gap-6 border-b border-line/60 px-5 py-4">
             <TideMark size={52} />

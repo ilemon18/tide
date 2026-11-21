@@ -5,22 +5,23 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { AgentChat as Chat, AgentQueuedMessage } from '../store/agent'
 import type { AgentDraft } from '../lib/agentCommand'
 import type { AgentChatPage } from '../lib/ipc'
-const { state, initialChat } = vi.hoisted(() => {
+const { state, initialChat, actions, settings } = vi.hoisted(() => {
   const initialChat: Chat = { v: 1, id: 'chat', title: 'Example', root: '/repo', provider: 'codex', model: '', effort: '',
     status: 'running', sessionId: null, error: null, createdAt: 0, updatedAt: 0,
     messages: [{ id: 'reply', role: 'assistant', at: 0, items: [{ id: 'text', type: 'text', text: 'Latest output' }] }],
   }
-  return { initialChat, state: {
+  const actions = { loadCatalog: vi.fn(), loadPage: vi.fn(), loadHistory: vi.fn(), clearHistory: vi.fn(), resumeChat: vi.fn().mockResolvedValue(true), loadChat: vi.fn().mockResolvedValue(undefined), openChatTab: vi.fn(), sendMessage: vi.fn(), interjectQueued: vi.fn(), removeQueued: vi.fn() }
+  const settings = { agentEnabled: true, agentHistoryEnabled: true }
+  return { initialChat, actions, settings, state: {
     chats: { chat: initialChat }, pages: {} as Record<string, Partial<AgentChatPage>>,
     pageLoading: {} as Record<string, boolean>, loadingChats: {} as Record<string, boolean>,
     running: { chat: Date.now() }, chatDrafts: {} as Record<string, AgentDraft>,
     queues: {} as Record<string, AgentQueuedMessage[]>, interjecting: {} as Record<string, string>,
-    focusRequests: {}, localPicker: null,
+    focusRequests: {}, localPicker: null, historyByRoot: {} as Record<string, import('../store/agent').AgentHistory>,
     providers: [{ id: 'codex', installed: true, supported: true }],
   } }
 })
-const { actions, ui, tabs, frames, observers, platform } = vi.hoisted(() => ({
-  actions: { loadCatalog: vi.fn(), loadPage: vi.fn(), sendMessage: vi.fn(), interjectQueued: vi.fn(), removeQueued: vi.fn() },
+const { ui, tabs, frames, observers, platform } = vi.hoisted(() => ({
   ui: { overlay: false }, tabs: { activeId: 'chat:chat' }, platform: { mac: false },
   frames: new Map<number, FrameRequestCallback>(), observers: [] as Array<{ callback: () => void; targets: Element[] }>,
 }))
@@ -29,7 +30,7 @@ vi.mock('../store/agent', () => ({
   chatTabId: (id: string) => `chat:${id}`, findPendingQuestion: () => null, findPendingPlanAction: () => null,
 }))
 vi.mock('../store/tabs', () => ({ useTabs: (select: (state: unknown) => unknown) => select(tabs) }))
-vi.mock('../store/settings', () => ({ useSettings: (select: (state: unknown) => unknown) => select({ agentEnabled: true }) }))
+vi.mock('../store/settings', () => ({ useSettings: (select: (state: unknown) => unknown) => select(settings) }))
 vi.mock('../store/ui', () => ({ useUi: { getState: () => ui } }))
 vi.mock('../lib/paths', () => ({ isMac: () => platform.mac }))
 vi.mock('../lib/actions', () => ({ openSettings: vi.fn() }))
@@ -65,9 +66,27 @@ beforeEach(() => {
   state.chatDrafts = {}
   state.queues = {}
   state.interjecting = {}
+  state.historyByRoot = {}
   state.providers = [{ id: 'codex', installed: true, supported: true }]
+  settings.agentEnabled = true
+  settings.agentHistoryEnabled = true
+  actions.loadHistory.mockClear()
+  actions.clearHistory.mockClear()
+  actions.resumeChat.mockClear()
+  actions.loadChat.mockClear()
+  actions.openChatTab.mockClear()
 })
 afterEach(() => { cleanup(); vi.unstubAllGlobals() })
+it('loads five history records only after opening the project history panel', async () => {
+  const { rerender } = render(<AgentChat chatId="chat" />)
+  expect(actions.loadHistory).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByRole('button', { name: 'agent.history.title' }))
+  expect(screen.getByRole('dialog', { name: 'agent.history.title' })).toBeTruthy()
+  expect(actions.loadHistory).toHaveBeenCalledWith('/repo', true)
+  settings.agentHistoryEnabled = false
+  rerender(<AgentChat chatId="chat" />)
+  expect(screen.queryByRole('button', { name: 'agent.history.title' })).toBeNull()
+})
 it('keeps the transcript before the composer without a separate running strip', () => {
   const { container } = render(<AgentChat chatId="chat" />)
   const output = screen.getByText('Latest output')

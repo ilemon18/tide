@@ -38,8 +38,51 @@ export function AgentChat({ chatId }: { chatId: string }) {
   const queued = useAgent((s) => s.queues[chatId])
   const interjecting = useAgent(s => s.interjecting[chatId])
   const providers = useAgent((s) => s.providers)
+  const historyEnabled = useSettings((s) => s.agentHistoryEnabled)
+  const history = useAgent((s) => s.historyByRoot[chat?.root ?? ''])
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const historyVisible = historyEnabled && (historyOpen || localPicker?.kind === 'resume')
+  const historyRef = useRef<HTMLDivElement>(null)
+  const historyButtonRef = useRef<HTMLButtonElement>(null)
+  const historyCloseRef = useRef<HTMLButtonElement>(null)
+  const closeHistory = useCallback(() => {
+    setHistoryOpen(false)
+    if (useAgent.getState().localPicker?.kind === 'resume') useAgent.setState({ localPicker: null })
+    historyButtonRef.current?.focus()
+  }, [])
   const enabled = useSettings((s) => s.agentEnabled)
   const focused = useTabs((s) => s.activeId === chatTabId(chatId))
+
+  useEffect(() => {
+    if (!historyVisible || !chat?.root) return
+    void useAgent.getState().loadHistory(chat.root, true)
+    historyCloseRef.current?.focus()
+    const keyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.isComposing) return
+      event.preventDefault()
+      event.stopImmediatePropagation()
+      closeHistory()
+    }
+    const pointerDown = (event: PointerEvent) => {
+      const target = event.target as Node
+      if (!historyRef.current?.contains(target) && !historyButtonRef.current?.contains(target)) closeHistory()
+    }
+    window.addEventListener('keydown', keyDown, true)
+    window.addEventListener('pointerdown', pointerDown, true)
+    return () => {
+      window.removeEventListener('keydown', keyDown, true)
+      window.removeEventListener('pointerdown', pointerDown, true)
+      useAgent.getState().clearHistory()
+    }
+  }, [historyVisible, chat?.root, closeHistory])
+
+  useEffect(() => {
+    if (!historyEnabled) {
+      setHistoryOpen(false)
+      if (useAgent.getState().localPicker?.kind === 'resume') useAgent.setState({ localPicker: null })
+      useAgent.getState().clearHistory()
+    }
+  }, [historyEnabled])
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const [atBottom, setAtBottom] = useState(true)
@@ -231,6 +274,20 @@ export function AgentChat({ chatId }: { chatId: string }) {
           {providerLabel}
         </span>
         <div className="ml-auto flex shrink-0 items-center gap-1.5">
+          {historyEnabled ? (
+            <button
+              ref={historyButtonRef}
+              type="button"
+              data-tip={t('agent.history.title')}
+              aria-label={t('agent.history.title')}
+              aria-haspopup="dialog"
+              aria-expanded={historyVisible}
+              onClick={() => historyVisible ? closeHistory() : setHistoryOpen(true)}
+              className={`flex h-6 w-6 items-center justify-center rounded-[var(--r-control)] transition-colors duration-fast ${historyOpen ? 'bg-hover text-fg' : 'text-muted hover:bg-hover hover:text-fg'}`}
+            >
+              <Icon name="clock" size={13} />
+            </button>
+          ) : null}
           <button
             type="button"
             data-tip={t('agent.newChat')}
@@ -242,6 +299,39 @@ export function AgentChat({ chatId }: { chatId: string }) {
           </button>
         </div>
       </div>
+
+      {historyVisible ? (
+        <div ref={historyRef} role="dialog" aria-label={t('agent.history.title')} className="absolute right-2 top-10 z-20 flex max-h-[min(420px,70vh)] w-[340px] max-w-[calc(100%-16px)] flex-col overflow-hidden rounded-[var(--r-popup)] border border-line-soft bg-panel shadow-md">
+          <div className="flex items-center justify-between border-b border-line-soft px-3 py-2">
+            <span className="text-xs font-medium text-fg/90">{t('agent.history.title')}</span>
+            <button ref={historyCloseRef} type="button" aria-label={t('tabs.close')} onClick={closeHistory} className="flex h-6 w-6 items-center justify-center rounded-[var(--r-control)] text-muted hover:bg-hover hover:text-fg"><Icon name="close" size={12} /></button>
+          </div>
+          <div className="min-h-0 overflow-y-auto p-1">
+            {!history || (!history.loaded && history.loading) ? (
+              <div className="flex items-center gap-2 px-3 py-4 text-xs text-muted"><Icon name="spinner" size={12} className="animate-spin" />{t('agent.history.loading')}</div>
+            ) : history.error && !history.chats.length ? (
+              <button type="button" onClick={() => chat?.root && void useAgent.getState().loadHistory(chat.root, true)} className="w-full px-3 py-4 text-left text-xs text-accent hover:bg-hover">{t('agent.history.retry')}</button>
+            ) : history.chats.length === 0 ? (
+              <div className="px-3 py-4 text-xs text-muted">{history.loading ? t('agent.history.loading') : t('agent.history.empty')}</div>
+            ) : history.chats.map((item) => (
+              <button key={item.id} type="button" className="flex w-full flex-col gap-1 rounded-[var(--r-control)] px-2.5 py-2 text-left transition-colors hover:bg-hover" onClick={() => {
+                void useAgent.getState().resumeChat(item.id, chat.root).then((restored) => {
+                  if (restored) closeHistory()
+                  else useUi.getState().toast(t('agent.missingChat'), 'error')
+                })
+              }}>
+                <span className="w-full truncate text-xs text-fg/90">{item.title || item.id}</span>
+                <span className="flex w-full items-center gap-1.5 text-2xs text-muted"><span className="truncate">{item.provider}</span><span>·</span><span className="truncate">{new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(item.updatedAt))}</span></span>
+              </button>
+            ))}
+          </div>
+          {(history?.error && history.chats.length > 0) || (history?.nextOffset !== null && history?.nextOffset !== undefined) ? (
+            <button type="button" disabled={history.loading} onClick={() => chat?.root && void useAgent.getState().loadHistory(chat.root)} className="border-t border-line-soft px-3 py-2 text-left text-xs text-accent hover:bg-hover disabled:opacity-50">
+              {history.loading ? t('agent.history.loading') : history.error ? t('agent.history.retry') : t('agent.history.more')}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
 
       <div className={`flex min-h-0 flex-1 flex-col ${initialConversation ? 'overflow-y-auto' : ''}`}>
         <div className={initialConversation ? 'hidden' : 'relative min-h-0 flex-1'}>
@@ -434,15 +524,10 @@ export function AgentChat({ chatId }: { chatId: string }) {
             {chat.sessionAction === 'fork' && chat.status === 'error' ? (
               <button onClick={() => useAgent.getState().restartSession(chatId)} className="text-xs text-accent">{t('agent.local.restart')}</button>
             ) : null}
-            {localPicker ? (
+            {localPicker && localPicker.kind !== 'resume' ? (
               <div role="dialog" aria-label={t(`agent.local.${localPicker.kind}.label`)} className="flex flex-col gap-1 rounded border border-line p-2">
                 <button className="self-end text-xs" onClick={() => useAgent.setState({ localPicker: null })}>{t('tabs.close')}</button>
-                {localPicker.kind === 'resume' ? localPicker.chats?.map(item => (
-                  <button key={item.id} className="truncate text-left text-xs hover:text-accent" onClick={() => {
-                    useAgent.setState({ localPicker: null })
-                    void useAgent.getState().loadChat(item.id).then(() => useAgent.getState().openChatTab(item.id))
-                  }}>{item.title || item.id} · {item.provider}</button>
-                )) : localPicker.kind === 'model' ? (
+                {localPicker.kind === 'model' ? (
                   <ModelPicker provider={chat.provider} value={chat.model} onPick={model => {
                     useAgent.getState().setChatOptions(chatId, { model })
                     useAgent.setState({ localPicker: null })

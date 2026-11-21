@@ -126,6 +126,25 @@ describe('Automatic update preference', () => {
   })
 })
 
+describe('Agent history preference', () => {
+  it('defaults to enabled and adds the enabled default for older settings', async () => {
+    expect(useSettings.getState().agentHistoryEnabled).toBe(true)
+    const { agentHistoryEnabled: _omitted, ...legacy } = DEFAULT_SETTINGS
+    vi.mocked(api.loadSettings).mockResolvedValue({ ...legacy, schemaVersion: 12 } as Settings)
+    await useSettings.getState().load()
+    expect(useSettings.getState().agentHistoryEnabled).toBe(true)
+    expect(useSettings.getState().schemaVersion).toBe(SETTINGS_SCHEMA_VERSION)
+  })
+
+  it('persists disabled state and synchronizes it across windows', async () => {
+    useSettings.getState().patch({ agentHistoryEnabled: false })
+    await vi.advanceTimersByTimeAsync(400)
+    expect(api.saveSettings).toHaveBeenCalledWith(expect.objectContaining({ agentHistoryEnabled: false }))
+    useSettings.getState().applyExternal({ ...DEFAULT_SETTINGS, agentHistoryEnabled: false })
+    expect(useSettings.getState().agentHistoryEnabled).toBe(false)
+  })
+})
+
 describe('Agent settings migration', () => {
   it.each([
     { saved: undefined, expected: 90 },

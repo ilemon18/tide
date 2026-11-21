@@ -86,6 +86,71 @@ pub struct AgentChatSummary {
     pub message_count: usize,
 }
 
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentChatListPage {
+    pub chats: Vec<AgentChatSummary>,
+    pub next_offset: Option<usize>,
+}
+
+fn chat_list_page(chats: Vec<AgentChatSummary>, offset: usize, limit: usize) -> AgentChatListPage {
+    let limit = limit.clamp(1, 50);
+    let next_offset = (offset.saturating_add(limit) < chats.len()).then_some(offset.saturating_add(limit));
+    let chats = chats.into_iter().skip(offset).take(limit).collect();
+    AgentChatListPage { chats, next_offset }
+}
+
+// List only metadata: skip message values without allocating transcripts for any project.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ChatListRecord {
+    root: String,
+    #[serde(default)]
+    title: String,
+    #[serde(default)]
+    provider: String,
+    #[serde(default)]
+    model: String,
+    #[serde(default)]
+    updated_at: f64,
+    #[serde(deserialize_with = "count_messages")]
+    messages: usize,
+}
+
+fn count_messages<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<usize, D::Error> {
+    struct Counter;
+    impl<'de> serde::de::Visitor<'de> for Counter {
+        type Value = usize;
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str("an array of chat messages")
+        }
+        fn visit_seq<A: serde::de::SeqAccess<'de>>(self, mut seq: A) -> Result<usize, A::Error> {
+            let mut count = 0;
+            while seq.next_element::<serde::de::IgnoredAny>()?.is_some() { count += 1; }
+            Ok(count)
+        }
+    }
+    deserializer.deserialize_seq(Counter)
+}
+
+fn read_summary(path: &Path) -> AppResult<Option<AgentChatSummary>> {
+    let lock = document_lock(path);
+    let _guard = lock.lock();
+    let file = match std::fs::File::open(path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.into()),
+    };
+    if file.metadata()?.len() > MAX_CHAT_BYTES as u64 { return Ok(None); }
+    let record: ChatListRecord = match serde_json::from_reader(std::io::BufReader::new(file)) {
+        Ok(record) => record,
+        Err(_) => return Ok(None), // Preserve corrupt files; one bad record must not hide the rest.
+    };
+    let Some(id) = path.file_stem().and_then(|id| id.to_str()).filter(|id| valid_id(id)) else { return Ok(None); };
+    Ok(Some(AgentChatSummary { id: id.into(), root: record.root, title: record.title,
+        provider: record.provider, model: record.model, updated_at: record.updated_at, message_count: record.messages }))
+}
+
 #[derive(Clone, Debug, Default)]
 struct ChatDocument {
     header: AgentChatRecord,
@@ -119,14 +184,6 @@ fn chat_path(app: &AppHandle, id: &str) -> AppResult<PathBuf> {
     let dir = agent_dir(app)?.join("chats");
     std::fs::create_dir_all(&dir)?;
     Ok(dir.join(format!("{id}.json")))
-}
-
-fn string_field(value: &Value, key: &str) -> String {
-    value
-        .get(key)
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_string()
 }
 
 fn message_id(message: &Value) -> Option<&str> {
@@ -373,6 +430,17 @@ pub fn open_chat(
     Ok(Some(recent_page(&document, requested)))
 }
 
+pub fn open_project_chat(app: &AppHandle, id: &str, limit: usize, root: &str) -> AppResult<Option<AgentChatPage>> {
+    let path = chat_path(app, id)?;
+    let Some(summary) = read_summary(&path)? else { return Ok(None); };
+    if summary.root != root { return Err(AppError::c("agent.invalidId")); }
+    let Some(document) = read_document(&path)? else { return Ok(None); };
+    if document.header.get("root").and_then(Value::as_str) != Some(root) {
+        return Err(AppError::c("agent.invalidId"));
+    }
+    Ok(Some(recent_page(&document, limit)))
+}
+
 pub fn page_chat(
     app: &AppHandle,
     id: &str,
@@ -454,47 +522,33 @@ pub fn clone_chat(
     Ok(recent_page(&document, DEFAULT_PAGE_LIMIT))
 }
 
-pub fn list_chats(app: &AppHandle, root: &str) -> AppResult<Vec<AgentChatSummary>> {
+pub fn list_chats(app: &AppHandle, root: &str, offset: usize, limit: usize) -> AppResult<AgentChatListPage> {
     let dir = agent_dir(app)?.join("chats");
     std::fs::create_dir_all(&dir)?;
+    list_chats_in_dir(&dir, root, offset, limit)
+}
+
+fn list_chats_in_dir(dir: &Path, root: &str, offset: usize, limit: usize) -> AppResult<AgentChatListPage> {
     let mut out = Vec::new();
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return Ok(out);
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
+    for entry in std::fs::read_dir(dir)? {
+        let path = entry?.path();
         if path.extension().and_then(|ext| ext.to_str()) != Some("json") {
             continue;
         }
-        let Some(document) = read_document(&path)? else {
+        let Some(summary) = read_summary(&path)? else {
             continue;
         };
-        let header = Value::Object(document.header.clone());
-        if string_field(&header, "root") != root {
+        if summary.root != root {
             continue;
         }
-        let Some(id) = path.file_stem().and_then(|id| id.to_str()) else {
-            continue;
-        };
-        out.push(AgentChatSummary {
-            id: id.to_string(),
-            root: string_field(&header, "root"),
-            title: string_field(&header, "title"),
-            provider: string_field(&header, "provider"),
-            model: string_field(&header, "model"),
-            updated_at: header
-                .get("updatedAt")
-                .and_then(Value::as_f64)
-                .unwrap_or(0.0),
-            message_count: document.messages.len(),
-        });
+        out.push(summary);
     }
     out.sort_by(|a, b| {
         b.updated_at
             .total_cmp(&a.updated_at)
             .then_with(|| b.id.cmp(&a.id))
     });
-    Ok(out)
+    Ok(chat_list_page(out, offset, limit))
 }
 
 pub fn delete_chat(app: &AppHandle, id: &str) -> AppResult<()> {
@@ -547,6 +601,24 @@ mod tests {
 
     fn message(id: &str, role: &str, text: &str) -> Value {
         json!({ "id": id, "role": role, "at": 1, "text": text })
+    }
+
+    #[test]
+    fn history_list_pages_five_summaries_and_reports_the_next_offset() {
+        let summaries: Vec<AgentChatSummary> = (0..11).map(|index| AgentChatSummary {
+            id: format!("chat-{index}"), root: "/tmp/project".into(), title: String::new(),
+            provider: "codex".into(), model: String::new(), updated_at: index as f64,
+            message_count: 0,
+        }).collect();
+        let first = chat_list_page(summaries.clone(), 0, 5);
+        assert_eq!(first.chats.len(), 5);
+        assert_eq!(first.next_offset, Some(5));
+        let second = chat_list_page(summaries.clone(), 5, 5);
+        assert_eq!(second.chats.len(), 5);
+        assert_eq!(second.next_offset, Some(10));
+        let final_page = chat_list_page(summaries, 10, 5);
+        assert_eq!(final_page.chats.len(), 1);
+        assert_eq!(final_page.next_offset, None);
     }
 
     fn document() -> ChatDocument {

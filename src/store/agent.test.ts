@@ -4,7 +4,7 @@ vi.mock('../lib/ipc', () => ({ api: { agentChatOpen: vi.fn(), agentChatApply: vi
   agentChatPage: vi.fn(), agentChatList: vi.fn(), agentChatClone: vi.fn(), agentChatReset: vi.fn(), agentCancel: vi.fn(), agentPermissionRespond: vi.fn(), agentModels: vi.fn() }, errorText: (error: unknown) => error instanceof Error ? error.message : String(error) }))
 vi.mock('../i18n', () => ({ t: (key: string) => key }))
 const { settings, patchSettings } = vi.hoisted(() => {
-  const settings = { agentEnabled: true, agentDefaultProvider: '', agentDefaultModel: '', agentDefaultEffort: '',
+  const settings = { agentEnabled: true, agentHistoryEnabled: true, agentDefaultProvider: '', agentDefaultModel: '', agentDefaultEffort: '',
     agentDefaultPermissionMode: 'workspace-write' as AgentPermissionMode, flush: vi.fn() }
   const patchSettings = vi.fn((patch: Partial<typeof settings>) => Object.assign(settings, patch))
   return { settings, patchSettings }
@@ -30,17 +30,50 @@ const page = () => ({ header: chat(), messages: chat().messages, hasEarlier: fal
 beforeEach(() => {
   vi.useFakeTimers()
   vi.clearAllMocks()
-  Object.assign(settings, { agentEnabled: true, agentDefaultProvider: '', agentDefaultModel: '', agentDefaultEffort: '',
+  Object.assign(settings, { agentEnabled: true, agentHistoryEnabled: true, agentDefaultProvider: '', agentDefaultModel: '', agentDefaultEffort: '',
     agentDefaultPermissionMode: 'workspace-write' })
-  useAgent.setState({ chats: { 'chat-test': chat() }, pages: {}, pageLoading: {}, queues: {}, interjecting: {}, running: {}, chatDrafts: {}, focusRequests: {}, localPicker: null,
+  useAgent.setState({ chats: { 'chat-test': chat() }, pages: {}, pageLoading: {}, historyByRoot: {}, queues: {}, interjecting: {}, running: {}, chatDrafts: {}, focusRequests: {}, localPicker: null,
     catalogs: {}, catalogLoading: {}, chatDefaults: { provider: '', model: '', effort: '' },
     providers: [{ id: 'codex', name: 'Codex', installed: true, supported: true, command: 'codex', version: '1', supportsFork: true }] })
   vi.mocked(api.agentModels).mockResolvedValue({ provider: 'codex', models: [], efforts: ['low', 'medium', 'high'], defaultModel: '' })
   vi.mocked(api.agentChatApply).mockResolvedValue(page())
   vi.mocked(api.agentChatReset).mockResolvedValue({ ...page(), header: { ...chat(), title: '', sessionId: null, messages: [] }, messages: [], total: 0 })
   vi.mocked(api.agentChatOpen).mockResolvedValue(page())
+  vi.mocked(api.agentChatList).mockResolvedValue({ chats: [], nextOffset: null })
   vi.mocked(api.agentSend).mockResolvedValue(undefined)
   vi.mocked(api.agentCancel).mockResolvedValue(undefined)
+})
+
+describe('project chat history', () => {
+  it('loads five chats lazily per root and appends the next page', async () => {
+    const chats = Array.from({ length: 5 }, (_, i) => ({ id: `chat-${i}`, root: '/tmp/project', title: `Chat ${i}`, provider: 'codex', model: '', updatedAt: i, messageCount: 2 }))
+    vi.mocked(api.agentChatList).mockResolvedValueOnce({ chats, nextOffset: 5 }).mockResolvedValueOnce({ chats: [{ ...chats[0], id: 'chat-5' }], nextOffset: null })
+    await useAgent.getState().loadHistory('/tmp/project')
+    expect(api.agentChatList).toHaveBeenLastCalledWith('/tmp/project', 0, 5)
+    expect(useAgent.getState().historyByRoot['/tmp/project'].chats).toHaveLength(5)
+    await useAgent.getState().loadHistory('/tmp/project')
+    expect(api.agentChatList).toHaveBeenLastCalledWith('/tmp/project', 5, 5)
+    expect(useAgent.getState().historyByRoot['/tmp/project'].chats).toHaveLength(6)
+    expect(api.agentChatList).not.toHaveBeenCalledWith('/another/project', expect.anything(), expect.anything())
+  })
+
+  it('does not request history while the preference is disabled', async () => {
+    settings.agentHistoryEnabled = false
+    await useAgent.getState().loadHistory('/tmp/project')
+    expect(api.agentChatList).not.toHaveBeenCalled()
+  })
+
+  it('restores a history entry only when its stored project root matches', async () => {
+    useAgent.setState({ chats: {} })
+    vi.mocked(api.agentChatOpen).mockResolvedValueOnce({ ...page(), header: { ...chat(), root: '/other/project' } })
+    expect(await useAgent.getState().resumeChat('chat-test', '/tmp/project')).toBe(false)
+    expect(api.agentChatOpen).toHaveBeenCalledWith('chat-test', 80, '/tmp/project')
+    expect(useAgent.getState().chats['chat-test']).toBeUndefined()
+
+    vi.mocked(api.agentChatOpen).mockResolvedValueOnce(page())
+    expect(await useAgent.getState().resumeChat('chat-test', '/tmp/project')).toBe(true)
+    expect(useAgent.getState().chats['chat-test'].sessionId).toBe('session-1')
+  })
 })
 afterEach(async () => {
   for (const current of Object.values(useAgent.getState().chats)) {
@@ -492,12 +525,11 @@ describe('persistent modes, local commands and usage', () => {
   })
 
   it('opens project-local resume, model and permissions selectors without provider prompts', async () => {
-    vi.mocked(api.agentChatList).mockResolvedValueOnce([])
     for (const kind of ['resume', 'model', 'permissions'] as const) {
       await useAgent.getState().sendMessage('chat-test', { text: `/${kind}`, mentions: [] })
       expect(useAgent.getState().localPicker?.kind).toBe(kind)
     }
-    expect(api.agentChatList).toHaveBeenCalledWith('/tmp/project')
+    expect(api.agentChatList).not.toHaveBeenCalled()
     expect(api.agentSend).not.toHaveBeenCalled()
   })
 
