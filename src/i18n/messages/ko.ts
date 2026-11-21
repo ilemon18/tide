@@ -897,9 +897,9 @@ export const ko: Messages = {
   'error.git.discardDirectory': '{path} 변경 사항을 버릴 수 없습니다. 추적 중인 파일 경로에 디렉터리가 있습니다.',
 
   'agent.plan.header': "계획",
-  'agent.plan.implementCurrent': "이 계획 실행",
-  'agent.plan.implementFresh': "새 컨텍스트에서 실행",
-  'agent.plan.continuePlanning': "계획 계속",
+  'agent.plan.implementCurrent': '예, 이 계획을 실행합니다',
+  'agent.plan.implementFresh': '예, 컨텍스트를 지우고 실행합니다',
+  'agent.plan.continuePlanning': '아니요, 계획 모드를 유지합니다',
   'agent.plan.resolved': "계획 작업 선택됨",
   'agent.plan.instructions': "추가 요청 사항 (선택)",
   'agent.plan.pendingHint': '먼저 계획 작업을 선택하세요',

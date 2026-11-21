@@ -42,10 +42,14 @@ actions and queue gates. Rust parses questions/scans skills. Provider/model/perm
 - Enter/Ctrl+Enter/Cmd+Enter sends; Shift+Enter inserts a line. Candidate Enter commits first. Composition
   lifecycle, native isComposing, keyCode 229 and WebKit post-composition Enter precede completion/send/delete.
   Repeated Enter never duplicates queue entries; preserve body whitespace.
-- Composer starts at 60px (v10), grows to min(480px, half-window); clamping preserves its saved minimum.
+- Composer starts at 90px, grows to min(480px, half-window); clamping preserves larger saved minima.
+  Height owners: `src/store/settings.ts` and `src-tauri/src/commands/theme.rs`; older smaller minima normalize up.
   Nearest /, $ or @ wins. Slash/mention need a boundary; skills reject preceding word/$; $5 stays prose.
   Mentions show eight fuzzy matches, preserve {rel,isDir} chips and queued references. Scan project/user
   skills lazily, cache results, keep plan tags single.
+- A new conversation centers its workspace heading above one complete accent-bordered composer. Messages,
+  persisted history/pages, loading, running, existing sessions or queued sends keep the transcript/footer layout.
+  First send changes layout without remounting the composer; provider/error guidance remains visible.
 
 ## Questions and plan transactions
 
@@ -55,6 +59,10 @@ actions and queue gates. Rust parses questions/scans skills. Provider/model/perm
 - Successful planning without questions creates plan-<message>; questions take precedence. Implement-current
   resumes writable; implement-fresh isolates a same-root tab with plan/fixed preamble; continue-planning is
   read-only. Persist action/result/target before launch, lock duplicates, retry same target, never run on hydration.
+- Plan options use Codex's official English copy/order, translated consistently across all catalogs:
+  “Yes, implement this plan”; “Yes, clear context and implement”; “No, stay in Plan mode”.
+  Source: [Codex plan_implementation.rs, commit 63a15005](https://github.com/openai/codex/blob/63a15005de43a3db68d451403593b202ed337d20/codex-rs/tui/src/chatwidget/plan_implementation.rs).
+  Copy maps to existing persisted action IDs; clear-context execution starts a fresh same-root chat carrying the plan.
 - Local /new, project-scoped /resume [chat ID], /model [ID|default], three-mode /permissions, /status and
   /help never reach the model. Missing arguments open selectors; invalid ones report errors.
 - /fork clones saved history after capability probing (Claude --fork-session; Codex app-server/RPC validation).

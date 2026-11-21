@@ -899,9 +899,9 @@ export const ja: Messages = {
   'error.git.discardDirectory': '{path} の変更を破棄できません。追跡中のファイルのパスにディレクトリがあります。',
 
   'agent.plan.header': "計画",
-  'agent.plan.implementCurrent': "この計画を実行",
-  'agent.plan.implementFresh': "新しいコンテキストで実行",
-  'agent.plan.continuePlanning': "計画を続ける",
+  'agent.plan.implementCurrent': 'はい、この計画を実行する',
+  'agent.plan.implementFresh': 'はい、コンテキストをクリアして実行する',
+  'agent.plan.continuePlanning': 'いいえ、計画モードを続ける',
   'agent.plan.resolved': "計画の操作を選択済み",
   'agent.plan.instructions': "追加の指示（任意）",
   'agent.plan.pendingHint': '先に計画の操作を選択',

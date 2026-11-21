@@ -3,6 +3,7 @@ import React from 'react'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { AgentMessage } from '../store/agent'
+import { en } from '../i18n/messages/en'
 
 const { resolvePlanAction } = vi.hoisted(() => ({ resolvePlanAction: vi.fn() }))
 vi.mock('../store/agent', () => ({ useAgent: Object.assign((select: (state: unknown) => unknown) => select({ running: {} }), { getState: () => ({ resolvePlanAction }) }) }))
@@ -44,6 +45,24 @@ it('shows the plan once followed by three next actions and optional instructions
   expect(screen.getAllByText('The agreed plan')).toHaveLength(1)
   expect(screen.getAllByRole('button')).toHaveLength(3)
   expect(screen.getByRole('textbox', { name: 'agent.plan.instructions' })).toBeTruthy()
+})
+
+it('keeps the official Codex option order wired to the matching persisted actions', async () => {
+  const options = [
+    ['agent.plan.implementCurrent', 'Yes, implement this plan', 'implement-current'],
+    ['agent.plan.implementFresh', 'Yes, clear context and implement', 'implement-fresh'],
+    ['agent.plan.continuePlanning', 'No, stay in Plan mode', 'continue-planning'],
+  ] as const
+  const { unmount } = render(view())
+  expect(screen.getAllByRole('button').map(button => button.textContent)).toEqual(options.map(([key]) => key))
+  unmount()
+  for (const [key, label, action] of options) {
+    expect(en[key]).toBe(label)
+    const card = render(view())
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: key })) })
+    expect(resolvePlanAction).toHaveBeenLastCalledWith('chat', 'choice', action, '')
+    card.unmount()
+  }
 })
 
 it('sends refinement instructions, blocks duplicate clicks, and allows retry after rejection', async () => {

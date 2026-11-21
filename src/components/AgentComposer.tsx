@@ -25,6 +25,8 @@ import { COMMAND_DESCRIPTIONS, CommandChip, SkillChip, commandLabel } from './Ag
 
 type Props = {
   root: string
+  /** Frame the complete composer in the initial conversation layout. */
+  outlined?: boolean
   contextUsage?: ReactNode
   draft: string
   mentions: AgentMention[]
@@ -102,6 +104,7 @@ function composerMaxHeight() {
  */
 export function AgentComposer({
   root,
+  outlined = false,
   contextUsage,
   draft,
   mentions,
@@ -163,7 +166,7 @@ export function AgentComposer({
     return () => window.removeEventListener('resize', updateMaxHeight)
   }, [])
 
-  const effectiveComposerHeight = Math.min(agentComposerHeight, maxComposerHeight)
+  const effectiveComposerHeight = clamp(agentComposerHeight, AGENT_COMPOSER_MIN_HEIGHT, maxComposerHeight)
 
   // The persisted height is the minimum; content grows the textarea until it scrolls at the window cap.
   useLayoutEffect(() => {
@@ -286,7 +289,7 @@ export function AgentComposer({
         : t('agent.send')
 
   return (
-    <div className="relative flex flex-col gap-1.5">
+    <div className={`relative flex min-w-0 flex-col gap-1.5 ${outlined ? 'rounded-[var(--r-popup)] border border-accent bg-panel p-3' : ''}`}>
       {command || skills.length > 0 || mentions.length > 0 ? (
         <div className="flex flex-wrap gap-1">
           {command ? <CommandChip id={command} onRemove={() => onCommand(undefined)} /> : null}

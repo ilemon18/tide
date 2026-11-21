@@ -64,6 +64,8 @@ App owns hydration/window coordination; the settings store and Rust theme comman
 - `DEFAULT_SETTINGS` in `src/store/settings.ts` and `Settings::default` in
   `src-tauri/src/commands/theme.rs` stay identical. Fresh install uses Rust schema-0 defaults, frontend
   migration and writeback; afterward settings.json wins. Preserve unknown fields from newer versions.
+  Composer defaults follow [input contracts](./agent-composer.md): normalize old smaller heights upward,
+  preserve larger saved heights, and only clamp for the current window in the composer.
 - Add settings in both types/defaults, migration, UI and SHARED_KEYS when shared across windows. Retirement
   removes both defaults and adds RETIRED_KEYS or the old key is written back forever.
 - Schema v11 adds agentDefaultPermissionMode=workspace-write. Invalid values fall back without resetting

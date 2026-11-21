@@ -47,7 +47,7 @@ export const ROUTING_FIXTURES = Object.freeze([
   },
   {
     name: 'Editor',
-    paths: ['src/components/EditorArea.tsx'],
+    paths: ['src/components/EditorArea.tsx', 'src/store/tabs.test.ts'],
     expected: ['editor.md'],
   },
   {

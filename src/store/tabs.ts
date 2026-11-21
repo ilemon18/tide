@@ -584,29 +584,14 @@ function mergeGroups(groups: TabGroup[]): TabGroup[] {
   ]
 }
 
-/** A pane emptied (last file closed / last tab dragged away): collapse normally, except for the chat split */
+/** Closing or dragging away the last tab collapses either pane, including Agent splits. */
 function settleLayout(
   groups: TabGroup[],
-  tabs: Tab[],
   activeGroupId: TabGroupId,
   split: SplitOrientation | null,
 ): { groups: TabGroup[]; activeGroupId: TabGroupId; split: SplitOrientation | null } {
   if (!split || groups.length < 2) return { groups, activeGroupId, split }
   if (!groups.some((g) => g.order.length === 0)) return { groups, activeGroupId, split }
-  // The chat split is intentional: an empty primary stays available for the next file while the
-  // conversation remains in the right pane. Closing the chat (or an explicit unsplit) merges again.
-  const secondary = groups.find((g) => g.id === 'secondary')
-  const chatInSecondary = secondary?.order.some(
-    (id) => tabs.find((tab) => tab.id === id)?.kind === 'chat',
-  )
-  if (chatInSecondary) {
-    const focused = groups.find((g) => g.id === activeGroupId)
-    return {
-      groups,
-      activeGroupId: focused?.order.length ? activeGroupId : 'secondary',
-      split,
-    }
-  }
   return { groups: mergeGroups(groups), activeGroupId: 'primary', split: null }
 }
 
@@ -1598,7 +1583,7 @@ export const useTabs = create<TabsStore>((set, get) => ({
     // After the move the mirror state is dead if only one pane shows it
     if (groups.filter((g) => g.order.includes(id)).length <= 1) dropEditorState(mirrorKey(id))
     // Dragging the last tab out of a pane empties it: collapse that pane too
-    const layout = settleLayout(groups, state.tabs, target, get().splitOrientation)
+    const layout = settleLayout(groups, target, get().splitOrientation)
     set({
       groups: layout.groups,
       activeGroupId: layout.activeGroupId,
@@ -1628,7 +1613,6 @@ export const useTabs = create<TabsStore>((set, get) => ({
     // When split, an emptied pane is collapsed right away
     const layout = settleLayout(
       settleGroups(get().groups, new Set([id])),
-      tabs,
       get().activeGroupId,
       get().splitOrientation,
     )
@@ -1668,7 +1652,7 @@ export const useTabs = create<TabsStore>((set, get) => ({
       if (groups.filter((g) => g.order.includes(id)).length <= 1) {
         dropEditorState(mirrorKey(id))
       }
-      const layout = settleLayout(groups, state.tabs, state.activeGroupId, state.splitOrientation)
+      const layout = settleLayout(groups, state.activeGroupId, state.splitOrientation)
       set({
         groups: layout.groups,
         activeGroupId: layout.activeGroupId,
@@ -2435,7 +2419,6 @@ export const useTabs = create<TabsStore>((set, get) => ({
       const tabs = state.tabs.filter((t) => !removed.has(t.id))
       const layout = settleLayout(
         settleGroups(state.groups, removed),
-        tabs,
         state.activeGroupId,
         state.splitOrientation,
       )
@@ -2523,7 +2506,7 @@ async function closeMany(ids: string[], force?: boolean, groupId?: TabGroupId): 
     delete cursors[id]
     delete diffEpoch[id]
   }
-  const layout = settleLayout(groups, tabs, snapshot.activeGroupId, snapshot.splitOrientation)
+  const layout = settleLayout(groups, snapshot.activeGroupId, snapshot.splitOrientation)
   useTabs.setState({
     tabs,
     groups: layout.groups,

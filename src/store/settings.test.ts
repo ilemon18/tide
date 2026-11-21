@@ -110,6 +110,21 @@ describe('Agent preference persistence', () => {
 })
 
 describe('Agent settings migration', () => {
+  it.each([
+    { saved: undefined, expected: 90 },
+    { saved: 60, expected: 90 },
+    { saved: 80, expected: 90 },
+    { saved: 90, expected: 90 },
+    { saved: 150, expected: 150 },
+    { saved: 600, expected: 600 },
+  ])('normalizes composer height $saved to $expected without resetting other preferences', async ({ saved, expected }) => {
+    const { agentComposerHeight: _omitted, ...legacy } = DEFAULT_SETTINGS
+    vi.mocked(api.loadSettings).mockResolvedValue({ ...legacy, fontSize: 17,
+      ...(saved === undefined ? {} : { agentComposerHeight: saved }) } as Settings)
+    await useSettings.getState().load()
+    expect(useSettings.getState()).toMatchObject({ agentComposerHeight: expected, fontSize: 17 })
+  })
+
   it('adds workspace-write to v10 settings and preserves known and unknown values', async () => {
     const { agentDefaultPermissionMode: _omitted, ...legacy } = DEFAULT_SETTINGS
     // Legacy IPC data intentionally omits the field required by the current Settings DTO.

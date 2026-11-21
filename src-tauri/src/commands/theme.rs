@@ -128,7 +128,7 @@ impl Default for Settings {
             agent_default_model: String::new(),
             agent_default_effort: String::new(),
             agent_default_permission_mode: "workspace-write".into(),
-            agent_composer_height: 60,
+            agent_composer_height: 90,
             sidebar_width: 220,
             panel_height: 240,
             sidebar_visible: true,
@@ -385,7 +385,7 @@ mod compat {
         assert_eq!(settings.format_mode, "off");
         assert_eq!(settings.format_tool, "auto");
         assert_eq!(settings.tab_size, 2);
-        assert_eq!(settings.agent_composer_height, 60);
+        assert_eq!(settings.agent_composer_height, 90);
         assert_eq!(settings.agent_default_permission_mode, "workspace-write");
         assert!(settings.auto_save);
     }

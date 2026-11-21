@@ -875,9 +875,9 @@ export const zhTW: Messages = {
   'error.git.discardDirectory': '無法捨棄 {path} 的變更：此已追蹤檔案路徑已被目錄佔用。',
 
   'agent.plan.header': "計畫",
-  'agent.plan.implementCurrent': "執行此計畫",
-  'agent.plan.implementFresh': "在新上下文執行",
-  'agent.plan.continuePlanning': "繼續規劃",
+  'agent.plan.implementCurrent': '是，執行此計畫',
+  'agent.plan.implementFresh': '是，清除上下文並執行',
+  'agent.plan.continuePlanning': '否，留在計畫模式',
   'agent.plan.resolved': "已選擇計畫操作",
   'agent.plan.instructions': "補充要求（選填）",
   'agent.plan.pendingHint': '先選擇計畫操作',

@@ -21,8 +21,6 @@ type PaneProps = {
 
 function EditorPane({ groupId, searchOpen, searchFocus, onCloseSearch, showWelcome }: PaneProps) {
   const activeGroupId = useTabs((s) => s.activeGroupId)
-  const splitOrientation = useTabs((s) => s.splitOrientation)
-  const unsplit = useTabs((s) => s.unsplit)
   const tabCount = useTabs((s) => s.groups.find((g) => g.id === groupId)?.order.length ?? 0)
   const activeKind = useTabs((s) => {
     const group = s.groups.find((g) => g.id === groupId)
@@ -49,14 +47,6 @@ function EditorPane({ groupId, searchOpen, searchFocus, onCloseSearch, showWelco
           ) : (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-bg">
               <TideMark size={96} tone="muted" />
-              {splitOrientation ? (
-                <button
-                  onClick={() => unsplit()}
-                  className="rounded-[var(--r-control)] border border-line px-2.5 py-1 text-xs text-muted transition-colors duration-fast hover:bg-hover hover:text-fg"
-                >
-                  取消拆分
-                </button>
-              ) : null}
             </div>
           )
         ) : null}

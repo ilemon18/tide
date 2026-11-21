@@ -22,7 +22,7 @@ import { applyLocale, DEFAULT_LOCALE, isLocale } from '../i18n'
 import { applyMemoryProfileChange, setMemoryProfile } from '../lib/memoryBudget'
 
 export const SETTINGS_SCHEMA_VERSION = 11
-export const AGENT_COMPOSER_MIN_HEIGHT = 60
+export const AGENT_COMPOSER_MIN_HEIGHT = 90
 export const AGENT_COMPOSER_MAX_HEIGHT = 480
 
 export const DEFAULT_SETTINGS: Settings = {

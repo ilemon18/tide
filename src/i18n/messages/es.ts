@@ -917,9 +917,9 @@ export const es: Messages = {
   'error.git.discardDirectory': 'No se pueden descartar los cambios de {path}: un directorio ocupa la ruta de este archivo rastreado.',
 
   'agent.plan.header': "Plan",
-  'agent.plan.implementCurrent': "Ejecutar este plan",
-  'agent.plan.implementFresh': "Ejecutar en contexto nuevo",
-  'agent.plan.continuePlanning': "Seguir planificando",
+  'agent.plan.implementCurrent': 'Sí, implementar este plan',
+  'agent.plan.implementFresh': 'Sí, borrar el contexto e implementar',
+  'agent.plan.continuePlanning': 'No, seguir en modo Plan',
   'agent.plan.resolved': "Acción del plan seleccionada",
   'agent.plan.instructions': "Instrucciones adicionales (opcional)",
   'agent.plan.pendingHint': 'Elige primero una acción del plan',

@@ -406,6 +406,7 @@ function PlanCard({
             rows={2}
             className="w-full resize-y rounded-[var(--r-row)] border border-line-soft bg-bg px-2 py-1.5 text-xs text-fg outline-none placeholder:text-muted/60 focus:border-accent/60 disabled:opacity-60"
           />
+          {/* Codex plan_implementation.rs: keep official option copy/order; action IDs stay persisted. */}
           <div className="flex flex-col gap-1.5">
             <button
               type="button"

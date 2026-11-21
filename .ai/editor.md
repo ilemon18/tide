@@ -3,6 +3,7 @@ summary: Tabs, files, Markdown and CodeMirror
 scope:
   - .ai/editor.md
   - src/store/tabs.ts
+  - src/store/tabs.test.ts
   - src/components/EditorHost.tsx
   - src/components/EditorArea.tsx
   - src/components/TabBar.tsx
@@ -58,6 +59,10 @@ EditorHost selects tab kinds; markdown helpers own contained links and images.
 - Chat fills an empty editor; otherwise opens a secondary row split without moving existing tabs. Ordinary
   opens target primary. Measure tab widths once and on resize, outside tab state; wheel writes scrollLeft
   once/frame. TabBar hooks must precede its empty return, including first-open/last-close transitions.
+- Closing or dragging away a pane's final tab collapses the split, including when the surviving pane contains
+  an Agent. The survivor becomes primary with its selection/preview state; closing all tabs leaves one empty
+  primary. Shared files retain the surviving buffer; cancelled unsaved closes leave layout intact. Empty panes
+  have no Unsplit button. `src/store/tabs.test.ts` covers single/bulk closes, shared tabs, moves and cancellation.
 - Each tab selects its own chat-running flag. Running agents hide close buttons even on hover/focus;
   idle/failed/cancelled restore them; pinned tabs keep pins. Other close commands retain their behavior.
 - Chat tabs/drag ghosts use live provider icon + Agent + optional execution status, with generic loading
