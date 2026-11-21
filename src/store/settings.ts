@@ -21,7 +21,7 @@ import { DEFAULT_MONO_FONT } from '../lib/fonts'
 import { applyLocale, DEFAULT_LOCALE, isLocale } from '../i18n'
 import { applyMemoryProfileChange, setMemoryProfile } from '../lib/memoryBudget'
 
-export const SETTINGS_SCHEMA_VERSION = 10
+export const SETTINGS_SCHEMA_VERSION = 11
 export const AGENT_COMPOSER_MIN_HEIGHT = 60
 export const AGENT_COMPOSER_MAX_HEIGHT = 480
 
@@ -53,6 +53,7 @@ export const DEFAULT_SETTINGS: Settings = {
   agentDefaultProvider: '',
   agentDefaultModel: '',
   agentDefaultEffort: '',
+  agentDefaultPermissionMode: 'workspace-write',
   agentComposerHeight: AGENT_COMPOSER_MIN_HEIGHT,
   sidebarWidth: 220,
   panelHeight: 240,
@@ -104,6 +105,7 @@ const SHARED_KEYS = [
   'agentDefaultProvider',
   'agentDefaultModel',
   'agentDefaultEffort',
+  'agentDefaultPermissionMode',
   'agentComposerHeight',
 ] as const satisfies readonly (keyof Settings)[]
 
@@ -193,6 +195,7 @@ function snapshot(s: SettingsStore): Settings {
     agentDefaultProvider: s.agentDefaultProvider,
     agentDefaultModel: s.agentDefaultModel,
     agentDefaultEffort: s.agentDefaultEffort,
+    agentDefaultPermissionMode: s.agentDefaultPermissionMode,
     agentComposerHeight: s.agentComposerHeight,
     sidebarWidth: s.sidebarWidth,
     panelHeight: s.panelHeight,
@@ -201,7 +204,7 @@ function snapshot(s: SettingsStore): Settings {
   }
 }
 
-/** Persist. Appearance settings (theme / icon set) pass delay = 0 to write at once, else a new window opened right after a theme switch reads the old config. */
+/** Appearance and Agent defaults write at once so a new window can read the latest choices. */
 function persist(get: () => SettingsStore, delay = 400) {
   if (saveTimer) clearTimeout(saveTimer)
   if (delay <= 0) {
@@ -245,6 +248,7 @@ function migrate(raw: Settings): Settings {
   if (!isLocale(next.locale)) next.locale = DEFAULT_LOCALE
 
   // v8 -> v9 adds ligatures, v9 -> v10 adds agentComposerHeight: DEFAULT_SETTINGS covers missing values.
+  // v10 -> v11 adds agentDefaultPermissionMode, defaulting to workspace-write.
   // Keep larger stored heights when the current window is short: the composer clamps them for display only.
   next.schemaVersion = SETTINGS_SCHEMA_VERSION
 
@@ -270,6 +274,9 @@ function migrate(raw: Settings): Settings {
   if (typeof next.agentDefaultProvider !== 'string') next.agentDefaultProvider = ''
   if (typeof next.agentDefaultModel !== 'string') next.agentDefaultModel = ''
   if (typeof next.agentDefaultEffort !== 'string') next.agentDefaultEffort = ''
+  if (!['read-only', 'workspace-write', 'full-access'].includes(next.agentDefaultPermissionMode)) {
+    next.agentDefaultPermissionMode = DEFAULT_SETTINGS.agentDefaultPermissionMode
+  }
   if (
     typeof next.agentComposerHeight !== 'number' ||
     !Number.isFinite(next.agentComposerHeight)
@@ -342,13 +349,17 @@ export const useSettings = create<SettingsStore>((set, get) => ({
     if (patch.uiFontSize !== undefined) applyUiFontSize(patch.uiFontSize)
     if (patch.ligatures !== undefined) applyLigatures(patch.ligatures)
     if (patch.fontFamily !== undefined) applyMonoFont(monoStack(patch.fontFamily as MonoFont))
-    // Appearance settings persist at once: new / other windows must read the current value
+    // Appearance and Agent defaults persist at once for new / other windows.
     const immediate =
       patch.locale !== undefined ||
       patch.theme !== undefined ||
       patch.iconTheme !== undefined ||
       patch.fontFamily !== undefined ||
-      patch.uiFontSize !== undefined
+      patch.uiFontSize !== undefined ||
+      patch.agentDefaultProvider !== undefined ||
+      patch.agentDefaultModel !== undefined ||
+      patch.agentDefaultEffort !== undefined ||
+      patch.agentDefaultPermissionMode !== undefined
     persist(get, immediate ? 0 : 400)
   },
 

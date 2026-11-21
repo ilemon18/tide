@@ -69,6 +69,9 @@ pub struct Settings {
     pub agent_default_provider: String,
     pub agent_default_model: String,
     pub agent_default_effort: String,
+    /// Last explicit permission choice; invalid values must not reset the rest of the config.
+    #[serde(deserialize_with = "deserialize_agent_permission_mode")]
+    pub agent_default_permission_mode: String,
     /// Manual minimum height of the agent composer textarea; long drafts may grow taller
     pub agent_composer_height: u32,
     pub sidebar_width: u32,
@@ -79,6 +82,18 @@ pub struct Settings {
     /// Without it, config saved by a newer version is "reset" once an older version opens it.
     #[serde(flatten)]
     pub extra: serde_json::Map<String, serde_json::Value>,
+}
+
+fn deserialize_agent_permission_mode<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    Ok(match value.as_str() {
+        Some(mode @ ("read-only" | "workspace-write" | "full-access")) => mode,
+        _ => "workspace-write",
+    }
+    .to_owned())
 }
 
 impl Default for Settings {
@@ -112,6 +127,7 @@ impl Default for Settings {
             agent_default_provider: String::new(),
             agent_default_model: String::new(),
             agent_default_effort: String::new(),
+            agent_default_permission_mode: "workspace-write".into(),
             agent_composer_height: 60,
             sidebar_width: 220,
             panel_height: 240,
@@ -370,7 +386,49 @@ mod compat {
         assert_eq!(settings.format_tool, "auto");
         assert_eq!(settings.tab_size, 2);
         assert_eq!(settings.agent_composer_height, 60);
+        assert_eq!(settings.agent_default_permission_mode, "workspace-write");
         assert!(settings.auto_save);
+    }
+
+    #[test]
+    fn agent_preferences_survive_roundtrip() {
+        for mode in ["read-only", "workspace-write", "full-access"] {
+            let raw = serde_json::json!({
+                "schemaVersion": 11,
+                "agentDefaultProvider": "codex",
+                "agentDefaultModel": "custom-model",
+                "agentDefaultEffort": "high",
+                "agentDefaultPermissionMode": mode,
+                "futurePreference": true
+            });
+            let settings: Settings = serde_json::from_value(raw).expect("parse settings");
+            let out = serde_json::to_value(&settings).expect("serialize settings");
+            assert_eq!(out["agentDefaultProvider"], "codex");
+            assert_eq!(out["agentDefaultModel"], "custom-model");
+            assert_eq!(out["agentDefaultEffort"], "high");
+            assert_eq!(out["agentDefaultPermissionMode"], mode);
+            assert_eq!(out["futurePreference"], true);
+        }
+    }
+
+    #[test]
+    fn invalid_agent_permissions_preserve_other_settings() {
+        for invalid in [
+            serde_json::json!("unknown"),
+            serde_json::json!(""),
+            serde_json::json!(null),
+            serde_json::json!(7),
+        ] {
+            let settings: Settings = serde_json::from_value(serde_json::json!({
+                "fontSize": 17,
+                "agentDefaultModel": "custom-model",
+                "agentDefaultPermissionMode": invalid
+            }))
+            .expect("parse settings with invalid permissions");
+            assert_eq!(settings.agent_default_permission_mode, "workspace-write");
+            assert_eq!(settings.agent_default_model, "custom-model");
+            assert_eq!(settings.font_size, 17);
+        }
     }
 
     /// A corrupted file must only yield Err and let read_json fall back to defaults, never panic

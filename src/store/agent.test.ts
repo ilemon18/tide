@@ -1,9 +1,15 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
-import { api, type AgentPlanAction } from '../lib/ipc'
+import { api, type AgentPlanAction, type AgentPermissionMode } from '../lib/ipc'
 vi.mock('../lib/ipc', () => ({ api: { agentChatOpen: vi.fn(), agentChatApply: vi.fn(), agentSend: vi.fn(),
-  agentChatPage: vi.fn(), agentChatList: vi.fn(), agentChatClone: vi.fn(), agentCancel: vi.fn(), agentPermissionRespond: vi.fn() }, errorText: (error: unknown) => error instanceof Error ? error.message : String(error) }))
+  agentChatPage: vi.fn(), agentChatList: vi.fn(), agentChatClone: vi.fn(), agentCancel: vi.fn(), agentPermissionRespond: vi.fn(), agentModels: vi.fn() }, errorText: (error: unknown) => error instanceof Error ? error.message : String(error) }))
 vi.mock('../i18n', () => ({ t: (key: string) => key }))
-vi.mock('./settings', () => ({ useSettings: { getState: () => ({ agentEnabled: true, flush: vi.fn() }) } }))
+const { settings, patchSettings } = vi.hoisted(() => {
+  const settings = { agentEnabled: true, agentDefaultProvider: '', agentDefaultModel: '', agentDefaultEffort: '',
+    agentDefaultPermissionMode: 'workspace-write' as AgentPermissionMode, flush: vi.fn() }
+  const patchSettings = vi.fn((patch: Partial<typeof settings>) => Object.assign(settings, patch))
+  return { settings, patchSettings }
+})
+vi.mock('./settings', () => ({ useSettings: { getState: () => ({ ...settings, patch: patchSettings }) } }))
 const { setTabName } = vi.hoisted(() => ({ setTabName: vi.fn() }))
 vi.mock('./tabs', () => ({ useTabs: { getState: () => ({ setTabName, openChat: vi.fn(), openChatInRight: vi.fn() }) } }))
 vi.mock('./ui', () => ({ useUi: { getState: () => ({ toast: vi.fn() }) } }))
@@ -18,8 +24,12 @@ const page = () => ({ header: chat(), messages: chat().messages, hasEarlier: fal
 beforeEach(() => {
   vi.useFakeTimers()
   vi.clearAllMocks()
+  Object.assign(settings, { agentEnabled: true, agentDefaultProvider: '', agentDefaultModel: '', agentDefaultEffort: '',
+    agentDefaultPermissionMode: 'workspace-write' })
   useAgent.setState({ chats: { 'chat-test': chat() }, pages: {}, pageLoading: {}, queues: {}, running: {}, chatDrafts: {}, focusRequests: {}, localPicker: null,
+    catalogs: {}, catalogLoading: {}, chatDefaults: { provider: '', model: '', effort: '' },
     providers: [{ id: 'codex', name: 'Codex', installed: true, supported: true, command: 'codex', version: '1', supportsFork: true }] })
+  vi.mocked(api.agentModels).mockResolvedValue({ provider: 'codex', models: [], efforts: ['low', 'medium', 'high'], defaultModel: '' })
   vi.mocked(api.agentChatApply).mockResolvedValue(page())
   vi.mocked(api.agentChatOpen).mockResolvedValue(page())
   vi.mocked(api.agentSend).mockResolvedValue(undefined)
@@ -34,6 +44,93 @@ afterEach(async () => {
   }
   await vi.runAllTimersAsync()
   vi.useRealTimers()
+})
+
+describe('remembered Agent choices', () => {
+  it('starts new chats with the last selected model, effort and permissions', () => {
+    useAgent.getState().setChatOptions('chat-test', { model: 'custom-model' })
+    useAgent.getState().setChatOptions('chat-test', { effort: 'high' })
+    useAgent.getState().setPermissionMode('chat-test', 'full-access')
+    expect(patchSettings).toHaveBeenCalledWith({ agentDefaultProvider: 'codex', agentDefaultModel: 'custom-model', agentDefaultEffort: 'high' })
+    expect(patchSettings).toHaveBeenCalledWith({ agentDefaultPermissionMode: 'full-access' })
+    const id = useAgent.getState().newChat('/tmp/project')!
+    expect(useAgent.getState().chats[id]).toMatchObject({ provider: 'codex', model: 'custom-model', effort: 'high', permissionMode: 'full-access' })
+  })
+
+  it('persists empty model and effort when the user selects Default', () => {
+    useAgent.getState().setChatOptions('chat-test', { model: 'custom-model', effort: 'high' })
+    useAgent.getState().setChatOptions('chat-test', { model: '', effort: '' })
+    expect(patchSettings).toHaveBeenLastCalledWith({ agentDefaultProvider: 'codex', agentDefaultModel: '', agentDefaultEffort: '' })
+    const id = useAgent.getState().newChat('/tmp/project')!
+    expect(useAgent.getState().chats[id]).toMatchObject({ provider: 'codex', model: '', effort: '' })
+  })
+
+  it('remembers the corrected effort after switching to an incompatible model', () => {
+    useAgent.setState({ catalogs: { codex: { provider: 'codex', defaultModel: '', efforts: ['high', 'low'],
+      models: [{ id: 'small', label: 'Small', efforts: ['low'], defaultEffort: 'low' }] } },
+      chats: { 'chat-test': { ...chat(), effort: 'high' } } })
+    useAgent.getState().setChatOptions('chat-test', { model: 'small' })
+    expect(settings).toMatchObject({ agentDefaultProvider: 'codex', agentDefaultModel: 'small', agentDefaultEffort: 'low' })
+    expect(useAgent.getState().chats['chat-test'].effort).toBe('low')
+  })
+
+  it('resets model and effort when the user switches providers', () => {
+    Object.assign(settings, { agentDefaultProvider: 'codex', agentDefaultModel: 'codex-model', agentDefaultEffort: 'high', agentDefaultPermissionMode: 'full-access' })
+    useAgent.getState().setChatProvider('chat-test', 'claude')
+    expect(patchSettings).toHaveBeenLastCalledWith({ agentDefaultProvider: 'claude', agentDefaultModel: '', agentDefaultEffort: '' })
+    expect(settings.agentDefaultPermissionMode).toBe('full-access')
+    expect(useAgent.getState().chats['chat-test']).toMatchObject({ provider: 'claude', model: '', effort: '', sessionId: null })
+  })
+
+  it('applies automatic provider fallback without overwriting the saved choice', () => {
+    Object.assign(settings, { agentDefaultProvider: 'claude', agentDefaultModel: 'claude-model', agentDefaultEffort: 'high' })
+    useAgent.setState({ chats: { 'chat-test': { ...chat(), provider: '' } } })
+    useAgent.getState().resolveDefaults()
+    useAgent.getState().setChatProvider('chat-test', useAgent.getState().chatDefaults.provider, { remember: false })
+    expect(useAgent.getState().chats['chat-test']).toMatchObject({ provider: 'codex', model: '', effort: '' })
+    expect(patchSettings).not.toHaveBeenCalled()
+    expect(settings.agentDefaultProvider).toBe('claude')
+  })
+
+  it('restores historical chat options without changing saved defaults', async () => {
+    Object.assign(settings, { agentDefaultProvider: 'codex', agentDefaultModel: 'new-model', agentDefaultEffort: 'high', agentDefaultPermissionMode: 'full-access' })
+    useAgent.setState({ chats: {} })
+    vi.mocked(api.agentChatOpen).mockResolvedValueOnce({ ...page(),
+      header: { ...chat(), model: 'old-model', effort: 'low', permissionMode: 'read-only' } })
+    await useAgent.getState().loadChat('chat-test')
+    expect(useAgent.getState().chats['chat-test']).toMatchObject({ model: 'old-model', effort: 'low', permissionMode: 'read-only' })
+    expect(patchSettings).not.toHaveBeenCalled()
+    const id = useAgent.getState().newChat('/tmp/project')!
+    expect(useAgent.getState().chats[id]).toMatchObject({ model: 'new-model', effort: 'high', permissionMode: 'full-access' })
+  })
+
+  it('uses the same persistence for local model and permissions commands', async () => {
+    await useAgent.getState().sendMessage('chat-test', { text: '/model custom-model', mentions: [] })
+    expect(settings).toMatchObject({ agentDefaultProvider: 'codex', agentDefaultModel: 'custom-model' })
+    await useAgent.getState().sendMessage('chat-test', { text: '/model default', mentions: [] })
+    expect(settings.agentDefaultModel).toBe('')
+    await useAgent.getState().sendMessage('chat-test', { text: '/permissions read-only', mentions: [] })
+    expect(settings.agentDefaultPermissionMode).toBe('read-only')
+    expect(api.agentSend).not.toHaveBeenCalled()
+  })
+
+  it('keeps temporary Plan permissions out of saved preferences', async () => {
+    useAgent.getState().setPermissionMode('chat-test', 'full-access')
+    patchSettings.mockClear()
+    await useAgent.getState().sendMessage('chat-test', { text: '', command: 'plan', mentions: [] })
+    expect(useAgent.getState().chats['chat-test']).toMatchObject({ permissionMode: 'read-only', planning: true })
+    await useAgent.getState().sendMessage('chat-test', { text: '', command: 'plan', mentions: [] })
+    expect(settings.agentDefaultPermissionMode).toBe('full-access')
+    expect(patchSettings).not.toHaveBeenCalled()
+  })
+
+  it('does not save rejected picker changes during a running turn', () => {
+    useAgent.setState({ chats: { 'chat-test': { ...chat(), status: 'running', activeRunId: 'run-test' } } })
+    useAgent.getState().setChatOptions('chat-test', { model: 'custom-model', effort: 'high' })
+    useAgent.getState().setPermissionMode('chat-test', 'full-access')
+    useAgent.getState().setChatProvider('chat-test', 'claude')
+    expect(patchSettings).not.toHaveBeenCalled()
+  })
 })
 
 describe('chat protocol state', () => {
@@ -374,6 +471,7 @@ describe('persistent modes, local commands and usage', () => {
   })
 
   it('compacts read-only, persists the summary before resetting the session, and uses it next turn', async () => {
+    settings.agentDefaultPermissionMode = 'full-access'
     await useAgent.getState().sendMessage('chat-test', { text: '/compact', mentions: [] })
     expect(api.agentSend).toHaveBeenLastCalledWith(expect.objectContaining({ readOnly: true, sessionAction: 'resume' }))
     streamPlan('Task summary with remaining steps.'); finishTurn()
@@ -384,6 +482,8 @@ describe('persistent modes, local commands and usage', () => {
     expect(api.agentSend).toHaveBeenLastCalledWith(expect.objectContaining({ sessionAction: 'new', sessionId: null,
       prompt: expect.stringContaining('Previous conversation summary:') }))
     expect(useAgent.getState().chats['chat-test'].messages.some(message => message.items?.some(item => item.text === 'Task summary with remaining steps.'))).toBe(true)
+    expect(settings.agentDefaultPermissionMode).toBe('full-access')
+    expect(patchSettings).not.toHaveBeenCalled()
   })
 
   it('retains the original session if compact summary persistence fails', async () => {
@@ -464,6 +564,7 @@ describe('action recovery and durable session resets', () => {
   })
 
   it('keeps a restored pending question when its read-only answer cannot launch', async () => {
+    settings.agentDefaultPermissionMode = 'full-access'
     useAgent.setState({ chats: { 'chat-test': { ...chat(), permissionMode: 'full-access' } } })
     await startPlanning()
     const current = useAgent.getState().chats['chat-test']
@@ -477,6 +578,8 @@ describe('action recovery and durable session resets', () => {
     expect(useAgent.getState().chats['chat-test'].messages.flatMap(message => message.items ?? []).find(item => item.id === 'q')?.answer).toBeUndefined()
     expect(api.agentSend).toHaveBeenLastCalledWith(expect.objectContaining({ readOnly: true, permissionMode: 'read-only' }))
     expect(useAgent.getState().chats['chat-test'].permissionMode).toBe('full-access')
+    expect(settings.agentDefaultPermissionMode).toBe('full-access')
+    expect(patchSettings).not.toHaveBeenCalled()
   })
 })
 

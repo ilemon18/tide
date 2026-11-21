@@ -245,7 +245,7 @@ type AgentStore = {
   removeQueued: (chatId: string, id: string) => void
   stop: (chatId: string) => Promise<void>
   applyEvent: (payload: AgentEventPayload) => void
-  setChatProvider: (chatId: string, provider: string) => void
+  setChatProvider: (chatId: string, provider: string, options?: { remember?: boolean }) => void
   setPermissionMode: (chatId: string, mode: AgentPermissionMode) => void
   respondPermission: (chatId: string, requestId: string, allow: boolean) => Promise<void>
   setChatOptions: (chatId: string, patch: { model?: string; effort?: string }) => void
@@ -918,7 +918,7 @@ export const useAgent = create<AgentStore>((set, get) => {
         model: defaults.model,
         effort: defaults.effort,
         sessionId: null,
-        permissionMode: 'workspace-write',
+        permissionMode: useSettings.getState().agentDefaultPermissionMode,
         planning: false,
         messages: [],
         status: 'idle',
@@ -1448,7 +1448,7 @@ export const useAgent = create<AgentStore>((set, get) => {
       schedulePersist(chatId)
     },
 
-    setChatProvider: (chatId, provider) => {
+    setChatProvider: (chatId, provider, { remember = true } = {}) => {
       const chat = get().chats[chatId]
       if (!chat || !provider || chat.provider === provider || chat.status === 'running') return
       const settings = useSettings.getState()
@@ -1498,7 +1498,7 @@ export const useAgent = create<AgentStore>((set, get) => {
       })
       schedulePersist(chatId)
       void get().loadCatalog(provider)
-      if (provider !== settings.agentDefaultProvider) {
+      if (remember && provider !== settings.agentDefaultProvider) {
         useSettings.getState().patch({
           agentDefaultProvider: provider,
           agentDefaultModel: model,
@@ -1514,6 +1514,7 @@ export const useAgent = create<AgentStore>((set, get) => {
         get().pages[chatId]?.hasPendingQuestion || get().pages[chatId]?.hasUnhandledPlanAction) return
       set({ chats: { ...get().chats, [chatId]: { ...chat, permissionMode: mode, planning: false } } })
       schedulePersist(chatId)
+      useSettings.getState().patch({ agentDefaultPermissionMode: mode })
     },
 
     respondPermission: async (chatId, requestId, allow) => {
@@ -1565,6 +1566,13 @@ export const useAgent = create<AgentStore>((set, get) => {
         },
       })
       schedulePersist(chatId)
+      if (chat.provider) {
+        useSettings.getState().patch({
+          agentDefaultProvider: chat.provider,
+          agentDefaultModel: patch.model ?? chat.model,
+          agentDefaultEffort: effort,
+        })
+      }
     },
 
     loadSkills: async (root) => {

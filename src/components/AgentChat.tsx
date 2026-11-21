@@ -94,7 +94,7 @@ export function AgentChat({ chatId }: { chatId: string }) {
     const agent = useAgent.getState()
     agent.resolveDefaults()
     const provider = useAgent.getState().chatDefaults.provider
-    if (provider) agent.setChatProvider(chatId, provider)
+    if (provider) agent.setChatProvider(chatId, provider, { remember: false })
   }, [chat?.provider, chatId, providers])
 
   useEffect(() => {

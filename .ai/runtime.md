@@ -18,6 +18,7 @@ scope:
   - src/lib/fonts.ts
   - src/lib/iconTheme.ts
   - src/store/settings.ts
+  - src/store/settings.test.ts
   - src/store/update.ts
   - src/store/update.test.ts
   - src/theme/**
@@ -68,6 +69,9 @@ scope:
 - Adding a setting touches both types, both defaults, the migration path, `SHARED_KEYS` if every window must
   react, and the settings UI; retiring one removes both defaults and adds the old key to `RETIRED_KEYS`, or it
   is written back forever. Preserve unknown fields from newer versions.
+- Schema v11 adds `agentDefaultPermissionMode` (workspace-write); invalid values fall back without resetting
+  other settings. Agent provider/model/effort/permission defaults write immediately and sync across windows;
+  settings UI updates related fields in one patch. Historical chats retain their saved options.
 - `settings.json` and `session.json` live in `app_config_dir()` under the lock in
   `src-tauri/src/commands/theme.rs`; agent storage is in [agent.md](./agent.md). `public/theme-boot.js` paints
   the first theme before React and must stay CSP-compatible: no inline script.

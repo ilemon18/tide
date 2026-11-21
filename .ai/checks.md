@@ -21,7 +21,7 @@ scope:
 | `pnpm i18n` | Locale key/placeholder/plural parity and error-code coverage |
 | `pnpm i18n:scan` | Hardcoded CJK UI literals; named IME/Unicode test-data files and other non-UI files are explicitly allowlisted |
 | `pnpm check:workflows` | Workflow shell expansions followed by non-ASCII text after `$var` |
-| `pnpm test:frontend` | Vitest/React Testing Library: local commands, actual context/token usage without cost or draft estimates, composer chips, plan completion/actions, persistent Plan/permissions, isolated plan handoff, compact/fork, usage replacement, bounded history, stream flushing, IME send/completion priority, ordered tool previews, native permission decisions, completion persistence, terminal maximize geometry/resident PTYs, tree/watch races, diff scrolling and restoration, provider tab icons/results, running-Agent close buttons, update actions/progress/recovery, Agent GFM/file links and grouped branch search |
+| `pnpm test:frontend` | Vitest/React Testing Library coverage for agent commands, persistence, providers, composer/IME behavior, terminal geometry, tree/watch races, diffs, updates and file links |
 | `pnpm typecheck` | TypeScript types, missing runtime imports (including root React hooks), and complete typed locale records |
 | `pnpm check:rust` | Rust types/borrows without linking |
 | `pnpm docs:route` | Select only area docs whose scope matches the supplied touched paths |
@@ -29,14 +29,9 @@ scope:
 | `pnpm check:docs` | AI-doc tests, metadata, route precision/24KB bundle boundaries, skill metadata, plus paths, relative links and `pnpm` script names in docs and wrappers |
 
 Agent command tests cover prompt tags, read-only guidance and the structured-question marker example.
-
-Agent transcript/terminal native behavior is a manual review surface (only when explicitly requested):
-IME event order, incremental Markdown, bottom-only following, tool expansion, one activity/elapsed label
-at each turn's tail, completion duration after reopening, and terminal maximize/drag/restore feel.
-Component/store tests cover order, geometry and persistence; real-account stdio approval compatibility
-requires native validation. These tests do not establish native visual appearance or actual account support.
-UI copy density is also a manual review surface: text-only plan action buttons without icons, explicit action labels, no repeated plan descriptions
-or pending-action banners, accessible question inputs, and contextual settings/send tooltips.
+Native provider approval, IME event order, incremental Markdown, bottom-only following and terminal
+maximize/drag/restore remain manual review surfaces when explicitly requested. Automated tests do not
+establish real-account compatibility or native visual appearance.
 
 `pnpm check` is the frontend guard set and `pnpm verify` adds Rust and doc checks; outside CI only
 [the verification skill](./skills/release-verify/SKILL.md) runs them.
@@ -64,53 +59,14 @@ Path, guard or behavior-contract changes update their routed docs in the same ch
 
 ## Tests and CI
 
-- `src/App.test.tsx` in `pnpm test:frontend` renders the real root's startup frame before effects to catch
-  render-time failures that would prevent session restoration and its reveal timeout. It does not cover
-  native startup; debug packaging uses Vite transpilation and does not itself run the typecheck guard.
-- Diff tests cover latest scroll input, clamped echoes, independent axes, overview jumps, first-change
-  positioning, refresh restoration, folding and cancellation on tab switch/unmount. Native scrolling
-  smoothness still needs an explicitly requested app review; jsdom does not model layout or compositing.
-- Frontend tests cover Plan persistence/actions/retries/queue guards, local command selectors, compact
-  success/failure, session usage, 160-record/1 MiB windows, stream ordering, footer/status placement and
-  usage popup keyboard interaction and omission of cost/estimate/prompt rows without estimate polling;
-  tree/watch tests cover transition batches and stale directory reads.
-  Plan execution tests cover all permission modes and legacy missing values; failed read-only question
-  follow-ups preserve the session's permission choice. Branch-menu tests use jsdom and ensure an old
-  current branch stays pinned within the local group's ten-row limit.
-- `src/components/AgentTurnStatus.test.tsx` covers local 24-hour `HH:mm` completion times after duration,
-  zero padding, saved times after reopening, omission during runs or without a valid saved timestamp, and
-  the running indicator's dedicated spinner class; visual smoothness remains a manual app review surface.
-- Provider/transport tests cover app-server initialization and native thread operations, streamed Unicode
-  text/thinking/tool input/output, final snapshots, three permission mappings, read-only override,
-  allow/deny, duplicate requests and stop invalidation. Native failures stay explicit; no exec fallback.
-  Request fixtures include required `permissionMode`; tests reject its omission and enforce read-only overrides.
-- Rust watcher tests cover truncation, overflow, continuous event deadlines, rescan/errors and Git-only locks;
-  provider capability tests reject missing native fork/app-server entry points. Real-account protocol behavior is not
-  established by these tests.
-- Agent store tests cover exclusive cursors, byte budgets, unknown fields, concurrent patches, preserving
-  files after failed writes, and stable chat tab titles during runs and after completion/cancellation/failure.
-- Agent Markdown/link tests cover semantic GFM, incomplete stream syntax, code copying, owning-root file
-  opening/positions, escapes/schemes and blocked navigation/remote content. Tab tests cover fixed Agent
-  labels, title tooltips, running/success/failure/stopped and missing/historical results.
-  `src/components/TabBar.test.tsx` covers live close-button removal/restoration for running agents,
-  inactive tabs, session hydration, ordinary files and pins.
-- Run targeted Rust tests through the verification skill when test code changed, or when the change touches
-  update, path containment, settings migration, Git commands or agent providers; installer changes belong to
-  the release-check surface. Keep unit tests beside the owning Rust module.
-- Update tests must keep startup/manual cache freshness unchanged, prove forced checks bypass a fresh cache
-  and forbid cached fallback, and assert forced lookup requests carry `Cache-Control: no-cache`. Frontend
-  update coverage must keep checks discovery-only and the explicit update click chaining download → save →
-  install. Store tests cover progress, duplicate actions, subscription/download/save/install failures,
-  remaining dirty tabs, manual handoff and restart timeout. Retry downloads a known asset or forces a fresh
-  check when none is known. `src/components/UpdateBadge.test.tsx` covers visible action text, a separate
-  circular progress indicator with spacing, busy/retry behavior and release/primary-window visibility.
+- Keep tests beside the owning module. The frontend suite covers agent/settings persistence and provider
+  events, editor and diff behavior, tree/watch races, terminal geometry and update recovery; Rust tests cover
+  protocol, watcher, settings, Git and path-containment invariants.
+- Run targeted Rust or frontend tests through the verification skill when test code changes or when a change
+  touches update, path containment, settings migration, Git commands or agent providers. Installer changes
+  belong to the release-check surface.
 - Never weaken or delete a guard or test to make a check pass. If a guard is wrong, change the script, this
   map and the owning skill in one edit.
-- `.github/workflows/ci.yml` runs frontend guard/build jobs and Rust test jobs on supported platforms, with
-  platform prerequisites and generated-icon assertions kept in workflow configuration.
-  `.github/workflows/release.yml` is tag-driven: set the version, run frontend guards, build macOS and Windows
-  bundles, generate the update manifest and upload installer assets. It does not replace
-  [the release-check skill](./skills/release-check/SKILL.md).
-- An omitted release-check version defaults to the highest local semver `v*` tag plus one patch (`v1.2.3` →
-  `1.2.4`, or `0.0.1` with no tags); an explicit version always overrides it. The static check remains
-  network-free.
+- `.github/workflows/ci.yml` runs frontend guard/build jobs and Rust test jobs on supported platforms.
+  `.github/workflows/release.yml` is tag-driven and does not replace the
+  [release-check skill](./skills/release-check/SKILL.md).

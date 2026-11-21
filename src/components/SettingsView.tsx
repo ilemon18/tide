@@ -481,9 +481,7 @@ export function SettingsView() {
                 ...usableAgents.map((provider) => ({ id: provider.id, label: provider.name })),
               ]}
               onPick={(id) => {
-                set('agentDefaultProvider', id)
-                set('agentDefaultModel', '')
-                set('agentDefaultEffort', '')
+                patch({ agentDefaultProvider: id, agentDefaultModel: '', agentDefaultEffort: '' })
               }}
             />
           </Row>
@@ -504,14 +502,13 @@ export function SettingsView() {
                   model && model.efforts.length > 0
                     ? model.efforts
                     : (agentCatalog?.efforts ?? [])
-                set('agentDefaultModel', id)
-                if (
+                const effort =
                   settings.agentDefaultEffort &&
                   allowed.length > 0 &&
                   !allowed.includes(settings.agentDefaultEffort)
-                ) {
-                  set('agentDefaultEffort', model?.defaultEffort ?? '')
-                }
+                    ? model?.defaultEffort ?? ''
+                    : settings.agentDefaultEffort
+                patch({ agentDefaultModel: id, agentDefaultEffort: effort })
               }}
               disabled={!settings.agentDefaultProvider}
             />
@@ -526,6 +523,22 @@ export function SettingsView() {
               ]}
               onPick={(id) => set('agentDefaultEffort', id)}
               disabled={!settings.agentDefaultProvider}
+            />
+          </Row>
+          <Row label={t('settings.agent.defaultPermissions')}>
+            <Picker
+              label=""
+              value={settings.agentDefaultPermissionMode}
+              options={(['read-only', 'workspace-write', 'full-access'] as const).map((mode) => ({
+                id: mode,
+                label: t(`agent.permission.${mode}`),
+                description: t(`agent.permission.${(settings.agentDefaultProvider || usableAgents[0]?.id) === 'claude' ? 'claude' : 'codex'}.${mode}`),
+              }))}
+              onPick={(mode) => {
+                if (mode === 'read-only' || mode === 'workspace-write' || mode === 'full-access') {
+                  set('agentDefaultPermissionMode', mode)
+                }
+              }}
             />
           </Row>
         </Card>
