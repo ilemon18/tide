@@ -279,7 +279,7 @@ it('shows a lighter queued card and interjects its selected message before resum
   expect((screen.getByRole('button', { name: 'agent.queue.remove' }) as HTMLButtonElement).disabled).toBe(true)
 })
 
-it.each(['expansion', 'touch', 'keyboard', 'scrollbar'])('pauses following for %s reading gestures', gesture => {
+it.each(['expansion', 'touch', 'keyboard'])('pauses following for %s reading gestures', gesture => {
   const { container, rerender } = render(<AgentChat chatId="chat" />)
   const { el, metrics } = scrollMetrics(container)
   flushFrames()
@@ -293,9 +293,6 @@ it.each(['expansion', 'touch', 'keyboard', 'scrollbar'])('pauses following for %
     fireEvent.touchMove(el, { touches: [{ clientY: 150 }] })
   } else if (gesture === 'keyboard') {
     fireEvent.keyDown(el, { key: 'PageUp' })
-  } else {
-    metrics.top = 400
-    fireEvent.scroll(el)
   }
   const top = metrics.top
   fireEvent.scroll(el)

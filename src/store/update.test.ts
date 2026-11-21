@@ -8,6 +8,8 @@ const mocks = vi.hoisted(() => ({
   install: vi.fn(),
   onUpdateProgress: vi.fn(),
   toast: vi.fn(),
+  confirm: vi.fn(),
+  autoUpdate: false,
   saveAll: vi.fn(),
   flush: vi.fn(),
   flushEditorSession: vi.fn(),
@@ -23,7 +25,6 @@ vi.mock('../lib/update', () => ({
     appVersion: vi.fn(),
     isDebugBuild: vi.fn(),
     startupReport: vi.fn(),
-    revealLog: vi.fn(),
     openPage: vi.fn(),
   },
   onUpdateProgress: mocks.onUpdateProgress,
@@ -35,13 +36,13 @@ vi.mock('../store/tabs', () => ({
   useTabs: { getState: () => ({ saveAll: mocks.saveAll, tabs: mocks.tabs }) },
 }))
 vi.mock('../store/settings', () => ({
-  useSettings: { getState: () => ({ flush: mocks.flush }) },
+  useSettings: { getState: () => ({ flush: mocks.flush, autoUpdate: mocks.autoUpdate }) },
 }))
 vi.mock('../lib/editorSession', () => ({
   flushEditorSession: mocks.flushEditorSession,
 }))
 vi.mock('../store/ui', () => ({
-  useUi: { getState: () => ({ toast: mocks.toast }) },
+  useUi: { getState: () => ({ toast: mocks.toast, confirm: mocks.confirm }) },
 }))
 vi.mock('../i18n', () => ({
   t: (key: string) => key,
@@ -55,7 +56,6 @@ const availableInfo = {
   current: '1.0.0',
   latest: '1.1.0',
   name: 'Tide 1.1.0',
-  notes: '',
   pageUrl: 'https://github.com/ilemon18/tide/releases/tag/v1.1.0',
   publishedAt: '',
   assetName: 'Tide.exe',
@@ -87,6 +87,8 @@ beforeEach(() => {
   mocks.unlisten.mockReset()
   mocks.onUpdateProgress.mockReset().mockResolvedValue(mocks.unlisten)
   mocks.toast.mockReset()
+  mocks.confirm.mockReset().mockResolvedValue(false)
+  mocks.autoUpdate = false
   mocks.saveAll.mockReset().mockResolvedValue(undefined)
   mocks.flush.mockReset()
   mocks.flushEditorSession.mockReset()
@@ -108,7 +110,7 @@ it('forces a fresh check and waits for an explicit download action', async () =>
   expect(mocks.install).not.toHaveBeenCalled()
 })
 
-it('downloads a known update and saves work before automatically installing', async () => {
+it('downloads a known update without installing until the user chooses install', async () => {
   useUpdate.setState({ status: 'available', info: availableInfo })
   mocks.download.mockResolvedValue('/tmp/Tide.exe')
 
@@ -120,13 +122,39 @@ it('downloads a known update and saves work before automatically installing', as
     availableInfo.checksum,
   )
   expect(mocks.unlisten).toHaveBeenCalledOnce()
+  expect(mocks.flush).not.toHaveBeenCalled()
+  expect(mocks.flushEditorSession).not.toHaveBeenCalled()
+  expect(mocks.saveAll).not.toHaveBeenCalled()
+  expect(mocks.install).not.toHaveBeenCalled()
+  expect(useUpdate.getState().status).toBe('ready')
+  expect(useUpdate.getState().percent).toBe(100)
+
+  await useUpdate.getState().install()
   expect(mocks.flush).toHaveBeenCalledOnce()
   expect(mocks.flushEditorSession).toHaveBeenCalledOnce()
   expect(mocks.saveAll).toHaveBeenCalledOnce()
   expect(mocks.install).toHaveBeenCalledWith(availableInfo.latest)
-  expect(mocks.saveAll.mock.invocationCallOrder[0]).toBeLessThan(mocks.install.mock.invocationCallOrder[0])
-  expect(useUpdate.getState().status).toBe('installing')
-  expect(useUpdate.getState().percent).toBe(100)
+})
+
+it('asks before installing a background download and keeps it ready when declined', async () => {
+  mocks.autoUpdate = true
+  mocks.confirm.mockResolvedValue(false)
+  useUpdate.setState({ status: 'available', info: availableInfo })
+  mocks.download.mockResolvedValue('/tmp/Tide.exe')
+
+  await useUpdate.getState().download(true)
+
+  expect(mocks.confirm).toHaveBeenCalledWith(expect.objectContaining({
+    title: 'settings.about.installUpdate',
+    confirmText: 'settings.about.install',
+  }))
+  expect(mocks.install).not.toHaveBeenCalled()
+  expect(useUpdate.getState().status).toBe('ready')
+
+  mocks.confirm.mockResolvedValue(true)
+  useUpdate.setState({ status: 'available', info: availableInfo })
+  await useUpdate.getState().download(true)
+  expect(mocks.install).toHaveBeenCalledWith(availableInfo.latest)
 })
 
 it('leaves a forced check as an error instead of using an old answer', async () => {
@@ -150,6 +178,7 @@ it.each(['subscription', 'download', 'save', 'install'] as const)(
     failing.mockRejectedValueOnce(new Error(stage))
 
     await useUpdate.getState().download()
+    if (stage === 'save' || stage === 'install') await useUpdate.getState().install()
 
     expect(useUpdate.getState().status).toBe('error')
     expect(useUpdate.getState().error).toBe('Error: ' + stage)
@@ -160,7 +189,10 @@ it.each(['subscription', 'download', 'save', 'install'] as const)(
 
     // The same known asset can be retried after the failure.
     await useUpdate.getState().download()
-    expect(useUpdate.getState().status).toBe('installing')
+    if (stage === 'save' || stage === 'install') await useUpdate.getState().install()
+    expect(useUpdate.getState().status).toBe(
+      stage === 'save' || stage === 'install' ? 'installing' : 'ready',
+    )
   },
 )
 
@@ -169,6 +201,7 @@ it('does not restart when Save As was cancelled or edits remain unsaved', async 
   mocks.tabs = [{ dirty: true } as Tab]
 
   await useUpdate.getState().download()
+  await useUpdate.getState().install()
 
   expect(mocks.install).not.toHaveBeenCalled()
   expect(useUpdate.getState().status).toBe('error')
@@ -191,7 +224,6 @@ it('ignores repeated actions while downloading and installing, and receives prog
 
   finishDownload('/tmp/Tide.exe')
   await pending
-  await useUpdate.getState().download()
   await useUpdate.getState().install()
   expect(mocks.download).toHaveBeenCalledOnce()
   expect(mocks.install).toHaveBeenCalledOnce()
@@ -201,6 +233,7 @@ it('keeps manual installation as an explicit file-manager handoff', async () => 
   useUpdate.setState({ status: 'available', info: availableInfo })
   mocks.install.mockResolvedValue({ mode: 'manual', path: '/tmp/Tide.exe', installedTo: '', logPath: '' })
   await useUpdate.getState().download()
+  await useUpdate.getState().install()
   expect(useUpdate.getState().status).toBe('available')
   expect(mocks.toast).toHaveBeenCalledWith('update.shownInFileManager')
   expect(mocks.install).toHaveBeenCalledOnce()
@@ -209,6 +242,7 @@ it('keeps manual installation as an explicit file-manager handoff', async () => 
 it('offers installation again when the native helper does not restart', async () => {
   useUpdate.setState({ status: 'available', info: availableInfo })
   await useUpdate.getState().download()
+  await useUpdate.getState().install()
   await vi.advanceTimersByTimeAsync(15_000)
   expect(useUpdate.getState().status).toBe('ready')
   expect(useUpdate.getState().error).toBe('update.didNotRestart')

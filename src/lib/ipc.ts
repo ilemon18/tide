@@ -140,6 +140,8 @@ export type Settings = {
   terminalWebgl: boolean
   /** Lightweight mode: smaller caches, fewer background jobs, off by default */
   lightweightMode: boolean
+  /** Download application updates in the background, but always ask before installing */
+  autoUpdate: boolean
   /** Built-in agent service: title-bar entry, explorer context menu, chat tabs */
   agentEnabled: boolean
   /** Provider / model / effort new chats start with; empty = auto or the CLI default */
@@ -629,6 +631,8 @@ export const api = {
   ) => invoke<AgentChatPage | null>('agent_chat_page', { id, ...page }),
   agentChatApply: (id: string, patch: AgentChatApply) =>
     invoke<AgentChatPage>('agent_chat_apply', { id, patch }),
+  agentChatReset: (id: string, header: AgentChatRecord) =>
+    invoke<AgentChatPage>('agent_chat_reset', { id, header }),
   agentChatList: (root: string) => invoke<AgentChatSummary[]>('agent_chat_list', { root }),
   agentChatClone: (fromId: string, header: AgentChatRecord) =>
     invoke<AgentChatPage>('agent_chat_clone', { fromId, header }),

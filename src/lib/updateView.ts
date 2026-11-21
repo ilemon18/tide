@@ -2,6 +2,9 @@ import type { IconName } from '../components/Icon'
 import type { UpdateInfo } from './update'
 import { useUpdate } from '../store/update'
 import { t } from '../i18n'
+import { formatVersion } from './version'
+
+export { formatVersion }
 
 /**
  * The one place that turns update state into what the user sees.
@@ -60,7 +63,7 @@ export function updateAction(view: UpdateView): UpdateAction {
     case 'ready':
       return {
         kind: 'install',
-        label: t('settings.about.restartUpdate'),
+        label: t('settings.about.install'),
         icon: 'refresh',
         motion: 'pulse',
         percent: 100,
@@ -160,7 +163,7 @@ export function updateTip(view: UpdateView): string {
     case 'available':
       return view.info?.downloadUrl
         ? t('update.clickToDownload', {
-            version: view.info ? `${view.info.latest} · ${formatSize(view.info.assetSize)}` : '',
+            version: view.info ? `${formatVersion(view.info.latest)} · ${formatSize(view.info.assetSize)}` : '',
           })
         : t('settings.about.openRelease')
     default:
@@ -195,15 +198,17 @@ function detailText(view: UpdateView): string | null {
     case 'available':
       if (!view.info) return null
       // No installer attached: name the version and send the user to the release page
-      if (!view.info.downloadUrl) return t('settings.about.noInstaller', { version: view.info.latest })
+      if (!view.info.downloadUrl) return t('settings.about.noInstaller', { version: formatVersion(view.info.latest) })
       return t('settings.about.available', {
-        version: view.info.latest,
+        version: formatVersion(view.info.latest),
         size: formatSize(view.info.assetSize),
       })
     case 'uptodate':
       // Nothing newer either way, so the caption always reads as "you are up to date": a separate
       // "no published release yet" line only made a fresh install look broken
-      return view.version ? t('settings.about.upToDate', { version: view.version }) : null
+      return view.version
+        ? t('settings.about.upToDate', { version: formatVersion(view.version) })
+        : null
     default:
       return null
   }

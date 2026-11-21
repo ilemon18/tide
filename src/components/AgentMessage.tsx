@@ -219,11 +219,11 @@ function QuestionCard({
   const [submitting, setSubmitting] = useState(false)
   const submitted = useRef(false)
   const active = pendingQuestionId === item.id
-  const locked = running || answered || submitting || (!answered && !active)
+  const locked = answered || submitting || !active
   const answerParts = multi
     ? [...selected, custom.trim()].filter(Boolean)
     : [custom.trim() || selected[0]].filter(Boolean)
-  const canSubmit = !locked && answerParts.length > 0
+  const canSubmit = !running && !locked && answerParts.length > 0
 
   const toggleOption = (label: string) => {
     if (locked) return
@@ -239,12 +239,15 @@ function QuestionCard({
     setSelected((current) => (current[0] === label ? [] : [label]))
   }
 
-  const submit = () => {
+  const submit = async () => {
     if (!canSubmit || submitted.current) return
     submitted.current = true
     setSubmitting(true)
-    const accepted = useAgent.getState().answerQuestion(chatId, item.id, answerParts.join('\n'))
-    if (!accepted) {
+    try {
+      await useAgent.getState().answerQuestion(chatId, item.id, answerParts.join('\n'))
+    } catch {
+      // The store reports launch errors; keep the card retryable on any rejected submission.
+    } finally {
       submitted.current = false
       setSubmitting(false)
     }
@@ -328,7 +331,7 @@ function QuestionCard({
               onKeyDown={(event) => {
                 if (event.key !== 'Enter' || event.nativeEvent.isComposing) return
                 event.preventDefault()
-                submit()
+                void submit()
               }}
               className="h-8 rounded-[var(--r-row)] border border-line-soft bg-bg px-2 text-xs text-fg outline-none placeholder:text-muted/60 focus:border-accent/60 disabled:cursor-not-allowed disabled:opacity-60"
             />
@@ -338,7 +341,7 @@ function QuestionCard({
             <button
               type="button"
               disabled={!canSubmit}
-              onClick={submit}
+              onClick={() => void submit()}
               className="flex h-7 shrink-0 items-center gap-1 rounded-[var(--r-control)] bg-accent px-2.5 text-xs text-accent-fg transition-opacity duration-fast hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-35"
             >
               <Icon name="send" size={12} />
@@ -615,6 +618,8 @@ export const AssistantMessage = memo(function AssistantMessage({
   const items = message.items ?? []
   const startedAt = useAgent(state => state.running[chatId])
   const copyValue = serializeAssistantMessage(message)
+  const waiting = items.some(item => item.type === 'permission' &&
+    (item.permissionState === 'pending' || item.permissionState === 'submitting'))
   return (
     <div className="group/reply flex gap-2">
       {/* 22px box = one 22px reply line: the avatar centre and the first line centre coincide */}
@@ -633,7 +638,14 @@ export const AssistantMessage = memo(function AssistantMessage({
         </div>
         {items.map(item => <Item root={root} key={item.id} chatId={chatId} item={item}
           running={running} pendingQuestionId={pendingQuestionId} items={items} />)}
-        <AgentTurnStatus message={message} running={running} startedAt={startedAt} />
+        <AgentTurnStatus
+          completion={message.completion}
+          durationMs={message.durationMs}
+          completedAt={message.completedAt}
+          waiting={waiting}
+          running={running}
+          startedAt={startedAt}
+        />
       </div>
     </div>
   )

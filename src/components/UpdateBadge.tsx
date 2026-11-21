@@ -7,8 +7,8 @@ import { useT } from '../i18n'
 /**
  * The "update available" entry, drawn first in the titlebar's right-side button row.
  *
- * One click downloads and installs the update. A fixed circular indicator sits beside the label.
- * Labels and actions are shared with Settings → About through updateView.
+ * Each click advances the explicit download/install step currently offered. A fixed circular indicator
+ * sits beside the label. Labels and actions are shared with Settings → About through updateView.
  *
  * Rendered only in the **main window of a release build**: check / download / install are owned by the
  * main window (with several windows open there is no point downloading N copies); debug builds keep

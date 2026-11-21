@@ -7,7 +7,7 @@ import { useAgent } from '../store/agent'
 import { Icon } from './Icon'
 import { UpdateBadge } from './UpdateBadge'
 import { newWindow, revealInExplorer } from '../lib/actions'
-import { isMac } from '../lib/paths'
+import { isMac, modKey } from '../lib/paths'
 import { useT } from '../i18n'
 
 function hasTauriWindow(): boolean {
@@ -138,6 +138,7 @@ export function TitleBar() {
   const activeId = useTabs((s) => s.activeId)
   const tabs = useTabs((s) => s.tabs)
   const agentEnabled = useSettings((s) => s.agentEnabled)
+  const agentTip = t('titlebar.agentTip', { shortcut: `${modKey()}A` })
 
   const active = tabs.find((t) => t.id === activeId)
   // Breadcrumbs follow the active tab's project so they can't disagree with activeRoot
@@ -201,8 +202,8 @@ export function TitleBar() {
         <UpdateBadge primary={IS_PRIMARY_WINDOW} />
         {agentEnabled ? (
           <button
-            data-tip={t('titlebar.agentTip')}
-            aria-label={t('titlebar.agentTip')}
+            data-tip={agentTip}
+            aria-label={agentTip}
             onClick={() => useAgent.getState().newChat()}
             className="flex h-6 w-6 items-center justify-center rounded-[var(--r-control)] text-muted transition-colors duration-fast hover:bg-hover hover:text-fg"
           >

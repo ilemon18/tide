@@ -11,7 +11,6 @@ type Props = {
 
 export function AgentContextUsage({ chatId }: Props) {
   const t = useT()
-  const running = useAgent(s => s.chats[chatId]?.status === 'running')
   const [showDetails, setShowDetails] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
   const buttonRef = useRef<HTMLButtonElement>(null)
@@ -120,8 +119,7 @@ export function AgentContextUsage({ chatId }: Props) {
               />
             </div>
           </div>
-          {cumulative ? <UsageSection title={t('agent.usage.cumulative')} usage={cumulative} updating={running} /> : null}
-          {latest ? <UsageSection title={t('agent.usage.latest')} usage={latest} updating={running} /> : null}
+          {cumulative ? <UsageSection title={t('agent.usage.cumulative')} usage={cumulative} /> : null}
         </div>
       )}
     </div>
@@ -137,7 +135,7 @@ function ContextRow({ label, value }: { label: string; value: string }) {
   )
 }
 
-function UsageSection({ title, usage, updating }: { title: string; usage: AgentUsage; updating?: boolean }) {
+function UsageSection({ title, usage }: { title: string; usage: AgentUsage }) {
   const t = useT()
   const rows: Array<[string, string]> = [
     [t('agent.usage.input'), formatAgentTokens(usage.inputTokens)],
@@ -151,11 +149,6 @@ function UsageSection({ title, usage, updating }: { title: string; usage: AgentU
     <div className="usage-section">
       <div className="usage-section-title">
         {title}
-        {updating ? (
-          <span className="ml-1.5 text-2xs text-accent opacity-75">
-            ({t('agent.usage.updating')})
-          </span>
-        ) : null}
       </div>
       <div className="breakdown-list">
         {rows.map(([label, value]) => (

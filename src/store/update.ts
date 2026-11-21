@@ -6,19 +6,19 @@ import { useSettings } from './settings'
 import { flushEditorSession } from '../lib/editorSession'
 import { useUi } from './ui'
 import { t } from '../i18n'
+import { formatVersion } from '../lib/version'
 
 /**
  * In-app update state (GitHub Releases).
  *
- * Release builds check once per start: cheap and quiet, and the only way the update entry appears without
- * the user looking for it. Debug builds skip that path and keep Settings → About as the manual entry.
- * Downloading is user-driven: the title-bar icon and the button in Settings → About both drive the same
- * state machine, so the two can never disagree.
+ * Release builds may check and download in the background when the user enables automatic updates.
+ * Debug builds skip that path and keep Settings → About as the manual entry. Downloading never installs
+ * on its own: a background download asks for confirmation, while manual downloads stop at the ready state.
  *
  * Each status maps to exactly one button label (mapping in `lib/updateView.ts`):
  *
- *   idle/uptodate → check for updates   available → update to latest
- *   downloading   → downloading 42%    ready     → retry restart
+ *   idle/uptodate → check for updates   available → download update
+ *   downloading   → downloading 42%    ready     → install update
  *   installing    → installing…         error     → retry
  */
 export type UpdateStatus =
@@ -43,21 +43,21 @@ type UpdateStore = {
   error: string | null
   /** Where install put the app (only set when it differs from the running location) */
   installedTo: string
-  /** `update.log`: go look when install fails instead of guessing */
+  /** Internal update log path returned by the native installer; no longer exposed in Settings. */
   logPath: string
   /** Check for updates; a forced manual check bypasses the local cache and cached fallback. */
   check: (manual?: boolean, force?: boolean) => Promise<void>
-  /** User action: download, verify through Rust, then continue directly to installation. */
-  download: () => Promise<void>
+  /** User action: download and verify through Rust. Background downloads ask before installing. */
+  download: (background?: boolean) => Promise<void>
   install: () => Promise<void>
   /** Opens the release page in the browser (the step after a release without an installer) */
   openPage: () => Promise<void>
-  revealLog: () => Promise<void>
 }
 
 let progressSubscription: (() => void) | null = null
 let started = false
 let installTimer: ReturnType<typeof setTimeout> | null = null
+let autoSettingsUnsubscribe: (() => void) | null = null
 
 async function watchProgress() {
   if (progressSubscription) return
@@ -121,12 +121,12 @@ export const useUpdate = create<UpdateStore>((set, get) => ({
       if (info.available) {
         set({ status: 'available' })
         // The button already offers the update: a toast with the same action is a second copy
-        if (manual) toast(stale ?? t('update.available', { version: info.latest }))
+        if (manual) toast(stale ?? t('update.available', { version: formatVersion(info.latest) }))
       } else {
         set({ status: 'uptodate' })
         if (manual) {
           toast(
-            stale ?? t('settings.about.upToDate', { version: info.current }),
+            stale ?? t('settings.about.upToDate', { version: formatVersion(info.current) }),
           )
         }
       }
@@ -138,7 +138,7 @@ export const useUpdate = create<UpdateStore>((set, get) => ({
     }
   },
 
-  download: async () => {
+  download: async (background = false) => {
     const { info, status } = get()
     // Needs a package for the current platform; the UI only offers this when available, this blocks a double click
     if (!info?.available || !info.downloadUrl || (status !== 'available' && status !== 'error')) return
@@ -150,7 +150,17 @@ export const useUpdate = create<UpdateStore>((set, get) => ({
       // The file is on disk now, nothing left to watch
       unwatchProgress()
       set({ status: 'ready', percent: 100 })
-      await get().install()
+      if (background && useSettings.getState().autoUpdate) {
+        const info = get().info
+        const confirmed = await useUi.getState().confirm({
+          title: t('settings.about.installUpdate'),
+          message: t('settings.about.installPrompt', {
+            version: formatVersion(info?.latest ?? ''),
+          }),
+          confirmText: t('settings.about.install'),
+        })
+        if (confirmed) await get().install()
+      }
     } catch (err) {
       set({ status: 'error', error: errorText(err) })
       useUi.getState().toast(errorText(err), 'error')
@@ -213,14 +223,6 @@ export const useUpdate = create<UpdateStore>((set, get) => ({
     }
   },
 
-  revealLog: async () => {
-    try {
-      const path = await updateApi.revealLog()
-      set({ logPath: path })
-    } catch (err) {
-      useUi.getState().toast(errorText(err), 'error')
-    }
-  },
 }))
 
 /**
@@ -241,12 +243,12 @@ async function reportStartup(): Promise<UpdateReport | null> {
   const toast = useUi.getState().toast
   useUpdate.setState({ logPath: report.logPath })
   if (report.ok) {
-    toast(t('update.updated', { version: report.current }))
+    toast(t('update.updated', { version: formatVersion(report.current) }))
     return report
   }
   const message = t('update.notEffective', {
-    version: report.attempted,
-    current: report.current,
+    version: formatVersion(report.attempted),
+    current: formatVersion(report.current),
   })
   useUpdate.setState({
     // Not ready: the downloaded file went away with the old process,
@@ -257,6 +259,15 @@ async function reportStartup(): Promise<UpdateReport | null> {
   })
   toast(message, 'error')
   return report
+}
+
+async function runAutomaticUpdate() {
+  if (!useSettings.getState().autoUpdate) return
+  await useUpdate.getState().check(false)
+  const state = useUpdate.getState()
+  if (useSettings.getState().autoUpdate && state.status === 'available') {
+    await useUpdate.getState().download(true)
+  }
 }
 
 /**
@@ -275,6 +286,19 @@ export function startUpdateWatcher() {
     }
     useUpdate.setState({ debugBuild })
 
+    autoSettingsUnsubscribe?.()
+    autoSettingsUnsubscribe = useSettings.subscribe((state, previous) => {
+      if (
+        debugBuild ||
+        !state.loaded ||
+        !state.autoUpdate ||
+        state.autoUpdate === previous.autoUpdate
+      ) {
+        return
+      }
+      void runAutomaticUpdate()
+    })
+
     // Debug builds keep Settings → About as the only update entry: no install report and no
     // startup network/cache read. Manual checks and their download/install flow remain available.
     if (debugBuild) return
@@ -283,6 +307,6 @@ export function startUpdateWatcher() {
     // A "last install failed" report is the most important thing on screen:
     // a quiet check would replace it with "new version available" and bury it
     if (report && !report.ok) return
-    void useUpdate.getState().check(false)
+    if (useSettings.getState().autoUpdate) await runAutomaticUpdate()
   })()
 }

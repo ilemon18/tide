@@ -434,9 +434,6 @@ export function AgentChat({ chatId }: { chatId: string }) {
             {chat.sessionAction === 'fork' && chat.status === 'error' ? (
               <button onClick={() => useAgent.getState().restartSession(chatId)} className="text-xs text-accent">{t('agent.local.restart')}</button>
             ) : null}
-            <div className="flex items-center gap-2 text-2xs text-muted">
-              {chat.planning ? t('agent.mode.plan') : chat.permissionMode === 'read-only' ? t('agent.mode.readOnly') : null}
-            </div>
             {localPicker ? (
               <div role="dialog" aria-label={t(`agent.local.${localPicker.kind}.label`)} className="flex flex-col gap-1 rounded border border-line p-2">
                 <button className="self-end text-xs" onClick={() => useAgent.setState({ localPicker: null })}>{t('tabs.close')}</button>

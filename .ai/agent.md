@@ -83,12 +83,20 @@ CLIs own auth/models/tools; Rust owns processes; the agent store owns queues/UI.
   stays a tree gesture. Items preserve source order, reconcile IDs and retain expansion.
 - Tail reports activity/elapsed/confirmation waits; persist completion time and backend duration. Finished
   reopened turns show local HH:mm, live ones omit it. History expansion pauses following.
+- The live tail status is isolated from streamed assistant content and receives primitive status fields, so
+  markdown/tool updates do not remount or flash the elapsed line. Its own one-second clock remains local.
 - Cmd+Down/Ctrl+Down jumps only in the active chat, respecting overlays and IME. Jumping loads the latest
   history page first. Sends and successful interjections resume following after transcript commits, through
   deferred content/viewport resizing and final completion layout. Upward reading gestures pause following;
   content-growth scroll events alone never clear that intent. Queued cards use the lighter panel surface.
-- Context popup uses provider context/session usage, unaffected by loaded history/drafts. Zero is valid;
-  invalid is unavailable. Keep persisted cost fields compatible, without price UI.
+- Context popup uses provider context/session usage, unaffected by loaded history/drafts. The context ring
+  uses the current context snapshot, while token rows show only the current native session cumulative usage;
+  latest-turn token details are not displayed. Zero is valid; invalid is unavailable. Keep persisted cost
+  fields compatible, without price UI.
+
+- The composer no longer repeats a plan/read-only permission line above its footer; the permission picker
+  and permission request cards remain authoritative. Settings → Agent keeps all installed providers visible,
+  shows the first five uninstalled providers by default, and reveals the rest through a More control.
 
 ## Change map and verification
 

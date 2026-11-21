@@ -4,8 +4,9 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 const { state, getState } = vi.hoisted(() => ({ getState: vi.fn(), state: {
   chats: { chat: { root: '/repo', status: 'idle', currentContext: { contextTokens: 0, contextWindow: 100,
-    inputTokens: 0, cachedInputTokens: 0, cacheWriteInputTokens: 0, outputTokens: 0, reasoningOutputTokens: 0, totalTokens: 0, costUsd: 1.25 },
-    messages: [{ role: 'assistant', usage: { contextTokens: 90, contextWindow: 100 } }] } },
+    inputTokens: 90, cachedInputTokens: 0, cacheWriteInputTokens: 0, outputTokens: 10, reasoningOutputTokens: 0, totalTokens: 100 },
+    sessionUsage: { inputTokens: 900, cachedInputTokens: 0, cacheWriteInputTokens: 0, outputTokens: 100, reasoningOutputTokens: 0, totalTokens: 1000, costUsd: 1.25 },
+    messages: [{ role: 'assistant', usage: { contextTokens: 90, contextWindow: 100, inputTokens: 90, outputTokens: 10, totalTokens: 100 } }] } },
 } }))
 vi.mock('../store/agent', () => ({ useAgent: Object.assign((select: (state: unknown) => unknown) => select(state), {
   getState,
@@ -35,6 +36,7 @@ it('shows actual context and token usage without prices, estimates or a prompt b
   expect(screen.getByText('agent.usage.input')).toBeTruthy()
   expect(screen.getByText('agent.usage.output')).toBeTruthy()
   expect(screen.getByText('agent.usage.total')).toBeTruthy()
+  expect(screen.queryByText('agent.usage.latest')).toBeNull()
   for (const label of ['agent.usage.cost', 'agent.usage.costUnavailable', 'agent.context.tokenBreakdown', 'agent.context.prompt']) {
     expect(screen.queryByText(label)).toBeNull()
   }

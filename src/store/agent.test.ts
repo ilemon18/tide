@@ -1,7 +1,7 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
 import { api, type AgentPlanAction, type AgentPermissionMode } from '../lib/ipc'
 vi.mock('../lib/ipc', () => ({ api: { agentChatOpen: vi.fn(), agentChatApply: vi.fn(), agentSend: vi.fn(),
-  agentChatPage: vi.fn(), agentChatList: vi.fn(), agentChatClone: vi.fn(), agentCancel: vi.fn(), agentPermissionRespond: vi.fn(), agentModels: vi.fn() }, errorText: (error: unknown) => error instanceof Error ? error.message : String(error) }))
+  agentChatPage: vi.fn(), agentChatList: vi.fn(), agentChatClone: vi.fn(), agentChatReset: vi.fn(), agentCancel: vi.fn(), agentPermissionRespond: vi.fn(), agentModels: vi.fn() }, errorText: (error: unknown) => error instanceof Error ? error.message : String(error) }))
 vi.mock('../i18n', () => ({ t: (key: string) => key }))
 const { settings, patchSettings } = vi.hoisted(() => {
   const settings = { agentEnabled: true, agentDefaultProvider: '', agentDefaultModel: '', agentDefaultEffort: '',
@@ -14,7 +14,13 @@ const { setTabName } = vi.hoisted(() => ({ setTabName: vi.fn() }))
 vi.mock('./tabs', () => ({ useTabs: { getState: () => ({ setTabName, openChat: vi.fn(), openChatInRight: vi.fn() }) } }))
 vi.mock('./ui', () => ({ useUi: { getState: () => ({ toast: vi.fn() }) } }))
 vi.mock('./workspace', () => ({ activeRoot: () => null }))
-import { findPendingPlanAction, useAgent, type AgentChat } from './agent'
+import { findPendingPlanAction, findPendingQuestion, useAgent, type AgentChat } from './agent'
+import { en } from '../i18n/messages/en'
+import { es } from '../i18n/messages/es'
+import { ja } from '../i18n/messages/ja'
+import { ko } from '../i18n/messages/ko'
+import { zhCN } from '../i18n/messages/zh-CN'
+import { zhTW } from '../i18n/messages/zh-TW'
 
 const chat = (): AgentChat => ({ v: 1, id: 'chat-test', root: '/tmp/project', title: 'test', provider: 'codex',
   model: '', effort: '', sessionId: 'session-1', messages: [{ id: 'a1', role: 'assistant', at: 1, items: [] }],
@@ -31,6 +37,7 @@ beforeEach(() => {
     providers: [{ id: 'codex', name: 'Codex', installed: true, supported: true, command: 'codex', version: '1', supportsFork: true }] })
   vi.mocked(api.agentModels).mockResolvedValue({ provider: 'codex', models: [], efforts: ['low', 'medium', 'high'], defaultModel: '' })
   vi.mocked(api.agentChatApply).mockResolvedValue(page())
+  vi.mocked(api.agentChatReset).mockResolvedValue({ ...page(), header: { ...chat(), title: '', sessionId: null, messages: [] }, messages: [], total: 0 })
   vi.mocked(api.agentChatOpen).mockResolvedValue(page())
   vi.mocked(api.agentSend).mockResolvedValue(undefined)
   vi.mocked(api.agentCancel).mockResolvedValue(undefined)
@@ -200,6 +207,68 @@ describe('chat protocol state', () => {
     await useAgent.getState().sendMessage('chat-test', { text: '/help', mentions: [] })
     expect(api.agentSend).not.toHaveBeenCalled()
     expect(useAgent.getState().chats['chat-test'].messages.at(-1)?.items?.[0].text).toBe('agent.local.helpText')
+    const commands = ['/new', '/resume', '/fork', '/compact', '/status', '/model', '/permissions', '/plan', '/goal', '/review', '/test', '/explain', '/help']
+    for (const catalog of [en, es, ja, ko, zhCN, zhTW]) {
+      for (const command of commands) expect(catalog['agent.local.helpText']).toContain(command)
+    }
+  })
+  it('resets /new in the current chat and keeps the selected agent options', async () => {
+    const current = useAgent.getState().chats['chat-test']
+    useAgent.setState({
+      chats: { 'chat-test': { ...current, title: 'Keep provider', model: 'custom', effort: 'high', permissionMode: 'full-access', sessionUsage: { inputTokens: 1, cachedInputTokens: 0, cacheWriteInputTokens: 0, outputTokens: 2, reasoningOutputTokens: 0, totalTokens: 3, costUsd: null }, messages: [{ id: 'old', role: 'user', at: 1, text: 'old' }] } },
+      chatDrafts: { 'chat-test': { text: 'draft', mentions: [{ rel: 'src', isDir: true }], skills: [{ name: 'audit', path: 'audit', source: 'project' }] } },
+      queues: { 'chat-test': [{ id: 'queued', text: 'later', mentions: [] }] },
+    })
+    vi.mocked(api.agentChatReset).mockResolvedValueOnce({
+      ...page(),
+      header: { ...current, title: '', model: 'custom', effort: 'high', permissionMode: 'full-access', sessionId: null, sessionUsage: null, messages: [] },
+      messages: [],
+      total: 0,
+    })
+    await useAgent.getState().sendMessage('chat-test', { text: '/new', mentions: [] })
+    const next = useAgent.getState().chats['chat-test']
+    expect(api.agentChatReset).toHaveBeenCalledWith('chat-test', expect.objectContaining({ messages: [] }))
+    expect(next.id).toBe('chat-test')
+    expect(next.messages).toEqual([])
+    expect(next.sessionId).toBeNull()
+    expect(next.sessionUsage).toBeUndefined()
+    expect(next.provider).toBe('codex')
+    expect(next.model).toBe('custom')
+    expect(next.effort).toBe('high')
+    expect(next.permissionMode).toBe('full-access')
+    expect(useAgent.getState().chatDrafts['chat-test']).toBeUndefined()
+    expect(useAgent.getState().queues['chat-test']).toBeUndefined()
+  })
+  it('keeps the transcript, draft and queue when cancelling /new fails', async () => {
+    const current = useAgent.getState().chats['chat-test']
+    const running = { ...current, status: 'running' as const, activeRunId: 'run-1', eventSequence: 1,
+      messages: [{ id: 'old', role: 'assistant' as const, at: 1, items: [{ id: 'text', type: 'text' as const, text: 'still working' }] }] }
+    useAgent.setState({
+      chats: { 'chat-test': running },
+      chatDrafts: { 'chat-test': { text: '/new', mentions: [] } },
+      queues: { 'chat-test': [{ id: 'queued', text: 'later', mentions: [] }] },
+    })
+    vi.mocked(api.agentCancel).mockRejectedValueOnce(new Error('cancel failed'))
+
+    await useAgent.getState().sendMessage('chat-test', { text: '/new', mentions: [] })
+
+    expect(api.agentChatReset).not.toHaveBeenCalled()
+    expect(useAgent.getState().chats['chat-test'].messages[0].id).toBe('old')
+    expect(useAgent.getState().chatDrafts['chat-test']).toMatchObject({ text: '/new' })
+    expect(useAgent.getState().queues['chat-test']).toEqual([{ id: 'queued', text: 'later', mentions: [] }])
+    expect(useAgent.getState().chats['chat-test'].error).toBe('cancel failed')
+  })
+  it('does not start a new turn while the in-place reset is pending', async () => {
+    let finishReset!: (value: ReturnType<typeof page>) => void
+    vi.mocked(api.agentChatReset).mockReturnValueOnce(new Promise(resolve => { finishReset = resolve }))
+
+    const reset = useAgent.getState().resetChat('chat-test')
+    await Promise.resolve()
+    await useAgent.getState().sendMessage('chat-test', { text: 'must wait', mentions: [] })
+    expect(api.agentSend).not.toHaveBeenCalled()
+
+    finishReset({ ...page(), header: { ...chat(), title: '', sessionId: null, messages: [] }, messages: [], total: 0 })
+    expect(await reset).toBe(true)
   })
   it('merges a history page without saving it over unloaded messages', async () => {
     useAgent.setState({ pages: { 'chat-test': { ...page(), hasEarlier: true } } })
@@ -283,9 +352,7 @@ describe('plan completion and actions', () => {
         multiSelect: false, options: [{ label: 'Small', description: 'One module' }, { label: 'Large', description: 'All modules' }] } })
     finishTurn()
     expect(pendingPlan()).toBeNull()
-    expect(useAgent.getState().answerQuestion('chat-test', 'question', 'Small')).toBe(true)
-    await Promise.resolve()
-    await Promise.resolve()
+    expect(await useAgent.getState().answerQuestion('chat-test', 'question', 'Small')).toBe(true)
     expect(api.agentSend).toHaveBeenLastCalledWith(expect.objectContaining({ readOnly: true }))
     streamPlan()
     finishTurn()
@@ -574,13 +641,124 @@ describe('action recovery and durable session resets', () => {
         options: [{ label: 'A', description: 'A' }, { label: 'B', description: 'B' }] } })
     finishTurn()
     vi.mocked(api.agentSend).mockRejectedValueOnce(new Error('offline'))
-    expect(useAgent.getState().answerQuestion('chat-test', 'q', 'A')).toBe(true)
-    await vi.advanceTimersByTimeAsync(0)
+    expect(await useAgent.getState().answerQuestion('chat-test', 'q', 'A')).toBe(false)
     expect(useAgent.getState().chats['chat-test'].messages.flatMap(message => message.items ?? []).find(item => item.id === 'q')?.answer).toBeUndefined()
     expect(api.agentSend).toHaveBeenLastCalledWith(expect.objectContaining({ readOnly: true, permissionMode: 'read-only' }))
     expect(useAgent.getState().chats['chat-test'].permissionMode).toBe('full-access')
     expect(settings.agentDefaultPermissionMode).toBe('full-access')
     expect(patchSettings).not.toHaveBeenCalled()
+    expect(await useAgent.getState().answerQuestion('chat-test', 'q', 'A')).toBe(true)
+    expect(api.agentSend).toHaveBeenCalledTimes(3)
+    expect(api.agentSend).toHaveBeenLastCalledWith(expect.objectContaining({ readOnly: true, permissionMode: 'read-only' }))
+  })
+})
+
+describe('question answer transactions', () => {
+  beforeEach(() => {
+    const source: AgentChat = { ...chat(), permissionMode: 'full-access', planning: true, messages: [
+      { id: 'source', role: 'assistant', at: 1, readOnly: true, planning: true, items: [
+        { id: 'question', type: 'question', text: '', header: 'Scope', question: 'Which scope?',
+          options: [{ label: 'A', description: 'First' }, { label: 'B', description: 'Second' }] },
+      ] },
+    ] }
+    useAgent.setState({ chats: { 'chat-test': source }, pages: { 'chat-test': { ...page(),
+      header: source, messages: source.messages, hasPendingQuestion: true, pendingMessageId: 'source' } } })
+  })
+
+  it('waits for the launch result, claims the answer immediately, and rejects duplicates', async () => {
+    let finish!: () => void
+    vi.mocked(api.agentSend).mockReturnValueOnce(new Promise<void>(resolve => { finish = resolve }))
+    let settled = false
+    const submission = useAgent.getState().answerQuestion('chat-test', 'question', ' A ').then(result => { settled = true; return result })
+    expect(findPendingQuestion(useAgent.getState().chats['chat-test'].messages)).toBeNull()
+    expect(useAgent.getState().chats['chat-test'].messages[0].items![0].answer).toBe('A')
+    expect(useAgent.getState().pages['chat-test'].hasPendingQuestion).toBe(false)
+    expect(await useAgent.getState().answerQuestion('chat-test', 'question', 'B')).toBe(false)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(settled).toBe(false)
+    expect(api.agentSend).toHaveBeenCalledTimes(1)
+    finish()
+    expect(await submission).toBe(true)
+    expect(api.agentSend).toHaveBeenLastCalledWith(expect.objectContaining({ readOnly: true, permissionMode: 'read-only' }))
+  })
+
+  it('restores just the failed answer and pending page gates, preserves newer edits, and retries once', async () => {
+    let fail!: (error: Error) => void
+    vi.mocked(api.agentSend).mockReturnValueOnce(new Promise<void>((_, reject) => { fail = reject }))
+    useAgent.setState({ queues: { 'chat-test': [{ id: 'queued', text: 'Later work', mentions: [] }] } })
+    const submission = useAgent.getState().answerQuestion('chat-test', 'question', 'A')
+    await vi.advanceTimersByTimeAsync(0)
+    const current = useAgent.getState().chats['chat-test']
+    useAgent.setState({ chats: { 'chat-test': { ...current, messages: current.messages.map(message => message.id === 'source' ? {
+      ...message, durationMs: 77, items: [
+        ...message.items!.map(item => ({ ...item, header: 'Updated scope', complete: true })),
+        { id: 'new-notice', type: 'notice' as const, text: 'Newer detail' },
+      ],
+    } : message) } } })
+    fail(new Error('offline'))
+    expect(await submission).toBe(false)
+    const restored = useAgent.getState().chats['chat-test']
+    expect(restored.status).toBe('error')
+    expect(restored.error).toBe('offline')
+    expect(restored.messages[0].durationMs).toBe(77)
+    expect(restored.messages[0].items).toEqual([
+      expect.objectContaining({ id: 'question', header: 'Updated scope', complete: true, answer: undefined }),
+      { id: 'new-notice', type: 'notice', text: 'Newer detail' },
+    ])
+    expect(findPendingQuestion(restored.messages)?.item.id).toBe('question')
+    expect(useAgent.getState().pages['chat-test']).toMatchObject({ hasPendingQuestion: true, pendingMessageId: 'source' })
+    await useAgent.getState().sendMessage('chat-test', { text: 'Cannot bypass the question', mentions: [] })
+    expect(api.agentSend).toHaveBeenCalledTimes(1)
+    expect(useAgent.getState().queues['chat-test']?.map(item => item.id)).toEqual(['queued'])
+    expect(await useAgent.getState().answerQuestion('chat-test', 'question', 'B')).toBe(true)
+    expect(api.agentSend).toHaveBeenCalledTimes(2)
+    expect(api.agentSend).toHaveBeenLastCalledWith(expect.objectContaining({ readOnly: true, permissionMode: 'read-only' }))
+  })
+
+  it('restores the question when launch setup throws before starting a run', async () => {
+    settings.flush.mockImplementationOnce(() => { throw new Error('settings unavailable') })
+    expect(await useAgent.getState().answerQuestion('chat-test', 'question', 'A')).toBe(false)
+    expect(findPendingQuestion(useAgent.getState().chats['chat-test'].messages)?.item.id).toBe('question')
+    expect(useAgent.getState().chats['chat-test']).toMatchObject({ status: 'idle', error: 'settings unavailable' })
+    expect(useAgent.getState().pages['chat-test']).toMatchObject({ hasPendingQuestion: true, pendingMessageId: 'source' })
+    expect(api.agentSend).not.toHaveBeenCalled()
+    expect(await useAgent.getState().answerQuestion('chat-test', 'question', 'A')).toBe(true)
+  })
+
+  it('rolls back when navigating to recent history leaves the launch blocked', async () => {
+    useAgent.setState({ pages: { 'chat-test': { ...useAgent.getState().pages['chat-test'], hasLater: true } } })
+    vi.mocked(api.agentChatApply).mockRejectedValueOnce(new Error('save unavailable'))
+    expect(await useAgent.getState().answerQuestion('chat-test', 'question', 'A')).toBe(false)
+    expect(findPendingQuestion(useAgent.getState().chats['chat-test'].messages)?.item.id).toBe('question')
+    expect(useAgent.getState().pages['chat-test']).toMatchObject({ hasPendingQuestion: true, pendingMessageId: 'source' })
+    expect(api.agentSend).not.toHaveBeenCalled()
+  })
+
+  it('persists the restored source question after it leaves the loaded history window', async () => {
+    const source = useAgent.getState().chats['chat-test'].messages[0]
+    let fail!: (error: Error) => void
+    vi.mocked(api.agentSend).mockReturnValueOnce(new Promise<void>((_, reject) => { fail = reject }))
+    const submission = useAgent.getState().answerQuestion('chat-test', 'question', 'A')
+    await vi.advanceTimersByTimeAsync(0)
+    const current = useAgent.getState().chats['chat-test']
+    useAgent.setState({ chats: { 'chat-test': { ...current, messages: current.messages.filter(message => message.id !== 'source') } } })
+    fail(new Error('offline'))
+    expect(await submission).toBe(false)
+    expect(api.agentChatApply).toHaveBeenLastCalledWith('chat-test', expect.objectContaining({ upserts: [source] }))
+    expect(useAgent.getState().chats['chat-test'].messages.some(message => message.id === 'source')).toBe(false)
+    expect(useAgent.getState().pages['chat-test']).toMatchObject({ hasPendingQuestion: true, pendingMessageId: 'source' })
+    await useAgent.getState().sendMessage('chat-test', { text: 'Cannot bypass unloaded question', mentions: [] })
+    expect(api.agentSend).toHaveBeenCalledTimes(1)
+  })
+
+  it.each(['running', 'disabled', 'paging', 'blank', 'wrong-question'] as const)('rejects a %s answer without claiming it', async gate => {
+    if (gate === 'running') useAgent.setState({ chats: { 'chat-test': { ...useAgent.getState().chats['chat-test'], status: 'running', activeRunId: 'existing-run' } } })
+    if (gate === 'disabled') settings.agentEnabled = false
+    if (gate === 'paging') useAgent.setState({ pageLoading: { 'chat-test': true } })
+    expect(await useAgent.getState().answerQuestion('chat-test', gate === 'wrong-question' ? 'other' : 'question', gate === 'blank' ? ' ' : 'A')).toBe(false)
+    expect(findPendingQuestion(useAgent.getState().chats['chat-test'].messages)?.item.answer).toBeUndefined()
+    expect(useAgent.getState().pages['chat-test'].hasPendingQuestion).toBe(true)
+    expect(api.agentSend).not.toHaveBeenCalled()
   })
 })
 

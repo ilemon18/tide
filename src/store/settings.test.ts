@@ -109,6 +109,23 @@ describe('Agent preference persistence', () => {
   })
 })
 
+describe('Automatic update preference', () => {
+  it('defaults to disabled and persists changes', async () => {
+    expect(useSettings.getState().autoUpdate).toBe(false)
+    useSettings.getState().patch({ autoUpdate: true })
+    await vi.advanceTimersByTimeAsync(400)
+    expect(api.saveSettings).toHaveBeenCalledWith(expect.objectContaining({ autoUpdate: true }))
+  })
+
+  it('adds the disabled default when loading an older settings schema', async () => {
+    const { autoUpdate: _omitted, ...legacy } = DEFAULT_SETTINGS
+    vi.mocked(api.loadSettings).mockResolvedValue({ ...legacy, schemaVersion: 11 } as Settings)
+    await useSettings.getState().load()
+    expect(useSettings.getState().autoUpdate).toBe(false)
+    expect(useSettings.getState().schemaVersion).toBe(SETTINGS_SCHEMA_VERSION)
+  })
+})
+
 describe('Agent settings migration', () => {
   it.each([
     { saved: undefined, expected: 90 },

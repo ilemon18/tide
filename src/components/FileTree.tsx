@@ -15,7 +15,7 @@ import { useTerminal } from '../store/terminal'
 import { useFolderChain } from '../store/folderChain'
 import { openFolderDialog } from '../lib/actions'
 import { beginFilePointerDrag, wasFileDragJustFinished } from '../lib/fileDragState'
-import { dirname, parentChain, basename, isUnder } from '../lib/paths'
+import { dirname, parentChain, basename, isUnder, modKey } from '../lib/paths'
 import { shortcutKey } from '../lib/keys'
 import { t as translate, useLocale, useT } from '../i18n'
 import { copyText } from '../lib/clipboard'
@@ -936,7 +936,7 @@ export function FileTree() {
                   ...(agentEnabled && !menu.isSymlink
                     ? [
                         {
-                          label: t('titlebar.agentTip'),
+                          label: t('titlebar.agentTip', { shortcut: `${modKey()}A` }),
                           onClick: () =>
                             useAgent.getState().newChat(menu.root, [
                               { rel: menu.rel || '.', isDir: menu.isDir },

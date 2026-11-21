@@ -16,9 +16,27 @@ vi.mock('../i18n', () => ({
   t: (key: string) => key,
 }))
 
-import { runUpdateAction, updateAction, updateTip, updateDetail, type UpdateView } from './updateView'
+import {
+  formatVersion,
+  runUpdateAction,
+  updateAction,
+  updateTip,
+  updateDetail,
+  type UpdateView,
+} from './updateView'
 
 const availableInfo = { available: true, downloadUrl: 'https://github.com/tide/update.exe' } as UpdateInfo
+
+it.each([
+  ['0.0.1', 'v0.0.1'],
+  ['v0.0.1', 'v0.0.1'],
+  ['V0.0.1', 'v0.0.1'],
+  ['', ''],
+  [null, ''],
+  [undefined, ''],
+] as const)('formats %j as %j for display', (value, expected) => {
+  expect(formatVersion(value)).toBe(expected)
+})
 
 function view(status: UpdateView['status'], info: UpdateInfo | null = null): UpdateView {
   return {

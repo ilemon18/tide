@@ -402,6 +402,26 @@ pub fn apply_chat(app: &AppHandle, id: &str, patch: AgentChatPatch) -> AppResult
     Ok(recent_page(&document, DEFAULT_PAGE_LIMIT))
 }
 
+/// Reset a chat in place while retaining its id, root, provider and unknown header fields.
+///
+/// This is intentionally separate from a partial message patch: a loaded page may not contain
+/// the complete transcript, so removing only the visible message ids could resurrect older
+/// history when the chat is reopened.
+pub fn reset_chat(
+    app: &AppHandle,
+    id: &str,
+    header: AgentChatRecord,
+) -> AppResult<AgentChatPage> {
+    let path = chat_path(app, id)?;
+    let lock = document_lock(&path);
+    let _guard = lock.lock();
+    let mut document = read_document(&path)?.unwrap_or_default();
+    document.header.extend(header.into_iter().filter(|(key, _)| key != "messages"));
+    document.messages.clear();
+    write_document(&path, &document)?;
+    Ok(recent_page(&document, DEFAULT_PAGE_LIMIT))
+}
+
 pub fn clone_chat(
     app: &AppHandle,
     from_id: &str,

@@ -14,6 +14,8 @@ import { AgentProviderIcon } from './AgentProviderIcon'
 import { MONO_FONT_OPTIONS, monoStack } from '../lib/fonts'
 import { SETTINGS_SECTIONS, type SettingsSectionId } from '../lib/settingsSections'
 import { Icon } from './Icon'
+import { TideMark } from './TideMark'
+import { formatVersion } from '../lib/version'
 import {
   LOCALES,
   LOCALE_LABELS,
@@ -140,6 +142,7 @@ export function SettingsView() {
   const settings = useSettings()
   const patch = useSettings((s) => s.patch)
   const contentRef = useRef<HTMLDivElement>(null)
+  const [showAllAgents, setShowAllAgents] = useState(false)
 
   // Jump back to the top on section change so the previous page's scroll offset isn't reused
   useEffect(() => {
@@ -161,6 +164,16 @@ export function SettingsView() {
     : (agentCatalog?.efforts ?? ['low', 'medium', 'high', 'xhigh', 'max'])
   const usableAgents = (agentProviders ?? []).filter(
     (provider) => provider.installed && provider.supported,
+  )
+  const hiddenAgentCount = Math.max(
+    0,
+    (agentProviders ?? []).filter((provider) => !provider.installed).length - 5,
+  )
+  const visibleAgentIds = new Set(
+    (agentProviders ?? [])
+      .filter((provider) => !provider.installed)
+      .slice(0, 5)
+      .map((provider) => provider.id),
   )
   useEffect(() => {
     if (section !== 'agent') return
@@ -193,7 +206,6 @@ export function SettingsView() {
   const updatePercent = useUpdate((s) => s.percent)
   const updateError = useUpdate((s) => s.error)
   const installedTo = useUpdate((s) => s.installedTo)
-  const revealLog = useUpdate((s) => s.revealLog)
 
   const updateView: UpdateView = {
     status: updateStatus,
@@ -212,6 +224,14 @@ export function SettingsView() {
   const content: Record<SettingsSectionId, React.ReactNode> = {
     general: (
       <>
+        <Card title={t('settings.general.autoUpdate')}>
+          <Row
+            label={t('settings.general.autoUpdate')}
+            hint={t('settings.general.autoUpdateHint')}
+          >
+            <Toggle value={settings.autoUpdate} onChange={(v) => set('autoUpdate', v)} />
+          </Row>
+        </Card>
         <Card title={t('settings.memory.card')}>
           <Row label={t('settings.memory.lightweight')} hint={t('settings.memory.lightweightHint')}>
             <Toggle
@@ -582,33 +602,49 @@ export function SettingsView() {
           ) : agentProviders.length === 0 ? (
             <div className="px-4 py-3 text-xs text-muted">{t('settings.agent.none')}</div>
           ) : (
-            agentProviders.map((provider) => (
-              <div
-                key={provider.id}
-                className="flex items-center justify-between gap-3 border-b border-line/60 px-4 py-2 last:border-b-0"
-              >
-                <div className="flex min-w-0 items-center gap-2">
-                  <AgentProviderIcon
-                    provider={provider.id}
-                    size={14}
-                    className={provider.installed ? 'shrink-0 text-fg/80' : 'shrink-0 text-muted/50'}
-                  />
-                  <span className="truncate text-sm text-fg/90">{provider.name}</span>
-                  <span className="min-w-0 truncate font-mono text-2xs text-muted">
-                    {provider.version ?? ''}
-                  </span>
-                </div>
-                {!provider.installed ? (
-                  <span className="shrink-0 text-2xs text-muted">
-                    {t('settings.agent.notInstalled')}
-                  </span>
-                ) : provider.supported ? null : (
-                  <span className="shrink-0 text-2xs text-warning">
-                    {t('settings.agent.unsupported')}
-                  </span>
-                )}
-              </div>
-            ))
+            <>
+              {agentProviders
+                .filter((provider) => provider.installed || showAllAgents || visibleAgentIds.has(provider.id))
+                .map((provider) => (
+                  <div
+                    key={provider.id}
+                    className="flex items-center justify-between gap-3 border-b border-line/60 px-4 py-2 last:border-b-0"
+                  >
+                    <div className="flex min-w-0 items-center gap-2">
+                      <AgentProviderIcon
+                        provider={provider.id}
+                        size={14}
+                        className={provider.installed ? 'shrink-0 text-fg/80' : 'shrink-0 text-muted/50'}
+                      />
+                      <span className="truncate text-sm text-fg/90">{provider.name}</span>
+                      <span className="min-w-0 truncate font-mono text-2xs text-muted">
+                        {provider.version ?? ''}
+                      </span>
+                    </div>
+                    {!provider.installed ? (
+                      <span className="shrink-0 text-2xs text-muted">
+                        {t('settings.agent.notInstalled')}
+                      </span>
+                    ) : provider.supported ? null : (
+                      <span className="shrink-0 text-2xs text-warning">
+                        {t('settings.agent.unsupported')}
+                      </span>
+                    )}
+                  </div>
+                ))}
+              {hiddenAgentCount > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => setShowAllAgents((visible) => !visible)}
+                  className="flex w-full items-center justify-between px-4 py-2 text-xs text-accent hover:bg-hover"
+                >
+                  <span>{showAllAgents ? t('settings.agent.less') : t('settings.agent.more')}</span>
+                  {!showAllAgents ? (
+                    <span className="text-2xs text-muted">{t('settings.agent.moreCount', { count: hiddenAgentCount })}</span>
+                  ) : null}
+                </button>
+              ) : null}
+            </>
           )}
         </Card>
 
@@ -638,10 +674,16 @@ export function SettingsView() {
 
     about: (
       <>
-        <Card title="Tide">
-          <Row label={t('settings.about.version')}>
-            <span className="text-sm text-fg/80">{version ?? '—'}</span>
-          </Row>
+        <Card>
+          <div className="flex min-h-[88px] items-center justify-between gap-6 border-b border-line/60 px-5 py-4">
+            <TideMark size={52} />
+            <div className="min-w-0 text-right">
+              <div className="text-xs text-muted">{t('settings.about.version')}</div>
+              <div className="mt-1 font-mono text-base text-fg/90">
+                {version ? formatVersion(version) : '—'}
+              </div>
+            </div>
+          </div>
           <Row label={t('settings.about.settingsFile')}>
             <span className="text-xs text-muted">settings.json</span>
           </Row>
@@ -697,16 +739,6 @@ export function SettingsView() {
             </button>
             {detail ? (
               <p className="mt-2 text-xs leading-relaxed text-muted">{detail}</p>
-            ) : null}
-            {/* The only useful next step after a failed install: read the log instead of guessing */}
-            {detail && updateStatus === 'error' ? (
-              <button
-                type="button"
-                onClick={() => void revealLog()}
-                className="mt-1.5 text-xs text-accent hover:underline"
-              >
-                {t('settings.about.updateLog')}
-              </button>
             ) : null}
           </div>
         </Card>

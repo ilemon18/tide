@@ -46,8 +46,9 @@ actions and queue gates. Rust parses questions/scans skills. Provider/model/perm
 - Composer starts at 90px, grows to min(480px, half-window); clamping preserves larger saved minima.
   Height owners: `src/store/settings.ts` and `src-tauri/src/commands/theme.rs`; older smaller minima normalize up.
   Nearest /, $ or @ wins. Slash/mention need a boundary; skills reject preceding word/$; $5 stays prose.
-  Mentions show eight fuzzy matches, preserve {rel,isDir} chips and queued references. Scan project/user
-  skills lazily, cache results, keep plan tags single.
+  Mentions show eight fuzzy matches, preserve {rel,isDir} chips and queued references. Slash commands use a
+  stable frequency order, show at most eight candidates at once, and keep the full result set available to
+  Arrow Up/Arrow Down navigation. Scan project/user skills lazily, cache results, keep plan tags single.
 - A new conversation centers its workspace heading above one complete accent-bordered composer. Messages,
   persisted history/pages, loading, running, existing sessions or queued sends keep the transcript/footer layout.
   First send changes layout without remounting the composer; provider/error guidance remains visible.
@@ -62,6 +63,11 @@ actions and queue gates. Rust parses questions/scans skills. Provider/model/perm
 - `<TIDE_QUESTION>`: one marker/turn, nonempty header/question, 2–4 labelled/described options, optional
   multi-select/custom answer. Preserve order; hide partial markers until flush; invalid markers restore
   source plus notice. Blank answers block sending.
+- The active question permits option/custom-answer edits during streaming; submission waits for the turn
+  to finish. Answer submission claims the question synchronously and awaits the actual follow-up launch.
+  Failed/rejected launches restore the pending answer/page gate without replacing newer message content;
+  all submission outcomes release local locks, preserving selections/custom text for retry. Follow-ups
+  retain the source planning/read-only boundary; duplicate submits never start a second run.
 - Successful planning without questions creates plan-<message>; questions take precedence. Implement-current
   resumes writable; implement-fresh isolates a same-root tab with plan/fixed preamble; continue-planning is
   read-only. Persist action/result/target before launch, lock duplicates, retry same target, never run on hydration.
@@ -70,8 +76,11 @@ actions and queue gates. Rust parses questions/scans skills. Provider/model/perm
   Source: [Codex plan_implementation.rs, commit 63a15005](https://github.com/openai/codex/blob/63a15005de43a3db68d451403593b202ed337d20/codex-rs/tui/src/chatwidget/plan_implementation.rs).
   Copy maps to existing persisted action IDs; clear-context execution starts a fresh same-root chat carrying the plan.
   Optional instructions follow all three action buttons and accompany the selected action.
-- Local /new, project-scoped /resume [chat ID], /model [ID|default], three-mode /permissions, /status and
-  /help never reach the model. Missing arguments open selectors; invalid ones report errors.
+- The complete command set is /new, /resume [chat ID], /fork, /compact, /status, /model [ID|default],
+  /permissions, /plan, /goal, /review, /test, /explain and /help. Local /new resets the current chat tab
+  in place, clears its transcript/session context and keeps the selected provider/model/permissions.
+  Local commands never reach the model; prompt commands are wrapped and sent as their matching tags.
+  Missing arguments open selectors; invalid ones report errors.
 - /fork clones saved history after capability probing (Claude --fork-session; Codex app-server/RPC validation).
   Failure preserves clone/parent boundaries with explicit fresh-session restart. Empty model/effort sends no
   flag, preserving CLI/per-chat defaults.
@@ -81,5 +90,6 @@ actions and queue gates. Rust parses questions/scans skills. Provider/model/perm
 ## Change map and verification
 
 Align prompt construction, Rust parser, UI cards and saved actions. Existing tests protect IME/chip boundaries,
-read-only guidance, questions, plan persistence, duplicate actions, retries and permission picker labels/actions.
+read-only guidance, questions (streaming edits and failed-launch unlock/retry), plan persistence, duplicate
+actions, retries and permission picker labels/actions.
 Real IME/native approval verification requires an explicit request; gate policy: [checks.md](./checks.md).

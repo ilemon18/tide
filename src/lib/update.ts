@@ -18,7 +18,6 @@ export type UpdateInfo = {
   current: string
   latest: string
   name: string
-  notes: string
   pageUrl: string
   publishedAt: string
   assetName: string
@@ -74,7 +73,6 @@ export const updateApi = {
     invoke<string>('update_download', { url, fileName, checksum }),
   install: (version: string) => invoke<InstallOutcome>('update_install', { version }),
   startupReport: () => invoke<UpdateReport | null>('update_startup_report'),
-  revealLog: () => invoke<string>('update_reveal_log'),
   /** Opens the release page; the only next step for a release with no installer attached */
   openPage: (url: string) => invoke<void>('update_open_page', { url }),
 }

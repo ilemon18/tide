@@ -21,7 +21,7 @@ import { DEFAULT_MONO_FONT } from '../lib/fonts'
 import { applyLocale, DEFAULT_LOCALE, isLocale } from '../i18n'
 import { applyMemoryProfileChange, setMemoryProfile } from '../lib/memoryBudget'
 
-export const SETTINGS_SCHEMA_VERSION = 11
+export const SETTINGS_SCHEMA_VERSION = 12
 export const AGENT_COMPOSER_MIN_HEIGHT = 90
 export const AGENT_COMPOSER_MAX_HEIGHT = 480
 
@@ -49,6 +49,7 @@ export const DEFAULT_SETTINGS: Settings = {
   inlineBlame: false,
   terminalWebgl: false,
   lightweightMode: false,
+  autoUpdate: false,
   agentEnabled: true,
   agentDefaultProvider: '',
   agentDefaultModel: '',
@@ -101,6 +102,7 @@ const SHARED_KEYS = [
   'inlineBlame',
   'terminalWebgl',
   'lightweightMode',
+  'autoUpdate',
   'agentEnabled',
   'agentDefaultProvider',
   'agentDefaultModel',
@@ -191,6 +193,7 @@ function snapshot(s: SettingsStore): Settings {
     inlineBlame: s.inlineBlame,
     terminalWebgl: s.terminalWebgl,
     lightweightMode: s.lightweightMode,
+    autoUpdate: s.autoUpdate,
     agentEnabled: s.agentEnabled,
     agentDefaultProvider: s.agentDefaultProvider,
     agentDefaultModel: s.agentDefaultModel,
@@ -247,8 +250,9 @@ function migrate(raw: Settings): Settings {
   // an unknown value (added later, then downgraded) also falls back, so the UI never renders empty.
   if (!isLocale(next.locale)) next.locale = DEFAULT_LOCALE
 
-  // v8 -> v9 adds ligatures, v9 -> v10 adds agentComposerHeight: DEFAULT_SETTINGS covers missing values.
-  // v10 -> v11 adds agentDefaultPermissionMode, defaulting to workspace-write.
+  // v8 -> v9 adds ligatures, v9 -> v10 adds agentComposerHeight, v10 -> v11 adds
+  // agentDefaultPermissionMode, and v11 -> v12 adds autoUpdate. DEFAULT_SETTINGS covers
+  // missing values for each of these additions.
   // Keep larger stored heights when the current window is short: the composer clamps them for display only.
   next.schemaVersion = SETTINGS_SCHEMA_VERSION
 
@@ -271,6 +275,7 @@ function migrate(raw: Settings): Settings {
   // Agent defaults: free-form ids stay as written (a provider may add models later); only
   // the switch itself is normalized, so a corrupt value cannot hide the feature.
   if (typeof next.agentEnabled !== 'boolean') next.agentEnabled = true
+  if (typeof next.autoUpdate !== 'boolean') next.autoUpdate = false
   if (typeof next.agentDefaultProvider !== 'string') next.agentDefaultProvider = ''
   if (typeof next.agentDefaultModel !== 'string') next.agentDefaultModel = ''
   if (typeof next.agentDefaultEffort !== 'string') next.agentDefaultEffort = ''
@@ -356,6 +361,7 @@ export const useSettings = create<SettingsStore>((set, get) => ({
       patch.iconTheme !== undefined ||
       patch.fontFamily !== undefined ||
       patch.uiFontSize !== undefined ||
+      patch.autoUpdate !== undefined ||
       patch.agentDefaultProvider !== undefined ||
       patch.agentDefaultModel !== undefined ||
       patch.agentDefaultEffort !== undefined ||

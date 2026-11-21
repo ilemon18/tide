@@ -63,6 +63,8 @@ pub struct Settings {
     pub terminal_webgl: bool,
     /// Lightweight mode: smaller caches, fewer background jobs (off by default)
     pub lightweight_mode: bool,
+    /// Download application updates in the background, but always ask before installing
+    pub auto_update: bool,
     /// Built-in agent service: title-bar entry, explorer double-click entry, chat tabs
     pub agent_enabled: bool,
     /// Last chosen provider / model / effort: new chats start here (empty = auto / CLI default)
@@ -123,6 +125,7 @@ impl Default for Settings {
             inline_blame: false,
             terminal_webgl: false,
             lightweight_mode: false,
+            auto_update: false,
             agent_enabled: true,
             agent_default_provider: String::new(),
             agent_default_model: String::new(),

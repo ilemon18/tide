@@ -494,6 +494,15 @@ pub fn agent_chat_apply(
 }
 
 #[tauri::command(async)]
+pub fn agent_chat_reset(
+    app: AppHandle,
+    id: String,
+    header: store::AgentChatRecord,
+) -> AppResult<store::AgentChatPage> {
+    store::reset_chat(&app, &id, header)
+}
+
+#[tauri::command(async)]
 pub fn agent_chat_list(
     app: AppHandle,
     state: State<'_, AppState>,

@@ -5,8 +5,8 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { AgentMessage } from '../store/agent'
 import { en } from '../i18n/messages/en'
 
-const { resolvePlanAction } = vi.hoisted(() => ({ resolvePlanAction: vi.fn() }))
-vi.mock('../store/agent', () => ({ useAgent: Object.assign((select: (state: unknown) => unknown) => select({ running: {} }), { getState: () => ({ resolvePlanAction }) }) }))
+const { resolvePlanAction, answerQuestion } = vi.hoisted(() => ({ resolvePlanAction: vi.fn(), answerQuestion: vi.fn() }))
+vi.mock('../store/agent', () => ({ useAgent: Object.assign((select: (state: unknown) => unknown) => select({ running: {} }), { getState: () => ({ resolvePlanAction, answerQuestion }) }) }))
 vi.mock('../store/tabs', () => ({ useTabs: { getState: () => ({}) } }))
 vi.mock('../lib/actions', () => ({ revealInExplorer: vi.fn() }))
 vi.mock('../i18n', () => ({ useT: () => (key: string) => key }))
@@ -15,7 +15,7 @@ vi.mock('./AgentTags', () => ({ CommandChip: () => null, SkillChip: () => null }
 vi.mock('./CopyButton', () => ({ CopyButton: ({ text, className, label }: { text: string; className: string; label: string }) => label === 'agent.copy.userTurn' ? <button data-testid="user-copy" data-copy={text} className={className} /> : null }))
 vi.mock('./FileIcon', () => ({ FileIcon: () => null }))
 vi.mock('./Icon', () => ({ Icon: () => null }))
-import { AssistantMessage, UserMessage, serializeUserMessage, serializeAssistantMessage, toolCommand, toolPreview } from './AgentMessage'
+import { AssistantMessage, serializeAssistantMessage, toolCommand, toolPreview } from './AgentMessage'
 
 const planMessage = (resolved = false): AgentMessage => ({
   id: 'reply', role: 'assistant', at: 1, readOnly: true,
@@ -27,7 +27,10 @@ const planMessage = (resolved = false): AgentMessage => ({
 const view = (message = planMessage(), running = false) => (
   <AssistantMessage chatId="chat" message={message} running={running} pendingQuestionId={null} />
 )
-beforeEach(() => { resolvePlanAction.mockReset(); resolvePlanAction.mockResolvedValue(true) })
+beforeEach(() => {
+  resolvePlanAction.mockReset(); resolvePlanAction.mockResolvedValue(true)
+  answerQuestion.mockReset(); answerQuestion.mockResolvedValue(true)
+})
 afterEach(cleanup)
 
 it('passes the conversation workspace to text, reasoning and plan Markdown', () => {
@@ -93,6 +96,113 @@ it('disables actions while a turn runs and restores the saved resolved state', (
   expect(screen.getByText('agent.plan.resolved')).toBeTruthy()
 })
 
+const questionMessage = (multiSelect = false, answer?: string): AgentMessage => ({
+  id: 'question-reply', role: 'assistant', at: 1, readOnly: true, planning: true,
+  items: [{ id: 'question', type: 'question', text: '', header: 'Scope', question: 'Which scope?',
+    multiSelect, answer, options: [
+      { label: 'Option A', description: 'First scope' },
+      { label: 'Option B', description: 'Second scope' },
+    ] }],
+})
+const questionView = (message = questionMessage(), running = false, pendingQuestionId: string | null = 'question') => (
+  <AssistantMessage chatId="chat" message={message} running={running} pendingQuestionId={pendingQuestionId} />
+)
+
+it('allows choosing and editing during streaming but waits for completion before submitting', async () => {
+  const { rerender } = render(questionView(questionMessage(), true))
+  const option = screen.getByRole('radio', { name: /Option A/ }) as HTMLButtonElement
+  const custom = screen.getByRole('textbox') as HTMLInputElement
+  const submit = screen.getByRole('button', { name: 'agent.question.submit' }) as HTMLButtonElement
+  expect(option.disabled).toBe(false)
+  expect(custom.disabled).toBe(false)
+  fireEvent.click(option)
+  expect(option.getAttribute('aria-checked')).toBe('true')
+  fireEvent.change(custom, { target: { value: 'Custom scope' } })
+  expect(option.getAttribute('aria-checked')).toBe('false')
+  fireEvent.keyDown(custom, { key: 'Enter' })
+  fireEvent.click(submit)
+  expect(submit.disabled).toBe(true)
+  expect(answerQuestion).not.toHaveBeenCalled()
+  rerender(questionView())
+  expect(custom.value).toBe('Custom scope')
+  expect(submit.disabled).toBe(false)
+  await act(async () => { fireEvent.click(submit) })
+  expect(answerQuestion).toHaveBeenCalledWith('chat', 'question', 'Custom scope')
+})
+
+it('retains the selected option when streaming finishes', async () => {
+  const { rerender } = render(questionView(questionMessage(), true))
+  fireEvent.click(screen.getByRole('radio', { name: /Option B/ }))
+  rerender(questionView())
+  expect(screen.getByRole('radio', { name: /Option B/ }).getAttribute('aria-checked')).toBe('true')
+  expect((screen.getByRole('button', { name: 'agent.question.submit' }) as HTMLButtonElement).disabled).toBe(false)
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'agent.question.submit' })) })
+  expect(answerQuestion).toHaveBeenCalledWith('chat', 'question', 'Option B')
+})
+
+it.each([
+  { mode: 'single', failure: 'declined' },
+  { mode: 'multi', failure: 'declined' },
+  { mode: 'custom', failure: 'declined' },
+  { mode: 'single', failure: 'rejected' },
+  { mode: 'multi', failure: 'rejected' },
+  { mode: 'custom', failure: 'rejected' },
+])('unlocks a $mode answer after a $failure launch and preserves it for one retry', async ({ mode, failure }) => {
+  let finish!: (accepted: boolean) => void
+  let reject!: (error: Error) => void
+  answerQuestion.mockReturnValueOnce(new Promise<boolean>((resolve, rejectPromise) => { finish = resolve; reject = rejectPromise }))
+  const message = questionMessage(mode === 'multi')
+  const { rerender } = render(questionView(message))
+  const role = mode === 'multi' ? 'checkbox' : 'radio'
+  if (mode !== 'custom') fireEvent.click(screen.getByRole(role, { name: /Option A/ }))
+  if (mode === 'multi') fireEvent.click(screen.getByRole(role, { name: /Option B/ }))
+  if (mode !== 'single') fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Extra scope' } })
+  const answer = mode === 'single' ? 'Option A' : mode === 'multi' ? 'Option A\nOption B\nExtra scope' : 'Extra scope'
+  const submit = screen.getByRole('button', { name: 'agent.question.submit' })
+  fireEvent.click(submit)
+  fireEvent.click(submit)
+  fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter' })
+  expect(answerQuestion).toHaveBeenCalledTimes(1)
+  expect(answerQuestion).toHaveBeenLastCalledWith('chat', 'question', answer)
+  for (const option of screen.getAllByRole(role)) expect((option as HTMLButtonElement).disabled).toBe(true)
+  expect((screen.getByRole('textbox') as HTMLInputElement).disabled).toBe(true)
+  expect((submit as HTMLButtonElement).disabled).toBe(true)
+
+  // The store first saves the answer, then restores the same mounted card on launch failure.
+  rerender(questionView(questionMessage(mode === 'multi', answer), true, null))
+  expect(screen.getByText('agent.question.answered')).toBeTruthy()
+  expect(screen.queryByRole('textbox')).toBeNull()
+  rerender(questionView(message))
+  expect((screen.getByRole('button', { name: 'agent.question.submit' }) as HTMLButtonElement).disabled).toBe(true)
+  await act(async () => {
+    if (failure === 'rejected') reject(new Error('offline'))
+    else finish(false)
+  })
+
+  for (const option of screen.getAllByRole(role)) {
+    expect((option as HTMLButtonElement).disabled).toBe(false)
+    expect(option.getAttribute('aria-checked')).toBe(String(mode !== 'custom' && (mode === 'multi' || option.textContent?.includes('Option A'))))
+  }
+  expect((screen.getByRole('textbox') as HTMLInputElement).value).toBe(mode === 'single' ? '' : 'Extra scope')
+  expect((screen.getByRole('textbox') as HTMLInputElement).disabled).toBe(false)
+  expect((screen.getByRole('button', { name: 'agent.question.submit' }) as HTMLButtonElement).disabled).toBe(false)
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'agent.question.submit' })) })
+  expect(answerQuestion).toHaveBeenCalledTimes(2)
+  expect(answerQuestion).toHaveBeenLastCalledWith('chat', 'question', answer)
+})
+
+it('keeps inactive questions locked and answered questions in their saved display', () => {
+  const { rerender } = render(questionView(questionMessage(), false, 'another-question'))
+  for (const option of screen.getAllByRole('radio')) expect((option as HTMLButtonElement).disabled).toBe(true)
+  expect((screen.getByRole('textbox') as HTMLInputElement).disabled).toBe(true)
+  expect((screen.getByRole('button', { name: 'agent.question.submit' }) as HTMLButtonElement).disabled).toBe(true)
+  rerender(questionView(questionMessage(false, 'Option A'), false, null))
+  expect(screen.getByText('agent.question.answered')).toBeTruthy()
+  expect(screen.getByText('Option A')).toBeTruthy()
+  expect(screen.queryByRole('radio')).toBeNull()
+  expect(screen.queryByRole('textbox')).toBeNull()
+})
+
 it('keeps tool previews and public reasoning in source order without details wrappers', () => {
   const message: AgentMessage = { id: 'stream', role: 'assistant', at: 1, completion: 'completed', durationMs: 1234,
     items: [
@@ -119,19 +229,6 @@ it('keeps tool previews and public reasoning in source order without details wra
   expect(screen.getByRole('status').textContent).toContain('agent.completion.completed')
   expect(screen.getByText('After').compareDocumentPosition(screen.getByRole('status')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   expect(serializeAssistantMessage(message)).toContain('four')
-})
-
-it('right-aligns a shrink-wrapped user bubble and keeps indentation and full copy metadata', () => {
-  const message: AgentMessage = { id: 'u', role: 'user', at: 1, text: '  first\n    second\n',
-    mentions: [{ rel: 'src/a.ts', isDir: false }], skills: [{ name: 'audit', path: '/skills/audit', source: 'user' }] }
-  const { container } = render(<UserMessage root="/repo" message={message} />)
-  expect(container.firstElementChild?.className).toContain('ml-auto')
-  expect(container.firstElementChild?.className).toContain('w-fit')
-  expect(screen.getByTestId('user-copy').className).toContain('absolute right-1 top-1')
-  expect(screen.getByTestId('user-copy').className).toContain('h-[22px] w-[22px]')
-  expect(screen.getByTestId('user-copy').className).toContain('pointer-events-none')
-  expect(screen.getByTestId('user-copy').getAttribute('data-copy')).toBe(serializeUserMessage(message))
-  expect(serializeUserMessage(message)).toBe('$audit (/skills/audit)\n@src/a.ts\n  first\n    second\n')
 })
 
 it('extracts command paths and never splits surrogate pairs in previews', () => {

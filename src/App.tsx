@@ -367,6 +367,18 @@ export function App() {
     const settingsStore = useSettings.getState()
     const ui = useUi.getState()
 
+    // Cmd/Ctrl+A opens the agent only from the app chrome. Editors, terminals, text fields and
+    // dialogs retain their native select-all behavior.
+    if (key === 'a' && !shift && !e.altKey) {
+      const target = e.target as HTMLElement | null
+      const nativeOwner = target?.closest('input, textarea, [contenteditable="true"], .cm-editor, .xterm')
+      if (!nativeOwner && !terminalFocused() && !ui.overlay && !ui.confirmReq && !ui.promptReq) {
+        if (settingsStore.agentEnabled) useAgent.getState().newChat()
+        return settingsStore.agentEnabled
+      }
+      return false
+    }
+
     // Leave native editor / terminal shortcuts alone (undo, copy-paste, select all, find again, ...)
     // ⌃G: go to line (VSCode-like), opens quick open prefilled with `:`
     if (e.ctrlKey && !e.metaKey && key === 'g') {
@@ -385,7 +397,7 @@ export function App() {
       if (!settingsStore.sidebarVisible) settingsStore.patch({ sidebarVisible: true })
       return true
     }
-    if (['c', 'v', 'x', 'a', 'z', 'y', 'u', 'g'].includes(key)) return false
+    if (['c', 'v', 'x', 'z', 'y', 'u', 'g'].includes(key)) return false
     if (shortcut === 'arrowleft' || shortcut === 'arrowright') return false
 
     if (key === 'f' && shift) {

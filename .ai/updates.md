@@ -31,21 +31,26 @@ share one action model. Packaging and release preflight remain in [checks.md](./
 ## Update contracts
 
 - Debug builds never report updates, run quiet checks or show the update badge, in frontend or backend.
-- Check/download/install is a Rust state machine driven by the webview. Release builds may run one quiet
-  startup check, but download and install require an explicit user action. Only HTTPS GitHub URLs are
+- Check/download/install is a Rust state machine driven by the webview. Release builds run the quiet check
+  and background download only when Settings → General → Automatic updates is enabled. Downloads always
+  stop at a ready package and ask for confirmation before installation; install and restart require that
+  explicit consent. Only HTTPS GitHub URLs are
   accepted, and artifact byte count plus `latest.json` SHA-256 must match before use; never commit generated
   `latest.json`.
 - Settings → About has one state-driven update action. Its initial manual check maps to
   `check(true, true)` / `update_check { force: true }`: it skips `update-cache.json`, sends
   `Cache-Control: no-cache` on every lookup, never falls back to an old cache on failure, and writes a
-  successful answer back to the cache. When an installer is available the action changes to **Update to
-  latest**: one explicit click downloads, verifies, saves the initiating window and starts installation/restart.
-  Checks alone never download. Remaining dirty tabs or a failed subscription/download/save/install produce
-  a retryable error; busy states reject duplicate actions. Native manual-install outcomes still reveal the
-  package, and a restart timeout returns to the install action with its error visible.
+  successful answer back to the cache. When an installer is available the action changes to **Download
+  update**; one explicit click downloads and verifies the package, then leaves it in the **Install update**
+  state. Installation is a separate explicit action that saves the initiating window before restarting.
+  Checks alone never download, and manual downloads never install automatically. Remaining dirty tabs or a
+  failed subscription/download/save/install produce a retryable error; busy states reject duplicate actions.
+  Native manual-install outcomes still reveal the package, and a restart timeout returns to the install action
+  with its error visible.
 - Title bar and Settings share action labels and state. The release primary-window badge shows the available
   action as text; downloads use a fixed 16px SVG circle beside the localized percentage, with 8px gap and
   horizontal padding. It never measures text for progress geometry. Missing installers open the release page.
+  The About page shows the logo and a `v`-prefixed installed version and no longer exposes update logs.
 
 ## Change map and verification
 

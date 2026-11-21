@@ -27,8 +27,8 @@
 //! * The helper unpacks only after this process exits, **verifies the extracted version**,
 //!   swaps through a sibling directory, then relaunches — any failure reopens the **old**
 //!   copy.
-//! * Every step is written to `update.log` (see [`log_path`]), which the UI can reveal, so a
-//!   failure is not a mystery.
+//! * Every step is written to `update.log` (see [`log_path`]) for native diagnostics, so a
+//!   failure can still be investigated without changing the install state machine.
 //! * `update_install` leaves an `update-pending.json` recording the version it asked for. The
 //!   next launch compares it with the running version and reports a mismatch — the only way
 //!   to catch "the installer ran but did nothing" (typical on Windows).
@@ -110,7 +110,6 @@ pub struct UpdateInfo {
     pub current: String,
     pub latest: String,
     pub name: String,
-    pub notes: String,
     pub page_url: String,
     pub published_at: String,
     /// Installer file name to download; empty when this platform has none, or when the release
@@ -135,7 +134,6 @@ impl UpdateInfo {
             current: current.to_string(),
             latest: current.to_string(),
             name: String::new(),
-            notes: String::new(),
             page_url: String::new(),
             published_at: String::new(),
             asset_name: String::new(),
@@ -764,7 +762,6 @@ fn info_from_manifest(manifest: Manifest, current: &str, platform: Platform) -> 
         current: current.to_string(),
         latest,
         name: manifest.tag,
-        notes: String::new(),
         page_url: manifest.page_url,
         published_at: manifest.published_at,
         asset_name,
@@ -789,7 +786,6 @@ fn info_from_tag(tag: &str, page_url: &str, current: &str) -> UpdateInfo {
         current: current.to_string(),
         latest,
         name: tag.trim().to_string(),
-        notes: String::new(),
         page_url: page_url.to_string(),
         published_at: String::new(),
         asset_name: String::new(),
@@ -1019,18 +1015,6 @@ pub async fn update_startup_report<R: Runtime>(app: AppHandle<R>) -> AppResult<O
         previous: pending.previous,
         log_path: pending.log_path,
     }))
-}
-
-/// Reveal `update.log` in the file manager, so a failed install can be debugged from inside the
-/// app (there is no console on the desktop).
-#[tauri::command]
-pub async fn update_reveal_log<R: Runtime>(app: AppHandle<R>) -> AppResult<String> {
-    let file = log_path(&app);
-    if !file.exists() {
-        write_log(&app, "no update has run yet");
-    }
-    reveal(&app, &file)?;
-    Ok(file.to_string_lossy().to_string())
 }
 
 /// Open the release page in the browser. The next step when a release has no manifest: there is

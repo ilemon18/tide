@@ -370,6 +370,7 @@ fn main() {
             commands::agent::agent_chat_open,
             commands::agent::agent_chat_page,
             commands::agent::agent_chat_apply,
+            commands::agent::agent_chat_reset,
             commands::agent::agent_chat_list,
             commands::agent::agent_chat_clone,
             commands::agent::agent_chat_delete,
@@ -390,7 +391,6 @@ fn main() {
             update::update_download,
             update::update_install,
             update::update_startup_report,
-            update::update_reveal_log,
             update::update_open_page,
         ])
         .on_window_event(|window, event| {

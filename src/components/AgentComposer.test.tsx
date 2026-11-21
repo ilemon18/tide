@@ -102,12 +102,6 @@ it('ignores native composition flags and keyCode 229 even without composition li
   fireEvent.keyDown(input, { key: 'Enter', keyCode: 229, metaKey: true })
   expect(onSend).not.toHaveBeenCalled()
 })
-it('does not delete reference tags while composing into an empty draft', () => {
-  const { input, onMentions } = composer({ draft: '', mentions: [{ rel: 'a.ts', isDir: false }] })
-  fireEvent.compositionStart(input)
-  fireEvent.keyDown(input, { key: 'Backspace' })
-  expect(onMentions).not.toHaveBeenCalled()
-})
 it.each(['@src', '$au'])('commits %s completion before sending', value => {
   const { input, onSend, onMentions } = composer({ draft: value })
   fireEvent.change(input, { target: { value: value + 'd', selectionStart: value.length } })

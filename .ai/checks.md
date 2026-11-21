@@ -39,7 +39,7 @@ canonical gate procedures live in .ai/skills. Local execution remains explicitly
 | `pnpm i18n` | Six-locale keys/placeholders/plurals and emitted error coverage |
 | `pnpm i18n:scan` | CJK UI literals; only explicit non-UI/IME/Unicode fixture allowlists |
 | `pnpm check:workflows` | Non-ASCII text immediately after shell variable expansions |
-| `pnpm test:frontend` | Agent/settings, queued interjection ordering/recovery, latest-message shortcuts/following, Codex plan copy/action mapping/instructions order, send hints, welcome layout/composer height, permission picker labels/actions/overflow recovery, empty-pane collapse, providers, IME, terminal, tree/watch, diffs, updates and links |
+| `pnpm test:frontend` | Agent/settings, question streaming edits/submission gates and failed-launch unlock/retry with answer preservation, queued interjection ordering/recovery, in-place chat reset, complete local/prompt command help and slash ordering, session-only token rows, isolated live status rendering, latest-message shortcuts/following, Codex plan copy/action mapping/instructions order, send hints, welcome layout/composer height, permission picker labels/actions/overflow recovery, empty-pane collapse, providers and installed/uninstalled detection folding, IME, terminal, tree/watch, diffs, updates, explicit install confirmation and links |
 | `pnpm typecheck` | Types, missing runtime imports/hooks and complete locale records |
 | `pnpm check:rust` | Rust types/borrows without linking |
 | `pnpm docs:route` | All matching scopes; --explain reasons; --query metadata-only candidate search |

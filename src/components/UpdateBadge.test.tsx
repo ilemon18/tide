@@ -39,8 +39,8 @@ afterEach(cleanup)
 
 it('shows the update action as visible text and starts it on click', () => {
   render(<UpdateBadge primary />)
-  const button = screen.getByRole('button', { name: /Download and install, then restart/ })
-  expect(button.querySelector('span:not(.sr-only)')?.textContent).toBe('Update to latest')
+  const button = screen.getByRole('button', { name: /Download update/ })
+  expect(button.querySelector('span:not(.sr-only)')?.textContent).toBe('Download update')
   fireEvent.click(button)
   expect(useUpdate.getState().download).toHaveBeenCalledOnce()
 })

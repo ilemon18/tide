@@ -43,6 +43,9 @@ App owns hydration/window coordination; the settings store and Rust theme comman
 
 ## Windows and startup
 
+- Cmd/Ctrl+A opens the agent from application chrome and uses the same action as the title-bar agent button;
+  editor, terminal, text-field, contenteditable and dialog targets retain native select-all behavior.
+
 - One window/project. Only `IS_PRIMARY_WINDOW` persists session/chat state; secondaries use the window URL
   project without overwriting primary state. `app:open-file` has no listener; do not assume consumption.
 - macOS retains traffic-light inset; Windows/Linux use TitleBar's custom drag/control region. Every window
@@ -68,9 +71,10 @@ App owns hydration/window coordination; the settings store and Rust theme comman
   preserve larger saved heights, and only clamp for the current window in the composer.
 - Add settings in both types/defaults, migration, UI and SHARED_KEYS when shared across windows. Retirement
   removes both defaults and adds RETIRED_KEYS or the old key is written back forever.
-- Schema v11 adds agentDefaultPermissionMode=workspace-write. Invalid values fall back without resetting
-  other settings. Provider/model/effort/permission defaults write immediately and sync windows; UI patches
-  related fields together. Historical chats keep saved options; temporary plan options never become defaults.
+- Schema v11 adds agentDefaultPermissionMode=workspace-write and schema v12 adds autoUpdate=false. Invalid
+  values fall back without resetting other settings. Provider/model/effort/permission and update preferences
+  write immediately and sync windows; UI patches related fields together. Historical chats keep saved options;
+  temporary plan options never become defaults.
 - settings.json/session.json use app_config_dir and the Rust theme lock; chat storage follows
   [agent-storage.md](./agent-storage.md). `public/theme-boot.js` paints before React with CSP-safe external JS.
 

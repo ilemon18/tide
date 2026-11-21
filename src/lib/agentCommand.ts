@@ -38,6 +38,23 @@ export const AGENT_COMMANDS: readonly AgentCommandId[] = [
   ...AGENT_LOCAL_COMMANDS,
 ]
 
+/** Slash picker/help order. Keep the most frequently used chat/session actions first. */
+export const AGENT_COMMAND_ORDER: readonly AgentCommandId[] = [
+  'new',
+  'resume',
+  'fork',
+  'compact',
+  'status',
+  'model',
+  'permissions',
+  'plan',
+  'goal',
+  'review',
+  'test',
+  'explain',
+  'help',
+]
+
 /** A skill chip: `path` is what the prompt points the agent at. */
 export type AgentSkillRef = Pick<AgentSkillInfo, 'name' | 'path' | 'source'>
 
@@ -188,8 +205,7 @@ export function triggerAt(value: string, caret: number): ComposerTrigger | null 
 /** Filter the fixed command list; an empty query shows every command. */
 export function matchCommands(query: string): AgentCommandId[] {
   const q = query.trim().toLowerCase()
-  if (!q) return [...AGENT_COMMANDS]
-  return AGENT_COMMANDS.filter((id) => id.startsWith(q) || id.includes(q))
+  return AGENT_COMMAND_ORDER.filter((id) => !q || id.startsWith(q) || id.includes(q))
 }
 
 function skillScore(query: string, skill: AgentSkillInfo): number {

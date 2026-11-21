@@ -91,6 +91,8 @@ function MentionChip({
 const clamp = (value: number, min: number, max: number) =>
   Math.min(max, Math.max(min, value))
 
+const COMMAND_PICKER_LIMIT = 8
+
 function composerMaxHeight() {
   return Math.max(
     AGENT_COMPOSER_MIN_HEIGHT,
@@ -136,6 +138,7 @@ export function AgentComposer({
   const composingRef = useRef(false)
   const compositionEndedAt = useRef(-Infinity)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const commandListRef = useRef<HTMLDivElement>(null)
   const [trigger, setTrigger] = useState<ComposerTrigger | null>(null)
   const [highlight, setHighlight] = useState(0)
   const agentComposerHeight = useSettings((s) => s.agentComposerHeight)
@@ -205,6 +208,22 @@ export function AgentComposer({
       trigger?.kind === 'skill' ? rankSkills(trigger.text, skillCatalog ?? []) : [],
     [trigger, skillCatalog],
   )
+
+  const commandWindowStart = Math.min(
+    Math.max(0, highlight - COMMAND_PICKER_LIMIT + 1),
+    Math.max(0, commandHits.length - COMMAND_PICKER_LIMIT),
+  )
+  const visibleCommandHits = commandHits.slice(
+    commandWindowStart,
+    commandWindowStart + COMMAND_PICKER_LIMIT,
+  )
+
+  useEffect(() => {
+    if (trigger?.kind !== 'command') return
+    const active = commandListRef.current
+      ?.querySelector<HTMLElement>(`[data-command-index="${highlight}"]`)
+    active?.scrollIntoView?.({ block: 'nearest' })
+  }, [trigger?.kind, highlight])
 
   useEffect(() => {
     setHighlight(0)
@@ -313,7 +332,7 @@ export function AgentComposer({
 
       {showPopup && trigger ? (
         // In normal flow: an absolute list above the box is clipped by the transcript scroll area
-        <div className="max-h-[260px] w-full overflow-auto rounded-[var(--r-popup)] border border-line-soft bg-panel py-1 shadow-popup">
+        <div ref={commandListRef} className="max-h-[260px] w-full overflow-auto rounded-[var(--r-popup)] border border-line-soft bg-panel py-1 shadow-popup">
           <div className="px-2.5 pb-1 pt-0.5 text-2xs text-muted">
             {trigger.kind === 'mention'
               ? t('agent.mentionPick')
@@ -342,10 +361,13 @@ export function AgentComposer({
             : null}
 
           {trigger.kind === 'command'
-            ? commandHits.map((id, i) => (
+            ? visibleCommandHits.map((id, offset) => {
+                const i = commandWindowStart + offset
+                return (
                 <button
                   key={id}
                   type="button"
+                  data-command-index={i}
                   onMouseDown={(e) => {
                     e.preventDefault()
                     pickCommand(id)
@@ -362,7 +384,8 @@ export function AgentComposer({
                     {t(COMMAND_DESCRIPTIONS[id])}
                   </span>
                 </button>
-              ))
+                )
+              })
             : null}
 
           {trigger.kind === 'skill' ? (

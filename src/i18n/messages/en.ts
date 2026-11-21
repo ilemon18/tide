@@ -63,7 +63,7 @@ export const en = {
   'agent.local.help.label': "Help",
   'agent.local.help.desc': "Show local command help",
   'agent.local.unavailable': "This operation is unavailable in the current provider driver.",
-  'agent.local.helpText': "/new \u00b7 /resume [chat ID] \u00b7 /fork \u00b7 /compact \u00b7 /status \u00b7 /model [model ID|default] \u00b7 /permissions [read-only|workspace-write|full-access] \u00b7 /plan \u00b7 /help",
+  'agent.local.helpText': "/new \u00b7 /resume [chat ID] \u00b7 /fork \u00b7 /compact \u00b7 /status \u00b7 /model [model ID|default] \u00b7 /permissions [read-only|workspace-write|full-access] \u00b7 /plan \u00b7 /goal \u00b7 /review \u00b7 /test \u00b7 /explain \u00b7 /help",
   'agent.history.earlier': "Earlier messages",
   'agent.history.later': "Later messages",
   'agent.history.pending': "Open pending request",
@@ -150,6 +150,8 @@ export const en = {
 
   // ---------------------------------------------------------------- Settings: general
   'settings.language.card': 'Language',
+  'settings.general.autoUpdate': 'Automatic updates',
+  'settings.general.autoUpdateHint': 'Downloads updates in the background and asks before installing.',
 
   // ---------------------------------------------------------------- Settings: appearance
   'settings.appearance.theme': 'Theme',
@@ -234,8 +236,10 @@ export const en = {
   'settings.about.updates': 'Updates',
   'settings.about.checkUpdates': 'Check for updates',
   'settings.about.checking': 'Checking…',
-  'settings.about.download': 'Update to latest',
-  'settings.about.restartUpdate': 'Restart to update',
+  'settings.about.download': 'Download update',
+  'settings.about.install': 'Install update',
+  'settings.about.installUpdate': 'Install update',
+  'settings.about.installPrompt': 'Version {version} is ready to install. Install it now?',
   'settings.about.installing': 'Installing…',
   'settings.about.retry': 'Retry',
   'settings.about.updateFailed': 'Update failed',
@@ -244,15 +248,14 @@ export const en = {
   'settings.about.openRelease': 'Open the release page',
   'settings.about.noInstaller':
     'Version {version} is out, but that release lists no installer: open the release page to download it',
-  'settings.about.downloaded': 'Update downloaded. Restart to finish installing.',
+  'settings.about.downloaded': 'Update downloaded. Click Install update when you are ready.',
   'settings.about.downloadedInto': 'Update downloaded. It will be installed in {path}.',
-  'settings.about.updateLog': 'Update log',
 
   // ---------------------------------------------------------------- In-app update (title bar / toasts)
   'update.downloading': 'Downloading {percent}%',
   'update.installing': 'Installing the update, the app will restart',
-  'update.clickToInstall': 'Click to restart and install',
-  'update.clickToDownload': 'Download and install, then restart · {version}',
+  'update.clickToInstall': 'Click to install the update',
+  'update.clickToDownload': 'Download update · {version}',
   'update.unsavedEdits': 'Save your unsaved changes before updating.',
   'update.available': 'Update available · {version}',
   'update.updated': 'Updated to {version}',
@@ -790,7 +793,7 @@ export const en = {
   'commands.view.goToSymbol': 'Go to symbol in file…',
 
   'settings.section.agent.label': 'Agent',
-  'titlebar.agentTip': 'Ask the agent',
+  'titlebar.agentTip': 'Ask the agent ({shortcut})',
   'agent.tabLabel': 'Agent',
   'agent.newChat': 'New chat',
   'agent.noWorkspace': 'Open a folder to use the agent',
@@ -928,6 +931,9 @@ export const en = {
   'settings.agent.defaultPermissions': 'Default permissions',
   'settings.agent.detected': 'Detected on this machine',
   'settings.agent.detectedHint': 'Found on PATH or in a common install directory.',
+  'settings.agent.more': 'More',
+  'settings.agent.less': 'Show less',
+  'settings.agent.moreCount': '{count} more',
   'settings.agent.rescan': 'Rescan',
   'settings.agent.scanning': 'Scanning…',
   'settings.agent.none': 'No agent CLI found. Install Claude Code or Codex to get started.',

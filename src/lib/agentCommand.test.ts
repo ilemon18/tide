@@ -1,7 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { normalizeAgentDraft, parseAgentLocalCommand, buildAgentPrompt } from './agentCommand'
+import { normalizeAgentDraft, parseAgentLocalCommand, buildAgentPrompt, matchCommands } from './agentCommand'
 
 describe('command boundaries', () => {
+  it('keeps the slash picker in the common command order', () => {
+    expect(matchCommands('')).toEqual([
+      'new', 'resume', 'fork', 'compact', 'status', 'model', 'permissions',
+      'plan', 'goal', 'review', 'test', 'explain', 'help',
+    ])
+    expect(matchCommands('e')).toEqual(['new', 'resume', 'model', 'permissions', 'review', 'test', 'explain', 'help'])
+  })
+
   it('keeps local commands out of prompt tags', () => {
     expect(parseAgentLocalCommand('/resume chat-1')).toEqual({ id: 'resume', args: 'chat-1' })
     expect(normalizeAgentDraft({ text: '/fork', mentions: [] }).command).toBeUndefined()

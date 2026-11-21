@@ -242,7 +242,7 @@ type AgentStore = {
   newChat: (root?: string, mentions?: AgentMention[]) => string | null
   loadSkills: (root: string) => Promise<void>
   sendMessage: (chatId: string, draft: AgentDraft) => Promise<void>
-  answerQuestion: (chatId: string, itemId: string, answer: string) => boolean
+  answerQuestion: (chatId: string, itemId: string, answer: string) => Promise<boolean>
   resolvePlanAction: (chatId: string, itemId: string, action: AgentPlanAction, instructions?: string) => Promise<boolean>
   removeQueued: (chatId: string, id: string) => void
   interjectQueued: (chatId: string, id: string) => Promise<boolean>
@@ -253,6 +253,7 @@ type AgentStore = {
   respondPermission: (chatId: string, requestId: string, allow: boolean) => Promise<void>
   setChatOptions: (chatId: string, patch: { model?: string; effort?: string }) => void
   setChatDraft: (chatId: string, patch: Partial<AgentDraft>) => void
+  resetChat: (chatId: string) => Promise<boolean>
   newChatFrom: (chatId: string) => void
   flushChats: () => void
 }
@@ -263,6 +264,8 @@ const planActionLocks = new Set<string>()
 const timers = new Map<string, ReturnType<typeof setTimeout>>()
 /** One write chain per chat: two atomic renames of the same file must finish in order */
 const writeQueues = new Map<string, Promise<void>>()
+/** Prevent a new turn from racing an in-place /new reset for the same chat. */
+const resetLocks = new Map<string, Promise<boolean>>()
 /** Catalog requests can overlap on a forced rescan: only the newest response may win */
 const catalogTickets = new Map<string, number>()
 /** Identifies the active provider scan so only its response may finish the loading state */
@@ -484,7 +487,7 @@ export const useAgent = create<AgentStore>((set, get) => {
     if (get().pages[chatId]?.hasLater) await get().loadPage(chatId, 'latest')
     const chat = get().chats[chatId]
     if (get().pages[chatId]?.hasLater) return false
-    if (!chat || chat.status === 'running' || !useSettings.getState().agentEnabled) return false
+    if (!chat || chat.status === 'running' || resetLocks.has(chatId) || !useSettings.getState().agentEnabled) return false
     // The backend re-checks the toggle: make sure its 400ms debounced write has landed first
     useSettings.getState().flush()
     const sentDraft = get().chatDrafts[chatId]
@@ -955,6 +958,7 @@ export const useAgent = create<AgentStore>((set, get) => {
       const chat = get().chats[chatId]
       if (!chat) return
       if (!useSettings.getState().agentEnabled) return
+      if (resetLocks.has(chatId)) return
       if (get().interjecting[chatId]) return
       if ([...planActionLocks].some(key => key.startsWith(`${chatId}:`))) return
       const local = parseAgentLocalCommand(draft.text)
@@ -975,8 +979,8 @@ export const useAgent = create<AgentStore>((set, get) => {
           const blocked = !!findPendingQuestion(chat.messages) || !!findPendingPlanAction(chat.messages) ||
             get().pages[chatId]?.hasPendingQuestion || get().pages[chatId]?.hasUnhandledPlanAction
           if (['compact', 'fork', 'permissions'].includes(local.id) && (blocked || (get().queues[chatId]?.length ?? 0) > 0)) throw new Error(t('agent.local.busy'))
+          if (local.id === 'new') { await get().resetChat(chatId); return }
           get().setChatDraft(chatId, { text: '', command: undefined })
-          if (local.id === 'new') { get().newChat(chat.root); return }
           if (local.id === 'model') {
             if (local.args) {
               if (/\s/.test(local.args)) throw new Error(t('agent.local.invalidArgs'))
@@ -1060,9 +1064,9 @@ export const useAgent = create<AgentStore>((set, get) => {
       await runTurn(chatId, next, true)
     },
 
-    answerQuestion: (chatId, itemId, answer) => {
+    answerQuestion: async (chatId, itemId, answer) => {
       const chat = get().chats[chatId]
-      if (!chat || chat.status === 'running') return false
+      if (!chat || chat.status === 'running' || get().pageLoading[chatId] || resetLocks.has(chatId) || !useSettings.getState().agentEnabled) return false
       const pending = findPendingQuestion(chat.messages)
       if (!pending || pending.item.id !== itemId) return false
       const trimmed = answer.trim()
@@ -1089,20 +1093,31 @@ export const useAgent = create<AgentStore>((set, get) => {
       schedulePersist(chatId)
       const question = pending.item.question ?? ''
       const prompt = t('agent.question.answerPrompt', { question, answer: trimmed })
-      void runTurn(chatId, { text: prompt, mentions: [], command: pending.message.planning ? 'plan' : undefined }, true, false, readOnly).then(accepted => {
-        if (accepted) return
+      try {
+        if (await runTurn(chatId, { text: prompt, mentions: [], command: pending.message.planning ? 'plan' : undefined }, true, false, readOnly)) return true
+      } catch (error) {
         const current = get().chats[chatId]
-        if (!current) return
-        const restored = current.messages.map(message => message.id === pending.message.id ? pending.message : message)
-        if (!restored.some(message => message.id === pending.message.id)) {
-          void queueChatSave(chatId, { ...current, messages: [pending.message] }).catch(error => useUi.getState().toast(errorText(error), 'error'))
-        }
-        set({ chats: { ...get().chats, [chatId]: { ...current, messages: restored } } })
-        const page = get().pages[chatId]
-        if (page) set({ pages: { ...get().pages, [chatId]: { ...page, hasPendingQuestion: true, pendingMessageId: pending.message.id } } })
-        schedulePersist(chatId)
-      })
-      return true
+        if (current) set({ chats: { ...get().chats, [chatId]: { ...current, error: errorText(error) } } })
+      }
+      const current = get().chats[chatId]
+      if (!current) return false
+      if (!current.messages.some(message => message.id === pending.message.id)) {
+        // The source question can leave the loaded window when runTurn loads recent history.
+        await queueChatSave(chatId, { ...current, messages: [pending.message] }).catch(error => useUi.getState().toast(errorText(error), 'error'))
+      }
+      const latest = get().chats[chatId]
+      if (!latest) return false
+      // Restore only this answer in the latest page, retaining newer text, metadata and sibling items.
+      const restored = latest.messages.map(message => message.id === pending.message.id ? {
+        ...message,
+        items: message.items?.map(item => item.id === itemId && item.answer === trimmed
+          ? { ...item, answer: pending.item.answer } : item),
+      } : message)
+      set({ chats: { ...get().chats, [chatId]: { ...latest, messages: restored } } })
+      const restoredPage = get().pages[chatId]
+      if (restoredPage) set({ pages: { ...get().pages, [chatId]: { ...restoredPage, hasPendingQuestion: true, pendingMessageId: pending.message.id } } })
+      schedulePersist(chatId)
+      return false
     },
 
     resolvePlanAction: async (chatId, itemId, action, instructions = '') => {
@@ -1681,10 +1696,132 @@ export const useAgent = create<AgentStore>((set, get) => {
       })
     },
 
+    resetChat: (chatId) => {
+      const existing = resetLocks.get(chatId)
+      if (existing) return existing
+      const work = (async () => {
+      let chat = get().chats[chatId]
+      if (!chat) return false
+      const queuedBeforeReset = get().queues[chatId]
+      const restoreQueue = () => {
+        if (!queuedBeforeReset?.length || get().queues[chatId]?.length) return
+        set({ queues: { ...get().queues, [chatId]: queuedBeforeReset } })
+      }
+
+      // Subscribe before cancelling: the matching Done event may arrive before the IPC call
+      // resolves, and reset must never race the old process or its queued drain.
+      const runId = chat.status === 'running' ? chat.activeRunId : null
+      if (runId) {
+        let unsubscribe: (() => void) | undefined
+        const stopped = new Promise<boolean>((resolve) => {
+          unsubscribe = useAgent.subscribe((state) => {
+            const current = state.chats[chatId]
+            if (!current || current.activeRunId !== runId || current.status !== 'running') resolve(true)
+          })
+        })
+        try {
+          // Drop queued work before Done can automatically drain it.
+          const queues = { ...get().queues }
+          delete queues[chatId]
+          set({ queues })
+          await api.agentCancel(chatId)
+          if (!await stopped) {
+            restoreQueue()
+            return false
+          }
+        } catch (error) {
+          restoreQueue()
+          const current = get().chats[chatId]
+          if (current) {
+            set({ chats: { ...get().chats, [chatId]: { ...current, error: errorText(error) } } })
+            schedulePersist(chatId)
+          }
+          return false
+        } finally {
+          unsubscribe?.()
+        }
+      }
+
+      chat = get().chats[chatId]
+      if (!chat || chat.status === 'running') return false
+
+      const timer = timers.get(chatId)
+      if (timer) clearTimeout(timer)
+      timers.delete(chatId)
+      dirty.delete(chatId)
+      try {
+        await writeQueues.get(chatId)
+      } catch {
+        // The reset below is the authoritative write; a failed older patch must not block it.
+      }
+
+      const reset: AgentChat = {
+        ...chat,
+        title: '',
+        activeRunId: null,
+        eventSequence: undefined,
+        sessionId: null,
+        sessionUsage: undefined,
+        sessionCost: undefined,
+        currentContext: undefined,
+        compactSummary: undefined,
+        compactPending: false,
+        sessionAction: null,
+        planning: false,
+        messages: [],
+        status: 'idle',
+        error: null,
+        updatedAt: Date.now(),
+      }
+      const { messages: _messages, ...header } = reset
+      try {
+        const page = await api.agentChatReset(chatId, {
+          ...header,
+          currentContext: null,
+          sessionUsage: null,
+          sessionCost: null,
+          compactSummary: null,
+          messages: [],
+        })
+        const normalized = normalizeChat({ ...page.header, messages: page.messages }) ?? reset
+        const pages = { ...get().pages, [chatId]: page }
+        const chatDrafts = { ...get().chatDrafts }
+        delete chatDrafts[chatId]
+        const queues = { ...get().queues }
+        delete queues[chatId]
+        const interjecting = { ...get().interjecting }
+        delete interjecting[chatId]
+        set({
+          chats: { ...get().chats, [chatId]: { ...normalized, messages: [], status: 'idle', error: null } },
+          pages,
+          chatDrafts,
+          queues,
+          interjecting,
+          focusRequests: { ...get().focusRequests, [chatId]: (get().focusRequests[chatId] ?? 0) + 1 },
+        })
+        useTabs.getState().setTabName(chatTabId(chatId), '')
+        return true
+      } catch (error) {
+        restoreQueue()
+        const current = get().chats[chatId]
+        if (current) {
+          set({ chats: { ...get().chats, [chatId]: { ...current, error: errorText(error) } } })
+          schedulePersist(chatId)
+        }
+        return false
+      }
+      })()
+      const result = work.finally(() => {
+        if (resetLocks.get(chatId) === result) resetLocks.delete(chatId)
+      })
+      resetLocks.set(chatId, result)
+      return result
+    },
+
     newChatFrom: (chatId) => {
       const chat = get().chats[chatId]
       if (!chat) return
-      get().newChat(chat.root)
+      void get().resetChat(chatId)
     },
 
     flushChats: () => {
