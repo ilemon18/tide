@@ -57,6 +57,10 @@ CLIs own auth/models/tools; Rust owns processes; the agent store owns queues/UI.
   and mark truncation; grapheme smoothing preserves stored/copied bytes.
 - Running sends enter FIFO queue, never process stdin. Success drains without erasing newer drafts;
   failure keeps session/queue. Unanswered questions/plans block sends/drain across pages.
+- A queued card can explicitly interject: wait for the old launch, request cancellation, then wait for its
+  matching Done before launching the selected entry. Lock duplicate actions and automatic drain during the
+  transaction; preserve other entries' relative order, metadata and newer composer drafts. Cancel/launch
+  failure retains the selected entry and reports the error; pending question/plan gates still apply.
 
 ## Permissions and preferences
 
@@ -79,6 +83,10 @@ CLIs own auth/models/tools; Rust owns processes; the agent store owns queues/UI.
   stays a tree gesture. Items preserve source order, reconcile IDs and retain expansion.
 - Tail reports activity/elapsed/confirmation waits; persist completion time and backend duration. Finished
   reopened turns show local HH:mm, live ones omit it. History expansion pauses following.
+- Cmd+Down/Ctrl+Down jumps only in the active chat, respecting overlays and IME. Jumping loads the latest
+  history page first. Sends and successful interjections resume following after transcript commits, through
+  deferred content/viewport resizing and final completion layout. Upward reading gestures pause following;
+  content-growth scroll events alone never clear that intent. Queued cards use the lighter panel surface.
 - Context popup uses provider context/session usage, unaffected by loaded history/drafts. Zero is valid;
   invalid is unavailable. Keep persisted cost fields compatible, without price UI.
 

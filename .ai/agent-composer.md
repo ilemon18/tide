@@ -6,7 +6,7 @@ scope:
   - src/store/agent.test.ts
   - src/lib/agentCommand*.ts
   - src/components/AgentComposer*.tsx
-  - src/components/AgentPickers.tsx
+  - src/components/AgentPickers*.tsx
   - src/components/AgentTags*.tsx
   - src/components/AgentChat*.tsx
   - src-tauri/src/agent/question.rs
@@ -42,6 +42,7 @@ actions and queue gates. Rust parses questions/scans skills. Provider/model/perm
 - Enter/Ctrl+Enter/Cmd+Enter sends; Shift+Enter inserts a line. Candidate Enter commits first. Composition
   lifecycle, native isComposing, keyCode 229 and WebKit post-composition Enter precede completion/send/delete.
   Repeated Enter never duplicates queue entries; preserve body whitespace.
+  Send tooltips contain only the localized Enter hint; pending-card guidance stays in the input placeholder.
 - Composer starts at 90px, grows to min(480px, half-window); clamping preserves larger saved minima.
   Height owners: `src/store/settings.ts` and `src-tauri/src/commands/theme.rs`; older smaller minima normalize up.
   Nearest /, $ or @ wins. Slash/mention need a boundary; skills reject preceding word/$; $5 stays prose.
@@ -50,6 +51,11 @@ actions and queue gates. Rust parses questions/scans skills. Provider/model/perm
 - A new conversation centers its workspace heading above one complete accent-bordered composer. Messages,
   persisted history/pages, loading, running, existing sessions or queued sends keep the transcript/footer layout.
   First send changes layout without remounting the composer; provider/error guidance remains visible.
+- The footer permission picker shows its mode icon, localized mode name and dropdown arrow only when the
+  entire label fits; otherwise it uses the compact icon button. Measure the full intrinsic content separately
+  from the allocated slot to avoid resize oscillation; mode/locale/font changes update the measurement.
+  Tooltip/accessibility retain the full name and menus retain provider descriptions. The toolbar stays on
+  one row, send/stop controls keep their space and long model names truncate.
 
 ## Questions and plan transactions
 
@@ -63,6 +69,7 @@ actions and queue gates. Rust parses questions/scans skills. Provider/model/perm
   “Yes, implement this plan”; “Yes, clear context and implement”; “No, stay in Plan mode”.
   Source: [Codex plan_implementation.rs, commit 63a15005](https://github.com/openai/codex/blob/63a15005de43a3db68d451403593b202ed337d20/codex-rs/tui/src/chatwidget/plan_implementation.rs).
   Copy maps to existing persisted action IDs; clear-context execution starts a fresh same-root chat carrying the plan.
+  Optional instructions follow all three action buttons and accompany the selected action.
 - Local /new, project-scoped /resume [chat ID], /model [ID|default], three-mode /permissions, /status and
   /help never reach the model. Missing arguments open selectors; invalid ones report errors.
 - /fork clones saved history after capability probing (Claude --fork-session; Codex app-server/RPC validation).
@@ -74,5 +81,5 @@ actions and queue gates. Rust parses questions/scans skills. Provider/model/perm
 ## Change map and verification
 
 Align prompt construction, Rust parser, UI cards and saved actions. Existing tests protect IME/chip boundaries,
-read-only guidance, questions, plan persistence, duplicate actions and retries. Real IME/native approval
-verification requires an explicit request; gate policy: [checks.md](./checks.md).
+read-only guidance, questions, plan persistence, duplicate actions, retries and permission picker labels/actions.
+Real IME/native approval verification requires an explicit request; gate policy: [checks.md](./checks.md).

@@ -44,7 +44,10 @@ it('shows the plan once followed by three next actions and optional instructions
   render(view())
   expect(screen.getAllByText('The agreed plan')).toHaveLength(1)
   expect(screen.getAllByRole('button')).toHaveLength(3)
-  expect(screen.getByRole('textbox', { name: 'agent.plan.instructions' })).toBeTruthy()
+  const instructions = screen.getByRole('textbox', { name: 'agent.plan.instructions' })
+  for (const button of screen.getAllByRole('button')) {
+    expect(button.compareDocumentPosition(instructions) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  }
 })
 
 it('keeps the official Codex option order wired to the matching persisted actions', async () => {

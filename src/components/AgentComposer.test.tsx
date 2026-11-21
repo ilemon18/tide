@@ -13,6 +13,8 @@ vi.mock('../i18n', () => ({ useT: () => (key: string) => key, t: (key: string) =
 vi.mock('./AgentPickers', () => ({ AgentPicker: () => null, ModelPicker: () => null, EffortPicker: () => null }))
 vi.mock('./Icon', () => ({ Icon: () => null }))
 import { AgentComposer } from './AgentComposer'
+import { en } from '../i18n/messages/en'
+import { zhCN } from '../i18n/messages/zh-CN'
 afterEach(() => { cleanup(); settings.agentComposerHeight = 90; vi.unstubAllGlobals() })
 it('orders context, stop and send and allows a standalone plan toggle', () => {
   vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
@@ -80,6 +82,19 @@ it('uses the same send action to enqueue while running', () => {
   fireEvent.keyDown(input, { key: 'Enter' })
   expect(onSend).toHaveBeenCalledOnce()
 })
+
+it.each([{}, { running: true }, { pendingQuestion: true }, { pendingPlan: true }])(
+  'keeps only the short Enter hint on the send button: %j', options => {
+    const { container } = composer(options)
+    const button = container.querySelector('button[data-tip="agent.composer.sendHint"]')!
+    expect(button).toBeTruthy()
+    expect(button.getAttribute('data-tip')).toBe('agent.composer.sendHint')
+    expect(en['agent.composer.sendHint']).toBe('Press Enter to send')
+    expect(zhCN['agent.composer.sendHint']).toBe(String.fromCodePoint(0x70b9, 0x51fb) + 'Enter' + String.fromCodePoint(0x53d1, 0x9001))
+    if ('pendingQuestion' in options) expect(screen.getByRole('textbox').getAttribute('placeholder')).toBe('agent.question.pendingHint')
+    if ('pendingPlan' in options) expect(screen.getByRole('textbox').getAttribute('placeholder')).toBe('agent.plan.pendingHint')
+  },
+)
 
 it('ignores native composition flags and keyCode 229 even without composition lifecycle events', () => {
   const { input, onSend } = composer()

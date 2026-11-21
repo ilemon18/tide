@@ -397,15 +397,6 @@ function PlanCard({
 
       {!resolved ? (
         <div className="flex flex-col gap-2 p-3">
-          <textarea
-            value={instructions}
-            onChange={event => setInstructions(event.target.value)}
-            disabled={locked}
-            aria-label={t('agent.plan.instructions')}
-            placeholder={t('agent.plan.instructions')}
-            rows={2}
-            className="w-full resize-y rounded-[var(--r-row)] border border-line-soft bg-bg px-2 py-1.5 text-xs text-fg outline-none placeholder:text-muted/60 focus:border-accent/60 disabled:opacity-60"
-          />
           {/* Codex plan_implementation.rs: keep official option copy/order; action IDs stay persisted. */}
           <div className="flex flex-col gap-1.5">
             <button
@@ -433,6 +424,15 @@ function PlanCard({
               <span className="min-w-0 flex-1 text-xs font-medium text-fg">{t('agent.plan.continuePlanning')}</span>
             </button>
           </div>
+          <textarea
+            value={instructions}
+            onChange={event => setInstructions(event.target.value)}
+            disabled={locked}
+            aria-label={t('agent.plan.instructions')}
+            placeholder={t('agent.plan.instructions')}
+            rows={2}
+            className="w-full resize-y rounded-[var(--r-row)] border border-line-soft bg-bg px-2 py-1.5 text-xs text-fg outline-none placeholder:text-muted/60 focus:border-accent/60 disabled:opacity-60"
+          />
         </div>
       ) : (
         <div className="flex items-center gap-2 px-3 py-2 text-xs text-success">

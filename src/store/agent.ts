@@ -220,6 +220,8 @@ type AgentStore = {
   skillsLoading: Record<string, boolean>
   /** Messages queued behind the running turn, in send order */
   queues: Record<string, AgentQueuedMessage[]>
+  /** Selected queued message while stopping the old turn and launching its replacement. */
+  interjecting: Record<string, string>
 
   chatDefaults: ChatDefaults
 
@@ -243,6 +245,7 @@ type AgentStore = {
   answerQuestion: (chatId: string, itemId: string, answer: string) => boolean
   resolvePlanAction: (chatId: string, itemId: string, action: AgentPlanAction, instructions?: string) => Promise<boolean>
   removeQueued: (chatId: string, id: string) => void
+  interjectQueued: (chatId: string, id: string) => Promise<boolean>
   stop: (chatId: string) => Promise<void>
   applyEvent: (payload: AgentEventPayload) => void
   setChatProvider: (chatId: string, provider: string, options?: { remember?: boolean }) => void
@@ -467,6 +470,8 @@ export function findPendingPlanAction(messages: AgentMessage[]): PendingPlanActi
 }
 
 export const useAgent = create<AgentStore>((set, get) => {
+  // Cancellation must wait until agentSend has actually registered the old run in Rust.
+  const launches = new Map<string, Promise<void>>()
   const runTurn = async (
     chatId: string,
     draft: AgentDraft,
@@ -500,6 +505,8 @@ export const useAgent = create<AgentStore>((set, get) => {
     const readOnly = planning || readOnlyOverride === true || (readOnlyOverride !== false && chat.permissionMode === 'read-only')
     const assistantId = agentUid('a')
     const runId = agentUid('run')
+    let finishLaunch!: () => void
+    launches.set(runId, new Promise<void>(resolve => { finishLaunch = resolve }))
     messages.push({
       id: assistantId,
       role: 'assistant',
@@ -598,6 +605,9 @@ export const useAgent = create<AgentStore>((set, get) => {
       })
       schedulePersist(chatId)
       return false
+    } finally {
+      launches.delete(runId)
+      finishLaunch()
     }
   }
 
@@ -619,7 +629,7 @@ export const useAgent = create<AgentStore>((set, get) => {
 
   /** Start the oldest queued message after a successful turn. Stop retains the queue. */
   const drainQueue = (chatId: string) => {
-    if (!useSettings.getState().agentEnabled) return
+    if (!useSettings.getState().agentEnabled || get().interjecting[chatId]) return
     const chat = get().chats[chatId]
     if (!chat || findPendingQuestion(chat.messages) || findPendingPlanAction(chat.messages) || get().pages[chatId]?.hasPendingQuestion || get().pages[chatId]?.hasUnhandledPlanAction) return
     const queue = get().queues[chatId] ?? []
@@ -700,6 +710,7 @@ export const useAgent = create<AgentStore>((set, get) => {
     loadingChats: {},
     chatDrafts: {},
     queues: {},
+    interjecting: {},
     skillsByRoot: {},
     skillsLoading: {},
 
@@ -876,6 +887,8 @@ export const useAgent = create<AgentStore>((set, get) => {
       delete chatDrafts[id]
       const queues = { ...get().queues }
       delete queues[id]
+      const interjecting = { ...get().interjecting }
+      delete interjecting[id]
       const timer = timers.get(id)
       if (timer) clearTimeout(timer)
       timers.delete(id)
@@ -885,7 +898,7 @@ export const useAgent = create<AgentStore>((set, get) => {
       delete pages[id]
       const pageLoading = { ...get().pageLoading }
       delete pageLoading[id]
-      set({ chats, running, chatDrafts, queues, pages, pageLoading })
+      set({ chats, running, chatDrafts, queues, interjecting, pages, pageLoading })
     },
 
     openChatTab: (id) => {
@@ -942,6 +955,7 @@ export const useAgent = create<AgentStore>((set, get) => {
       const chat = get().chats[chatId]
       if (!chat) return
       if (!useSettings.getState().agentEnabled) return
+      if (get().interjecting[chatId]) return
       if ([...planActionLocks].some(key => key.startsWith(`${chatId}:`))) return
       const local = parseAgentLocalCommand(draft.text)
       const normalized = normalizeAgentDraft(draft)
@@ -1174,11 +1188,80 @@ export const useAgent = create<AgentStore>((set, get) => {
     },
 
     removeQueued: (chatId, id) => {
+      if (get().interjecting[chatId] === id) return
       const queue = (get().queues[chatId] ?? []).filter((item) => item.id !== id)
       const queues = { ...get().queues }
       if (queue.length > 0) queues[chatId] = queue
       else delete queues[chatId]
       set({ queues })
+    },
+
+    interjectQueued: async (chatId, id) => {
+      const blocked = () => {
+        const chat = get().chats[chatId]
+        return !chat || !useSettings.getState().agentEnabled || get().pageLoading[chatId] ||
+          !!findPendingQuestion(chat.messages) || !!findPendingPlanAction(chat.messages) ||
+          get().pages[chatId]?.hasPendingQuestion || get().pages[chatId]?.hasUnhandledPlanAction ||
+          [...planActionLocks].some(key => key.startsWith(`${chatId}:`))
+      }
+      if (blocked() || get().interjecting[chatId] || !get().queues[chatId]?.some(item => item.id === id)) return false
+      set({ interjecting: { ...get().interjecting, [chatId]: id } })
+      let unsubscribe: (() => void) | undefined
+      let accepted = false
+      let removed: { item: AgentQueuedMessage; index: number } | undefined
+      try {
+        const runId = get().chats[chatId].activeRunId
+        if (runId) await launches.get(runId)
+        const current = get().chats[chatId]
+        if (!current || blocked()) return false
+        if (current.status === 'running') {
+          if (current.activeRunId !== runId) return false
+          // Subscribe before requesting cancellation: Done can precede the IPC response.
+          const stopped = new Promise<boolean>(resolve => {
+            unsubscribe = useAgent.subscribe(state => {
+              const chat = state.chats[chatId]
+              if (!chat || state.interjecting[chatId] !== id || chat.activeRunId !== runId) resolve(false)
+              else if (chat.status !== 'running') resolve(true)
+            })
+          })
+          await api.agentCancel(chatId)
+          if (!await stopped) return false
+          unsubscribe?.()
+          unsubscribe = undefined
+        }
+        if (get().pages[chatId]?.hasLater) await get().loadPage(chatId, 'latest')
+        if (blocked() || get().pages[chatId]?.hasLater || get().interjecting[chatId] !== id) return false
+        const queue = get().queues[chatId] ?? []
+        const index = queue.findIndex(item => item.id === id)
+        if (index < 0) return false
+        const item = queue[index]
+        const queues = { ...get().queues, [chatId]: queue.filter(entry => entry.id !== id) }
+        if (!queues[chatId].length) delete queues[chatId]
+        removed = { item, index }
+        set({ queues })
+        accepted = await runTurn(chatId, { text: item.text, mentions: item.mentions, command: item.command, skills: item.skills }, true, false)
+        return accepted
+      } catch (error) {
+        const chat = get().chats[chatId]
+        if (chat) set({ chats: { ...get().chats, [chatId]: { ...chat, error: errorText(error) } } })
+        return false
+      } finally {
+        unsubscribe?.()
+        if (!accepted && removed && get().chats[chatId]) {
+          const remaining = get().queues[chatId] ?? []
+          if (!remaining.some(entry => entry.id === id)) {
+            const restored = [...remaining]
+            restored.splice(Math.min(removed.index, restored.length), 0, removed.item)
+            set({ queues: { ...get().queues, [chatId]: restored } })
+          }
+        }
+        if (get().interjecting[chatId] === id) {
+          const interjecting = { ...get().interjecting }
+          delete interjecting[chatId]
+          set({ interjecting })
+        }
+        if (accepted && get().chats[chatId]?.status === 'idle') drainQueue(chatId)
+      }
     },
 
     stop: async (chatId) => {

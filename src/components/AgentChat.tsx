@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { chatTabId, findPendingPlanAction, findPendingQuestion, useAgent } from '../store/agent'
 import { useTabs } from '../store/tabs'
 import { useUi } from '../store/ui'
@@ -36,13 +36,48 @@ export function AgentChat({ chatId }: { chatId: string }) {
   const localPicker = useAgent(s => s.localPicker?.chatId === chatId ? s.localPicker : null)
   const draftState = useAgent((s) => s.chatDrafts[chatId])
   const queued = useAgent((s) => s.queues[chatId])
+  const interjecting = useAgent(s => s.interjecting[chatId])
   const providers = useAgent((s) => s.providers)
   const enabled = useSettings((s) => s.agentEnabled)
   const focused = useTabs((s) => s.activeId === chatTabId(chatId))
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const [atBottom, setAtBottom] = useState(true)
+  // Follow intent survives content growth; layout-generated scroll events must not disable it.
+  const following = useRef(true)
+  const lastScrollTop = useRef(0)
+  const touchY = useRef<number | null>(null)
+  const scrollFrame = useRef<number | null>(null)
+  const displayedChat = useRef(chatId)
   const anchor = useRef<{ id: string; offset: number } | null>(null)
+  const scrollToEnd = useCallback(() => {
+    const el = scrollRef.current
+    if (!el || !following.current) return
+    el.scrollTop = el.scrollHeight
+    lastScrollTop.current = el.scrollTop
+  }, [])
+  const scheduleScroll = useCallback(() => {
+    if (scrollFrame.current !== null) cancelAnimationFrame(scrollFrame.current)
+    scrollFrame.current = requestAnimationFrame(() => {
+      scrollFrame.current = null
+      scrollToEnd()
+    })
+  }, [scrollToEnd])
+  const resumeFollowing = useCallback(() => {
+    following.current = true
+    anchor.current = null
+    setAtBottom(true)
+    scrollToEnd()
+    scheduleScroll()
+  }, [scheduleScroll, scrollToEnd])
+  const jumpToLatest = useCallback(async () => {
+    resumeFollowing()
+    if (useAgent.getState().pages[chatId]?.hasLater) await useAgent.getState().loadPage(chatId, 'latest')
+    if (displayedChat.current === chatId) {
+      scrollToEnd()
+      scheduleScroll()
+    }
+  }, [chatId, resumeFollowing, scheduleScroll, scrollToEnd])
   const captureAnchor = () => {
     const el = scrollRef.current
     if (!el) return
@@ -50,22 +85,27 @@ export function AgentChat({ chatId }: { chatId: string }) {
     const row = [...el.querySelectorAll<HTMLElement>('[data-agent-message]')].find(row => row.getBoundingClientRect().bottom > top)
     anchor.current = row ? { id: row.dataset.agentMessage!, offset: row.getBoundingClientRect().top - top } : null
   }
+  const pauseFollowing = () => {
+    following.current = false
+    setAtBottom(false)
+    captureAnchor()
+  }
   useLayoutEffect(() => {
     const el = scrollRef.current
     const saved = anchor.current
-    if (!el || !saved || atBottom) return
+    if (!el || !saved || following.current) return
     const row = [...el.querySelectorAll<HTMLElement>('[data-agent-message]')].find(row => row.dataset.agentMessage === saved.id)
     if (row) el.scrollTop += row.getBoundingClientRect().top - el.getBoundingClientRect().top - saved.offset
+    lastScrollTop.current = el.scrollTop
     captureAnchor()
   }, [chat?.messages, atBottom])
   const navigate = (direction: 'earlier' | 'later' | 'pending') => {
-    captureAnchor()
-    setAtBottom(false)
+    pauseFollowing()
     void useAgent.getState().loadPage(chatId, direction)
   }
 
   const running = chat?.status === 'running'
-  const jumpKeys = isMac() ? '⇧⌘↓' : 'Ctrl+Shift+↓'
+  const jumpKeys = isMac() ? '⌘↓' : 'Ctrl+↓'
 
   // Esc stops the turn of the focused chat. Pickers and the context-usage popup handle Escape
   // first and stop propagation, so dismissing them must not cancel the agent.
@@ -101,53 +141,51 @@ export function AgentChat({ chatId }: { chatId: string }) {
     if (chat?.provider) void useAgent.getState().loadCatalog(chat.provider)
   }, [chat?.provider])
 
-  // ⌘⇧↓ / Ctrl+Shift+↓: jump to the latest message even while the composer has focus
+  // ⌘↓ / Ctrl+↓ also works while the composer has focus.
   useEffect(() => {
+    if (!focused) return
     const onKeyDown = (e: KeyboardEvent) => {
-      if (!(e.metaKey || e.ctrlKey) || !e.shiftKey || shortcutKey(e) !== 'arrowdown') return
+      if (!(isMac() ? e.metaKey : e.ctrlKey) || e.shiftKey || e.altKey || shortcutKey(e) !== 'arrowdown' ||
+        e.repeat || e.isComposing || e.keyCode === 229 || e.defaultPrevented) return
+      const ui = useUi.getState()
+      if (ui.overlay || ui.confirmReq || ui.promptReq) return
       e.preventDefault()
-      setAtBottom(true)
-      const el = scrollRef.current
-      if (el) el.scrollTop = el.scrollHeight
+      void jumpToLatest()
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [])
+  }, [focused, jumpToLatest])
 
   const last = chat && chat.messages.length > 0 ? chat.messages[chat.messages.length - 1] : undefined
-  const signature = useMemo(() => {
-    if (!last) return 'empty'
-    return `${last.id}:${(last.items ?? [])
-      .map(
-        (item) =>
-          item.text.length +
-          (item.detail?.length ?? 0) +
-          (item.output?.length ?? 0) +
-          (item.status ?? ''),
-      )
-      .join(',')}`
-  }, [last])
-
   // Switching chat tabs reuses this component instance: start the new transcript at its end
-  useEffect(() => {
-    setAtBottom(true)
-    anchor.current = null
-  }, [chatId])
+  useLayoutEffect(() => {
+    displayedChat.current = chatId
+    resumeFollowing()
+    return () => {
+      displayedChat.current = ''
+      if (scrollFrame.current !== null) cancelAnimationFrame(scrollFrame.current)
+      scrollFrame.current = null
+    }
+  }, [chatId, resumeFollowing])
 
-  useEffect(() => {
-    if (!atBottom) return
-    const el = scrollRef.current
-    if (el) el.scrollTop = el.scrollHeight
-  }, [signature, chat?.status, atBottom])
+  // Run after the new transcript commits, then again after deferred content/layout settles.
+  useLayoutEffect(() => {
+    if (!following.current) return
+    scrollToEnd()
+    scheduleScroll()
+  }, [chat?.messages, chat?.status, pageLoading, atBottom, focused, scheduleScroll, scrollToEnd])
 
   useEffect(() => {
     const el = scrollRef.current
     const content = el?.firstElementChild
-    if (!el || !content || !atBottom || typeof ResizeObserver === 'undefined') return
-    const observer = new ResizeObserver(() => { el.scrollTop = el.scrollHeight })
+    if (!el || !content || typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(() => {
+      if (following.current) scheduleScroll()
+    })
     observer.observe(content)
+    observer.observe(el)
     return () => observer.disconnect()
-  }, [chatId, Boolean(chat), atBottom])
+  }, [chatId, Boolean(chat), scheduleScroll])
 
   if (!chat) {
     return (
@@ -211,13 +249,28 @@ export function AgentChat({ chatId }: { chatId: string }) {
             ref={scrollRef}
             onClickCapture={event => {
               if ((event.target as HTMLElement).closest('button[aria-expanded]')) {
-                captureAnchor()
-                setAtBottom(false)
+                pauseFollowing()
               }
+            }}
+            onWheel={event => { if (event.deltaY < 0) pauseFollowing() }}
+            onTouchStart={event => { touchY.current = event.touches[0]?.clientY ?? null }}
+            onTouchMove={event => {
+              const y = event.touches[0]?.clientY ?? null
+              if (y !== null && touchY.current !== null && y > touchY.current) pauseFollowing()
+              touchY.current = y
+            }}
+            onKeyDownCapture={event => {
+              if (!event.defaultPrevented && !event.nativeEvent.isComposing &&
+                ['ArrowUp', 'PageUp', 'Home'].includes(event.key)) pauseFollowing()
             }}
             onScroll={(e) => {
               const el = e.currentTarget
-              setAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 40)
+              const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40
+              if (el.scrollTop < lastScrollTop.current) {
+                if (!nearBottom) following.current = false
+              } else if (el.scrollTop > lastScrollTop.current && nearBottom) following.current = true
+              lastScrollTop.current = el.scrollTop
+              setAtBottom(following.current && !page?.hasLater)
               captureAnchor()
             }}
             className="h-full select-text overflow-y-auto"
@@ -259,14 +312,10 @@ export function AgentChat({ chatId }: { chatId: string }) {
             </div>
           </div>
 
-          {!atBottom ? (
+          {!atBottom || page?.hasLater ? (
             <button
               type="button"
-              onClick={() => {
-                setAtBottom(true)
-                const el = scrollRef.current
-                if (el) el.scrollTop = el.scrollHeight
-              }}
+              onClick={() => void jumpToLatest()}
               className="absolute bottom-2 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1 rounded-full border border-line bg-panel px-2.5 py-1 text-2xs text-fg shadow-popup transition-colors duration-fast hover:bg-hover-solid"
             >
               <Icon name="arrow-down" size={11} />
@@ -292,8 +341,7 @@ export function AgentChat({ chatId }: { chatId: string }) {
                 {queued.map((item) => (
                   <div
                     key={item.id}
-                    data-tip={t('agent.queue.pending')}
-                    className="group/item flex items-center gap-1.5 rounded-[var(--r-row)] border border-line-soft bg-panel-alt px-2 py-1 text-2xs text-muted"
+                    className="group/item flex items-center gap-1.5 rounded-[var(--r-row)] border border-line-soft bg-panel px-2 py-1 text-2xs text-muted"
                   >
                     <Icon name="clock" size={11} className="shrink-0" />
                     <span className="shrink-0">{t('agent.queue.badge')}</span>
@@ -318,6 +366,20 @@ export function AgentChat({ chatId }: { chatId: string }) {
                     <span className="min-w-0 flex-1 truncate text-fg/80">
                       {item.text.split('\n')[0]}
                     </span>
+                    <button
+                      type="button"
+                      data-tip={t('agent.queue.pending')}
+                      disabled={!!interjecting || !enabled || providerMissing || pageLoading ||
+                        !!pendingQuestion || !!pendingPlan || page?.hasPendingQuestion || page?.hasUnhandledPlanAction}
+                      onClick={() => {
+                        void useAgent.getState().interjectQueued(chatId, item.id).then(accepted => {
+                          if (accepted && displayedChat.current === chatId) resumeFollowing()
+                        })
+                      }}
+                      className="shrink-0 rounded-[3px] px-1 py-0.5 text-accent hover:bg-accent/10 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      {t('agent.queue.send')}
+                    </button>
                     <CopyButton
                       text={serializeQueuedMessage(item)}
                       label={t('agent.copy.queued')}
@@ -329,6 +391,7 @@ export function AgentChat({ chatId }: { chatId: string }) {
                       type="button"
                       aria-label={t('agent.queue.remove')}
                       data-tip={t('agent.queue.remove')}
+                      disabled={interjecting === item.id}
                       onClick={() => useAgent.getState().removeQueued(chatId, item.id)}
                       className="flex h-4 w-4 shrink-0 items-center justify-center rounded-[3px] text-muted/70 hover:bg-hover hover:text-fg"
                     >
@@ -410,7 +473,7 @@ export function AgentChat({ chatId }: { chatId: string }) {
               onPermission={mode => useAgent.getState().setPermissionMode(chatId, mode)}
               running={running}
               disabled={!enabled}
-              blocked={providerMissing}
+              blocked={providerMissing || !!interjecting}
               pendingQuestion={pendingQuestion !== null || page?.hasPendingQuestion}
               pendingPlan={pendingPlan !== null || page?.hasUnhandledPlanAction}
               autoFocusKey={`${chatId}:${focusRequest}`}
@@ -424,14 +487,7 @@ export function AgentChat({ chatId }: { chatId: string }) {
               onStop={() => void useAgent.getState().stop(chatId)}
               onSend={() => {
                 if (!draft.text.trim() && !(draft.skills ?? []).length && draft.command !== 'plan') return
-                setAtBottom(true)
-                // Immediately scroll to bottom when sending a message
-                const el = scrollRef.current
-                if (el) {
-                  requestAnimationFrame(() => {
-                    el.scrollTop = el.scrollHeight
-                  })
-                }
+                resumeFollowing()
                 void useAgent.getState().sendMessage(chatId, draft)
               }}
             />

@@ -26,13 +26,14 @@ beforeEach(() => {
   vi.clearAllMocks()
   Object.assign(settings, { agentEnabled: true, agentDefaultProvider: '', agentDefaultModel: '', agentDefaultEffort: '',
     agentDefaultPermissionMode: 'workspace-write' })
-  useAgent.setState({ chats: { 'chat-test': chat() }, pages: {}, pageLoading: {}, queues: {}, running: {}, chatDrafts: {}, focusRequests: {}, localPicker: null,
+  useAgent.setState({ chats: { 'chat-test': chat() }, pages: {}, pageLoading: {}, queues: {}, interjecting: {}, running: {}, chatDrafts: {}, focusRequests: {}, localPicker: null,
     catalogs: {}, catalogLoading: {}, chatDefaults: { provider: '', model: '', effort: '' },
     providers: [{ id: 'codex', name: 'Codex', installed: true, supported: true, command: 'codex', version: '1', supportsFork: true }] })
   vi.mocked(api.agentModels).mockResolvedValue({ provider: 'codex', models: [], efforts: ['low', 'medium', 'high'], defaultModel: '' })
   vi.mocked(api.agentChatApply).mockResolvedValue(page())
   vi.mocked(api.agentChatOpen).mockResolvedValue(page())
   vi.mocked(api.agentSend).mockResolvedValue(undefined)
+  vi.mocked(api.agentCancel).mockResolvedValue(undefined)
 })
 afterEach(async () => {
   for (const current of Object.values(useAgent.getState().chats)) {
@@ -621,6 +622,133 @@ it('restores a dequeued prompt after a failed provider resume without consuming 
   await vi.advanceTimersByTimeAsync(0)
   expect(useAgent.getState().queues['chat-test'].map(item => item.text)).toEqual(['queued first', 'queued second'])
   expect(useAgent.getState().chats['chat-test'].sessionId).toBe('session-1')
+})
+
+describe('queued message interjection', () => {
+  const first = { id: 'first', text: 'First queued', mentions: [] }
+  const selected = { id: 'selected', text: '  Selected work\nKeep whitespace  ',
+    mentions: [{ rel: 'src/a.ts', isDir: false }],
+    skills: [{ name: 'audit', path: 'skills/audit', source: 'project' as const }], command: 'plan' as const }
+  const last = { id: 'last', text: 'Last queued', mentions: [] }
+  const queue = () => useAgent.setState({ queues: { 'chat-test': [first, selected, last] } })
+
+  it.each([true, false])('waits for Done and prioritizes the selection when the old turn succeeds=%s', async ok => {
+    await useAgent.getState().sendMessage('chat-test', { text: 'Original work', mentions: [] })
+    queue()
+    const newDraft = { text: 'Still typing', mentions: [] }
+    useAgent.setState({ chatDrafts: { 'chat-test': newDraft } })
+    const pending = useAgent.getState().interjectQueued('chat-test', selected.id)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(api.agentCancel).toHaveBeenCalledWith('chat-test')
+    expect(api.agentSend).toHaveBeenCalledTimes(1)
+    expect(useAgent.getState().interjecting['chat-test']).toBe(selected.id)
+    expect(await useAgent.getState().interjectQueued('chat-test', first.id)).toBe(false)
+    useAgent.getState().removeQueued('chat-test', selected.id)
+    expect(useAgent.getState().queues['chat-test']).toEqual([first, selected, last])
+    finishTurn(ok, !ok)
+    expect(await pending).toBe(true)
+    expect(api.agentSend).toHaveBeenCalledTimes(2)
+    expect(api.agentSend).toHaveBeenLastCalledWith(expect.objectContaining({ mentions: selected.mentions, readOnly: true }))
+    expect(useAgent.getState().chats['chat-test'].messages.at(-2)).toMatchObject({ role: 'user',
+      text: selected.text, mentions: selected.mentions, command: selected.command, skills: selected.skills })
+    expect(useAgent.getState().queues['chat-test']).toEqual([first, last])
+    expect(useAgent.getState().chatDrafts['chat-test']).toBe(newDraft)
+    expect(useAgent.getState().interjecting['chat-test']).toBeUndefined()
+  })
+
+  it('starts an idle selection immediately and resumes the remaining FIFO queue after success', async () => {
+    queue()
+    expect(await useAgent.getState().interjectQueued('chat-test', last.id)).toBe(true)
+    expect(api.agentCancel).not.toHaveBeenCalled()
+    expect(api.agentSend).toHaveBeenCalledTimes(1)
+    expect(useAgent.getState().queues['chat-test']).toEqual([first, selected])
+    finishTurn()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(api.agentSend).toHaveBeenCalledTimes(2)
+    expect(useAgent.getState().chats['chat-test'].messages.at(-2)?.text).toBe(first.text)
+  })
+
+  it('retains all messages and reports a cancellation error', async () => {
+    await useAgent.getState().sendMessage('chat-test', { text: 'Original work', mentions: [] })
+    queue()
+    vi.mocked(api.agentCancel).mockRejectedValueOnce(new Error('Cannot stop the turn'))
+    expect(await useAgent.getState().interjectQueued('chat-test', selected.id)).toBe(false)
+    expect(useAgent.getState().queues['chat-test']).toEqual([first, selected, last])
+    expect(useAgent.getState().chats['chat-test'].error).toBe('Cannot stop the turn')
+    expect(useAgent.getState().interjecting['chat-test']).toBeUndefined()
+    expect(api.agentSend).toHaveBeenCalledTimes(1)
+  })
+
+  it('restores a failed launch in its original queue position and keeps the composer draft', async () => {
+    queue()
+    const draft = { text: 'New draft', mentions: [] }
+    useAgent.setState({ chatDrafts: { 'chat-test': draft } })
+    vi.mocked(api.agentSend).mockRejectedValueOnce(new Error('Provider unavailable'))
+    expect(await useAgent.getState().interjectQueued('chat-test', selected.id)).toBe(false)
+    expect(useAgent.getState().queues['chat-test']).toEqual([first, selected, last])
+    expect(useAgent.getState().chatDrafts['chat-test']).toBe(draft)
+    expect(useAgent.getState().chats['chat-test'].error).toBe('Provider unavailable')
+    expect(useAgent.getState().interjecting['chat-test']).toBeUndefined()
+  })
+
+  it.each(['question', 'plan', 'disabled', 'paging', 'missing'] as const)('respects the %s gate', async gate => {
+    queue()
+    if (gate === 'question') useAgent.setState({ pages: { 'chat-test': { ...page(), hasPendingQuestion: true } } })
+    if (gate === 'plan') useAgent.setState({ pages: { 'chat-test': { ...page(), hasUnhandledPlanAction: true } } })
+    if (gate === 'disabled') settings.agentEnabled = false
+    if (gate === 'paging') useAgent.setState({ pageLoading: { 'chat-test': true } })
+    expect(await useAgent.getState().interjectQueued('chat-test', gate === 'missing' ? 'missing' : selected.id)).toBe(false)
+    expect(api.agentSend).not.toHaveBeenCalled()
+    expect(api.agentCancel).not.toHaveBeenCalled()
+    expect(useAgent.getState().queues['chat-test']).toEqual([first, selected, last])
+  })
+
+  it('rechecks question gates that arrive while cancellation is pending', async () => {
+    await useAgent.getState().sendMessage('chat-test', { text: 'Original work', mentions: [] })
+    queue()
+    const pending = useAgent.getState().interjectQueued('chat-test', selected.id)
+    await vi.advanceTimersByTimeAsync(0)
+    useAgent.setState({ pages: { 'chat-test': { ...page(), hasPendingQuestion: true } } })
+    finishTurn(false, true)
+    expect(await pending).toBe(false)
+    expect(api.agentSend).toHaveBeenCalledTimes(1)
+    expect(useAgent.getState().queues['chat-test']).toEqual([first, selected, last])
+  })
+
+  it('loads the latest history page before sending an idle selection', async () => {
+    queue()
+    useAgent.setState({ pages: { 'chat-test': { ...page(), hasLater: true } } })
+    expect(await useAgent.getState().interjectQueued('chat-test', selected.id)).toBe(true)
+    expect(api.agentChatOpen).toHaveBeenCalledWith('chat-test', 80)
+    expect(useAgent.getState().pages['chat-test'].hasLater).toBe(false)
+  })
+
+  it('waits for the original launch before cancelling and accepts Done before the cancel response', async () => {
+    let launch!: () => void
+    vi.mocked(api.agentSend).mockReturnValueOnce(new Promise<void>(resolve => { launch = resolve }))
+    const original = useAgent.getState().sendMessage('chat-test', { text: 'Original work', mentions: [] })
+    await vi.advanceTimersByTimeAsync(0)
+    queue()
+    const pending = useAgent.getState().interjectQueued('chat-test', last.id)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(api.agentCancel).not.toHaveBeenCalled()
+    vi.mocked(api.agentCancel).mockImplementationOnce(async () => { finishTurn(false, true) })
+    launch()
+    await original
+    expect(await pending).toBe(true)
+    expect(api.agentSend).toHaveBeenCalledTimes(2)
+  })
+
+  it('releases the pending interjection when its chat closes', async () => {
+    await useAgent.getState().sendMessage('chat-test', { text: 'Original work', mentions: [] })
+    queue()
+    const pending = useAgent.getState().interjectQueued('chat-test', selected.id)
+    await vi.advanceTimersByTimeAsync(0)
+    useAgent.getState().forgetChat('chat-test')
+    expect(await pending).toBe(false)
+    expect(useAgent.getState().interjecting['chat-test']).toBeUndefined()
+    expect(api.agentSend).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe('streaming permissions and completion records', () => {

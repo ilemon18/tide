@@ -1,4 +1,4 @@
-import { type ReactNode, useRef, useState } from 'react'
+import { type ReactNode, useLayoutEffect, useRef, useState } from 'react'
 import { useAgent } from '../store/agent'
 import { useUi } from '../store/ui'
 import { t, useT } from '../i18n'
@@ -34,9 +34,11 @@ type PickerProps = {
   disabled?: boolean
   hideLabel?: boolean
   tip?: string
+  /** Optional leading icon alongside the current value and dropdown arrow. */
+  icon?: ReactNode
   /** Replace the chip contents with a compact icon trigger. */
   trigger?: ReactNode
-  /** Accessible name and tooltip for an icon-only trigger. */
+  /** Accessible name; also used as the tooltip for an icon-only trigger. */
   buttonLabel?: string
 }
 
@@ -49,6 +51,7 @@ export function Picker({
   disabled,
   hideLabel,
   tip,
+  icon,
   trigger,
   buttonLabel,
 }: PickerProps) {
@@ -78,11 +81,12 @@ export function Picker({
         className={
           trigger
             ? 'flex h-6 w-6 shrink-0 items-center justify-center rounded-[var(--r-control)] text-muted transition-colors duration-fast hover:bg-hover hover:text-fg disabled:cursor-not-allowed disabled:opacity-40'
-            : 'flex h-6 min-w-0 max-w-[190px] items-center gap-1 rounded-[var(--r-control)] px-1.5 text-xs text-muted transition-colors duration-fast hover:bg-hover hover:text-fg disabled:cursor-not-allowed disabled:opacity-40'
+            : `flex h-6 min-w-0 ${icon ? '' : 'max-w-[190px]'} items-center gap-1 rounded-[var(--r-control)] px-1.5 text-xs text-muted transition-colors duration-fast hover:bg-hover hover:text-fg disabled:cursor-not-allowed disabled:opacity-40`
         }
       >
         {trigger ?? (
           <>
+            {icon ? <span aria-hidden="true" className="flex shrink-0 items-center">{icon}</span> : null}
             {label && !hideLabel ? (
               <span className="shrink-0 text-muted/70">{label}</span>
             ) : null}
@@ -223,9 +227,45 @@ export function PermissionPicker({ provider, value, onPick, disabled }: {
 }) {
   const t = useT()
   const modes = ['read-only', 'workspace-write', 'full-access'] as const
-  return <Picker label={t('agent.local.permissions.label')} value={value}
-    buttonLabel={t(`agent.permission.${value}`)}
-    trigger={<Icon name={value === 'read-only' ? 'eye' : value === 'full-access' ? 'unlock' : 'edit'} size={15} />}
-    options={modes.map(mode => ({ id: mode, label: t(`agent.permission.${mode}`), description: t(`agent.permission.${provider === 'claude' ? 'claude' : 'codex'}.${mode}`) }))}
-    onPick={mode => onPick(mode as AgentPermissionMode)} disabled={disabled} />
+  const permissionLabel = t(`agent.permission.${value}`)
+  const slotRef = useRef<HTMLSpanElement>(null)
+  const measureRef = useRef<HTMLSpanElement>(null)
+  const [compact, setCompact] = useState(false)
+  const icon = <Icon name={value === 'read-only' ? 'eye' : value === 'full-access' ? 'unlock' : 'edit'} size={15} />
+
+  useLayoutEffect(() => {
+    const slot = slotRef.current
+    const content = measureRef.current
+    if (!slot || !content) return
+    const measure = () => {
+      const available = slot.getBoundingClientRect().width
+      const required = content.getBoundingClientRect().width
+      if (available > 0 && required > 0) setCompact(required > available)
+    }
+    measure()
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(measure)
+    observer.observe(slot)
+    observer.observe(content)
+    return () => observer.disconnect()
+  }, [permissionLabel])
+
+  return (
+    <span ref={slotRef} className="relative flex min-w-6 overflow-hidden">
+      {/* Keep the full intrinsic width even while compact, so resize cannot toggle the label repeatedly. */}
+      <span ref={measureRef} aria-hidden="true"
+        className="pointer-events-none invisible flex h-6 w-max shrink-0 items-center gap-1 whitespace-nowrap px-1.5 text-xs">
+        {icon}
+        <span>{permissionLabel}</span>
+        <Icon name="chevron-down" size={10} />
+      </span>
+      <span className="absolute inset-0 flex">
+        <Picker label={t('agent.local.permissions.label')} hideLabel value={value}
+          buttonLabel={permissionLabel} tip={permissionLabel}
+          icon={icon} trigger={compact ? icon : undefined}
+          options={modes.map(mode => ({ id: mode, label: t(`agent.permission.${mode}`), description: t(`agent.permission.${provider === 'claude' ? 'claude' : 'codex'}.${mode}`) }))}
+          onPick={mode => onPick(mode as AgentPermissionMode)} disabled={disabled} />
+      </span>
+    </span>
+  )
 }

@@ -8,7 +8,7 @@ import {
   rankSkills,
   triggerAt,
 } from '../lib/agentCommand'
-import { basename, modKey } from '../lib/paths'
+import { basename } from '../lib/paths'
 import { fuzzyMatch } from '../lib/fuzzy'
 import { useFileIndex } from '../store/fileIndex'
 import { useAgent } from '../store/agent'
@@ -512,7 +512,7 @@ export function AgentComposer({
       </div>
 
       <div className="flex min-w-0 items-center gap-0.5">
-        <div className="flex min-w-0 items-center gap-0.5">
+        <div className="flex min-w-0 flex-1 items-center gap-0.5">
           {showAgentPicker ? (
             <AgentPicker value={provider} onPick={onProvider} disabled={running || disabled} />
           ) : null}
@@ -522,17 +522,19 @@ export function AgentComposer({
             onPick={onModel}
             disabled={running || disabled || blocked}
           />
-          <span className="shrink-0">
-          <EffortPicker
-            provider={provider}
-            model={model}
-            value={effort}
-            onPick={onEffort}
-            disabled={running || disabled || blocked}
-          />
+          <span className="min-w-0 max-w-full shrink-0">
+            <EffortPicker
+              provider={provider}
+              model={model}
+              value={effort}
+              onPick={onEffort}
+              disabled={running || disabled || blocked}
+            />
           </span>
-          {onPermission ? <PermissionPicker provider={provider} value={permissionMode} onPick={onPermission}
-            disabled={running || disabled || blocked} /> : null}
+          {onPermission ? (
+            <PermissionPicker provider={provider} value={permissionMode} onPick={onPermission}
+              disabled={running || disabled || blocked} />
+          ) : null}
         </div>
         <div className="ml-auto flex shrink-0 items-center gap-1">
           {contextUsage}
@@ -551,7 +553,7 @@ export function AgentComposer({
             type="button"
             onClick={onSend}
             disabled={!canSend}
-            data-tip={pendingQuestion || pendingPlan ? sendTip : `${sendTip} · ${t('agent.composer.sendHint', { key: modKey() })}`}
+            data-tip={t('agent.composer.sendHint')}
             aria-label={sendTip}
             className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[var(--r-control)] bg-accent text-accent-fg transition-opacity duration-fast hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-35"
           >
