@@ -57,7 +57,8 @@ CLIs own auth/models/tools; Rust owns processes; the agent store owns queues/UI.
   flushes before structure/end, replaces snapshots and deduplicates Claude blocks. Caps preserve Unicode
   and mark truncation; grapheme smoothing preserves stored/copied bytes.
 - Running sends enter FIFO queue, never process stdin. Success drains without erasing newer drafts;
-  failure keeps session/queue. Unanswered questions/plans block sends/drain across pages.
+  failure keeps session/queue. Completed unanswered questions and unresolved plans block sends/drain
+  across pages; an incomplete or failed/cancelled streamed question does not establish a gate.
 - A queued card can explicitly interject: wait for the old launch, request cancellation, then wait for its
   matching Done before launching the selected entry. Lock duplicate actions and automatic drain during the
   transaction; preserve other entries' relative order, metadata and newer composer drafts. Cancel/launch

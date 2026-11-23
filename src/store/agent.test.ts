@@ -480,6 +480,21 @@ function pendingPlan() {
 }
 
 describe('plan completion and actions', () => {
+  it('does not gate sends while a structured question is still streaming', async () => {
+    await startPlanning()
+    const current = useAgent.getState().chats['chat-test']
+    useAgent.getState().applyEvent({ chatId: current.id, runId: current.activeRunId!, sequence: 1,
+      event: { kind: 'question', itemId: 'question', header: 'Scope', question: 'Which scope?',
+        multiSelect: false, options: [{ label: 'Small', description: 'One module' }, { label: 'Large', description: 'All modules' }] } })
+    expect(findPendingQuestion(useAgent.getState().chats['chat-test'].messages)).toBeNull()
+    expect(useAgent.getState().chats['chat-test'].messages.at(-1)?.items?.at(-1)).toMatchObject({ type: 'question', complete: false })
+    await useAgent.getState().sendMessage('chat-test', { text: 'continue after output', mentions: [] })
+    expect(useAgent.getState().queues['chat-test']).toHaveLength(1)
+    finishTurn(true, true)
+    expect(findPendingQuestion(useAgent.getState().chats['chat-test'].messages)).toBeNull()
+    expect(useAgent.getState().queues['chat-test']).toHaveLength(1)
+  })
+
   it('adds one choice card, keeps the plan text, and blocks queued and direct sends immediately', async () => {
     await startPlanning()
     streamPlan()
@@ -517,7 +532,9 @@ describe('plan completion and actions', () => {
     useAgent.getState().applyEvent({ chatId: current.id, runId: current.activeRunId!, sequence: 2,
       event: { kind: 'question', itemId: 'question', header: 'Scope', question: 'Which scope?',
         multiSelect: false, options: [{ label: 'Small', description: 'One module' }, { label: 'Large', description: 'All modules' }] } })
+    expect(findPendingQuestion(useAgent.getState().chats['chat-test'].messages)).toBeNull()
     finishTurn()
+    expect(useAgent.getState().chats['chat-test'].messages.at(-1)?.items?.find(item => item.id === 'question')).toMatchObject({ complete: true })
     expect(pendingPlan()).toBeNull()
     expect(await useAgent.getState().answerQuestion('chat-test', 'question', 'Small')).toBe(true)
     expect(api.agentSend).toHaveBeenLastCalledWith(expect.objectContaining({ readOnly: true }))

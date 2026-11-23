@@ -343,6 +343,12 @@ fn find_pending_question(messages: &[Value]) -> bool {
             if item.get("type").and_then(Value::as_str) != Some("question") {
                 continue;
             }
+            // New streamed questions are persisted before the turn's final event. They become
+            // actionable only after the frontend marks them complete; missing metadata is kept
+            // compatible with older transcripts.
+            if item.get("complete").and_then(Value::as_bool) == Some(false) {
+                continue;
+            }
             let answer = item
                 .get("answer")
                 .and_then(Value::as_str)
@@ -814,6 +820,20 @@ mod tests {
         assert!(find_pending_question(&doc.messages));
         doc.messages[3]["items"][0]["answer"] = json!("A");
         assert!(!find_pending_question(&doc.messages));
+    }
+
+    #[test]
+    fn ignores_questions_until_the_streamed_turn_completes() {
+        let mut doc = document();
+        doc.messages.push(json!({
+            "id": "partial",
+            "role": "assistant",
+            "at": 2,
+            "items": [{ "id": "q1", "type": "question", "complete": false, "question": "Choose" }]
+        }));
+        assert!(!find_pending_question(&doc.messages));
+        doc.messages[3]["items"][0]["complete"] = json!(true);
+        assert!(find_pending_question(&doc.messages));
     }
 
     #[test]

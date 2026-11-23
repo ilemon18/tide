@@ -69,7 +69,7 @@ export type AgentItem = {
   status?: 'running' | 'ok' | 'error'
   /** Tool output (stdout, diff, error) */
   output?: string
-  /** Structured question metadata; pending while `answer` is blank or absent */
+  /** Structured question metadata; streamed questions stay non-pending while `complete` is false. */
   header?: string
   question?: string
   multiSelect?: boolean
@@ -465,7 +465,10 @@ export function findPendingQuestion(messages: AgentMessage[]): PendingQuestion |
     const items = message.items ?? []
     for (let itemIndex = items.length - 1; itemIndex >= 0; itemIndex -= 1) {
       const item = items[itemIndex]
-      if (item.type === 'question' && !item.answer?.trim()) return { message, item }
+      // A question item is streamed before the provider's final turn event. Keep it out of
+      // the pending gate until that turn completes; legacy records without `complete` remain
+      // actionable for backwards compatibility.
+      if (item.type === 'question' && item.complete !== false && !item.answer?.trim()) return { message, item }
     }
   }
   return null
@@ -1481,14 +1484,16 @@ export const useAgent = create<AgentStore>((set, get) => {
               })
             }
           }
+          const questions = items.some(item => item.type === 'question')
           if (event.ok && !event.cancelled && message.planning === true && !message.compact &&
             !findPendingQuestion(chat.messages) && !get().pages[chatId]?.hasPendingQuestion &&
             !findPendingPlanAction(chat.messages) && !get().pages[chatId]?.hasUnhandledPlanAction &&
             items.some(item => item.type === 'text' && item.text.trim()) &&
-            !items.some(item => item.type === 'error' || item.type === 'plan')) {
+            !items.some(item => item.type === 'error' || item.type === 'plan') && !questions) {
             items.push({ id: `plan-${message.id}`, type: 'plan', text: '', resolved: false })
           }
-          return items
+          return items.map(item => item.type === 'question'
+            ? { ...item, complete: event.ok && !event.cancelled } : item)
         })
         next = { ...next, status, error: failure, compactPending: false, updatedAt: Date.now(),
           messages: next.messages.map((message, index) => index === next.messages.length - 1 ? {
@@ -1611,6 +1616,7 @@ export const useAgent = create<AgentStore>((set, get) => {
                 id: event.itemId,
                 type: 'question',
                 text: '',
+                complete: false,
                 header: event.header,
                 question: event.question,
                 multiSelect: event.multiSelect,
@@ -1618,6 +1624,7 @@ export const useAgent = create<AgentStore>((set, get) => {
               }),
               (item) => ({
                 ...item,
+                complete: false,
                 header: event.header,
                 question: event.question,
                 multiSelect: event.multiSelect,

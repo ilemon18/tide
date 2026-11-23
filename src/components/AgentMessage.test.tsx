@@ -118,7 +118,7 @@ it('disables actions while a turn runs and restores the saved resolved state', (
 
 const questionMessage = (multiSelect = false, answer?: string): AgentMessage => ({
   id: 'question-reply', role: 'assistant', at: 1, readOnly: true, planning: true,
-  items: [{ id: 'question', type: 'question', text: '', header: 'Scope', question: 'Which scope?',
+  items: [{ id: 'question', type: 'question', text: '', complete: true, header: 'Scope', question: 'Which scope?',
     multiSelect, answer, options: [
       { label: 'Option A', description: 'First scope' },
       { label: 'Option B', description: 'Second scope' },
@@ -128,36 +128,39 @@ const questionView = (message = questionMessage(), running = false, pendingQuest
   <AssistantMessage chatId="chat" message={message} running={running} pendingQuestionId={pendingQuestionId} />
 )
 
-it('allows choosing and editing during streaming but waits for completion before submitting', async () => {
-  const { rerender } = render(questionView(questionMessage(), true))
+it('hides structured question options until streaming completes', async () => {
+  const streaming = questionMessage()
+  streaming.items![0].complete = false
+  const { rerender } = render(questionView(streaming, true, null))
+  expect(screen.getByText('Which scope?')).toBeTruthy()
+  expect(screen.queryByRole('radio')).toBeNull()
+  expect(screen.queryByRole('textbox')).toBeNull()
+  expect(screen.queryByRole('button', { name: 'agent.question.submit' })).toBeNull()
+  expect(answerQuestion).not.toHaveBeenCalled()
+
+  rerender(questionView(questionMessage()))
   const option = screen.getByRole('radio', { name: /Option A/ }) as HTMLButtonElement
   const custom = screen.getByRole('textbox') as HTMLInputElement
   const submit = screen.getByRole('button', { name: 'agent.question.submit' }) as HTMLButtonElement
-  expect(option.disabled).toBe(false)
-  expect(custom.disabled).toBe(false)
   fireEvent.click(option)
   expect(option.getAttribute('aria-checked')).toBe('true')
   fireEvent.change(custom, { target: { value: 'Custom scope' } })
   expect(option.getAttribute('aria-checked')).toBe('false')
-  fireEvent.keyDown(custom, { key: 'Enter' })
-  fireEvent.click(submit)
-  expect(submit.disabled).toBe(true)
-  expect(answerQuestion).not.toHaveBeenCalled()
-  rerender(questionView())
-  expect(custom.value).toBe('Custom scope')
-  expect(submit.disabled).toBe(false)
   await act(async () => { fireEvent.click(submit) })
   expect(answerQuestion).toHaveBeenCalledWith('chat', 'question', 'Custom scope')
 })
 
-it('retains the selected option when streaming finishes', async () => {
-  const { rerender } = render(questionView(questionMessage(), true))
-  fireEvent.click(screen.getByRole('radio', { name: /Option B/ }))
-  rerender(questionView())
-  expect(screen.getByRole('radio', { name: /Option B/ }).getAttribute('aria-checked')).toBe('true')
-  expect((screen.getByRole('button', { name: 'agent.question.submit' }) as HTMLButtonElement).disabled).toBe(false)
-  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'agent.question.submit' })) })
-  expect(answerQuestion).toHaveBeenCalledWith('chat', 'question', 'Option B')
+it('does not expose a failed or cancelled question as an interactive card', () => {
+  const failed = questionMessage()
+  failed.completion = 'failed'
+  failed.items![0].complete = false
+  const { rerender } = render(questionView(failed, false, null))
+  expect(screen.getByText('Which scope?')).toBeTruthy()
+  expect(screen.queryByRole('radio')).toBeNull()
+  expect(screen.queryByRole('textbox')).toBeNull()
+  const stopped = { ...failed, completion: 'stopped' as const }
+  rerender(questionView(stopped, false, null))
+  expect(screen.queryByRole('button', { name: 'agent.question.submit' })).toBeNull()
 })
 
 it.each([

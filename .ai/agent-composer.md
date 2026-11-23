@@ -72,12 +72,14 @@ actions and queue gates. Rust parses questions/scans skills. Provider/model/perm
 
 - `<TIDE_QUESTION>`: one marker/turn, nonempty header/question, 2–4 labelled/described options, optional
   multi-select/custom answer. Preserve order; hide partial markers until flush; invalid markers restore
-  source plus notice. Blank answers block sending.
-- The active question permits option/custom-answer edits during streaming; submission waits for the turn
-  to finish. Answer submission claims the question synchronously and awaits the actual follow-up launch.
-  Failed/rejected launches restore the pending answer/page gate without replacing newer message content;
-  all submission outcomes release local locks, preserving selections/custom text for retry. Follow-ups
-  retain the source planning/read-only boundary; duplicate submits never start a second run.
+  source plus notice. Blank answers block sending once the turn has completed.
+- Every structured question may stream its header/body in source order, but its options, custom-answer
+  input and pending gate remain hidden until the turn completes successfully. While the question is
+  incomplete, drafts can continue and running sends follow FIFO queue behavior. Answer submission claims
+  the completed question synchronously and awaits the actual follow-up launch. Failed/rejected launches
+  restore the pending answer/page gate without replacing newer message content; all submission outcomes
+  release local locks, preserving selections/custom text for retry. Follow-ups retain the source
+  planning/read-only boundary; duplicate submits never start a second run.
 - Successful planning without questions creates plan-<message>; questions take precedence. Implement-current
   resumes writable; implement-fresh isolates a same-root tab with plan/fixed preamble; continue-planning is
   read-only. Persist action/result/target before launch, lock duplicates, retry same target, never run on hydration.

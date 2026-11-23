@@ -224,7 +224,8 @@ function QuestionCard({
   const [submitting, setSubmitting] = useState(false)
   const submitted = useRef(false)
   const active = pendingQuestionId === item.id
-  const locked = answered || submitting || !active
+  const ready = !running && item.complete !== false
+  const locked = answered || submitting || !active || !ready
   const answerParts = multi
     ? [...selected, custom.trim()].filter(Boolean)
     : [custom.trim() || selected[0]].filter(Boolean)
@@ -268,7 +269,7 @@ function QuestionCard({
             {item.question}
           </div>
         </div>
-        {multi ? (
+        {multi && ready ? (
           <span className="shrink-0 text-2xs text-muted">{t('agent.question.multi')}</span>
         ) : null}
       </div>
@@ -280,7 +281,7 @@ function QuestionCard({
             {item.answer}
           </div>
         </div>
-      ) : (
+      ) : ready ? (
         <div className="flex flex-col gap-2 px-3 py-2">
           <div
             role={multi ? 'group' : 'radiogroup'}
@@ -354,7 +355,7 @@ function QuestionCard({
             </button>
           </div>
         </div>
-      )}
+      ) : null}
     </div>
   )
 }

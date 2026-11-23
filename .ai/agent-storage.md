@@ -35,9 +35,11 @@ restores primary-window tabs. Keep transcript v:1 compatible.
   Flush open chats before listing so a new turn is visible immediately, but discard the list when its panel closes.
 - Initial page: 80 records/512 KiB, then 40/load. Loaded window: 160 records/1 MiB; oversized record alone.
   Persist before eviction/navigation; retain cursors/anchor, scan pending cards across full history, flush
-  agent/tabs.json on hide/unload. Eviction/reopen never loses question/plan send gates. In-place /new uses
-  an atomic chat reset that clears the complete persisted message list, including unloaded history, while
-  retaining the chat id and header identity.
+  agent/tabs.json on hide/unload. Only completed questions establish a persisted question gate; streamed
+  `complete: false` items remain visible without blocking, while legacy questions without the field remain
+  compatible. Eviction/reopen never loses question/plan send gates. In-place /new uses an atomic chat reset
+  that clears the complete persisted message list, including unloaded history, while retaining the chat id
+  and header identity.
 
 ## Snapshot persistence
 
