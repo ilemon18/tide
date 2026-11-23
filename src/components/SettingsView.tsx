@@ -220,6 +220,12 @@ export function SettingsView() {
           </Row>
         </Card>
 
+        <Card title={t('settings.tasks.card')}>
+          <Row label={t('settings.tasks.enable')} hint={t('settings.tasks.enableHint')}>
+            <Toggle value={settings.tasksEnabled} onChange={(value) => set('tasksEnabled', value)} />
+          </Row>
+        </Card>
+
         <Card title={t('settings.language.card')}>
         <div className="grid grid-cols-2 gap-1.5 px-4 py-3">
           {LOCALES.map((locale) => {

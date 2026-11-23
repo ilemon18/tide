@@ -19,6 +19,7 @@ scope:
   - src/components/ShortcutSettings*.tsx
   - src/components/ActivityBar.tsx
   - src/components/StatusBar.tsx
+  - src/lib/memory.ts
   - src/components/Welcome.tsx
   - src/lib/settingsSections.ts
   - src/lib/fonts.ts
@@ -102,10 +103,12 @@ App owns hydration/window coordination; the settings store and Rust theme comman
   preserve larger saved heights, and only clamp for the current window in the composer.
 - Add settings in both types/defaults, migration, UI and SHARED_KEYS when shared across windows. Retirement
   removes both defaults and adds RETIRED_KEYS or the old key is written back forever.
+- Tasks has an empty state without a project. Disabling tasks hides its activity and stops live runs;
+  execution, diagnostics and process ownership follow [tasks.md](./tasks.md).
 - Settings → Agent no longer exposes permission defaults or a permission explanation card. Chat composer
   permission controls and the persisted permission field remain runtime contracts for existing and new chats.
 - Schema v11 adds agentDefaultPermissionMode=workspace-write, schema v12 adds autoUpdate=false, and schema
-  v13 adds agentHistoryEnabled=true; v14 adds shortcutOverrides={}. Invalid
+  v13 adds agentHistoryEnabled=true; v14 adds shortcutOverrides={}; v15 adds tasksEnabled=true. Invalid
   values fall back without resetting other settings. Provider/model/effort/permission and update preferences
   write immediately and sync windows; UI patches related fields together. Historical chats keep saved options;
   temporary plan options never become defaults.

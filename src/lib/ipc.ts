@@ -101,6 +101,14 @@ export type GitStatus = {
   error: string | null
 }
 
+export type TaskDefinition = {
+  id: string
+  label: string
+  command: string
+  source: string
+  cwd?: string
+}
+
 /** Mono font: bundled JetBrains Mono / Fira Code / IBM Plex Mono / Source Code Pro, or the system mono stack */
 export type MonoFont = 'jetbrains' | 'fira' | 'ibm-plex' | 'source-code' | 'system'
 
@@ -146,6 +154,8 @@ export type Settings = {
   autoUpdate: boolean
   /** Built-in agent service: title-bar entry, explorer context menu, chat tabs */
   agentEnabled: boolean
+  /** Project task discovery, execution and Problems diagnostics */
+  tasksEnabled: boolean
   /** Show the lazily loaded history list for this project */
   agentHistoryEnabled: boolean
   /** Provider / model / effort new chats start with; empty = auto or the CLI default */
@@ -616,6 +626,11 @@ export const api = {
   ptyWrite: (id: string, data: string) => invoke<void>('pty_write', { id, data }),
   ptyResize: (id: string, cols: number, rows: number) => invoke<void>('pty_resize', { id, cols, rows }),
   ptyClose: (id: string) => invoke<void>('pty_close', { id }),
+
+  // ---- Project tasks ----
+  taskList: (root: string) => invoke<TaskDefinition[]>('task_list', { root }),
+  taskRun: (root: string, id: string, command: string, cwd = '') => invoke<void>('task_run', { root, id, command, cwd }),
+  taskStop: (id: string) => invoke<void>('task_stop', { id }),
 
   // ---- Settings ----
   loadSettings: () => invoke<Settings>('load_settings'),

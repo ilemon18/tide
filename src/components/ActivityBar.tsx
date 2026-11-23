@@ -5,12 +5,14 @@ import { useWorkspace } from '../store/workspace'
 import { useTerminal } from '../store/terminal'
 import { toggleTerminal } from '../lib/actions'
 import { useT } from '../i18n'
+import { useTaskStore } from '../store/tasks'
 
-export type ActivityView = 'explorer' | 'search' | 'git' | 'structure'
+export type ActivityView = 'explorer' | 'search' | 'git' | 'structure' | 'tasks'
 
 type Props = {
   view: ActivityView
   onChange: (view: ActivityView) => void
+  tasksEnabled: boolean
   onOpenSettings: () => void
 }
 
@@ -49,17 +51,23 @@ function Item({
   )
 }
 
-export function ActivityBar({ view, onChange, onOpenSettings }: Props) {
+export function ActivityBar({ view, onChange, tasksEnabled, onOpenSettings }: Props) {
   const t = useT()
   const explorerTip = useShortcutTip('view.explorer', 'activity.explorerTip')
   const searchTip = useShortcutTip('view.search', 'activity.searchTip')
   const gitTip = useShortcutTip('view.git', 'activity.gitTip')
   const structureTip = useShortcutTip('view.structure', 'activity.structureTip')
+  const tasksTip = t('activity.tasksTip')
   const terminalTip = useShortcutTip('view.panel', 'activity.terminalTip')
   const settingsTip = useShortcutTip('prefs.open', 'activity.settingsTip')
   const statuses = useGit((s) => s.statuses)
   const roots = useWorkspace((s) => s.roots)
+  const activeRootId = useWorkspace((s) => s.activeRootId)
   const terminalVisible = useTerminal((s) => s.visible)
+  const problemCount = useTaskStore((state) => {
+    const root = activeRootId ?? roots[0]?.id
+    return root ? (state.problems[root]?.length ?? 0) : 0
+  })
   // Count only the currently open projects: if the cache still holds a previous project's status
   // after switching, it won't be counted into the changed-file total
   const changeCount = roots.reduce((acc, root) => {
@@ -102,6 +110,15 @@ export function ActivityBar({ view, onChange, onOpenSettings }: Props) {
           active={view === 'structure'}
           onClick={() => onChange('structure')}
         />
+        {tasksEnabled ? (
+          <Item
+            icon="warning"
+            label={tasksTip}
+            active={view === 'tasks'}
+            badge={problemCount}
+            onClick={() => onChange('tasks')}
+          />
+        ) : null}
       </div>
       <div className="flex flex-col items-center gap-1.5 pb-1">
         <Item

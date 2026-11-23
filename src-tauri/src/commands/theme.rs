@@ -70,6 +70,9 @@ pub struct Settings {
     pub auto_update: bool,
     /// Built-in agent service: title-bar entry, explorer double-click entry, chat tabs
     pub agent_enabled: bool,
+    /// Project task discovery, execution and Problems diagnostics
+    #[serde(deserialize_with = "deserialize_tasks_enabled")]
+    pub tasks_enabled: bool,
     /// Show the lazily loaded project agent history list
     pub agent_history_enabled: bool,
     /// Last chosen provider / model / effort: new chats start here (empty = auto / CLI default)
@@ -89,6 +92,14 @@ pub struct Settings {
     /// Without it, config saved by a newer version is "reset" once an older version opens it.
     #[serde(flatten)]
     pub extra: serde_json::Map<String, serde_json::Value>,
+}
+
+fn deserialize_tasks_enabled<'de, D>(deserializer: D) -> Result<bool, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    Ok(value.as_bool().unwrap_or(true))
 }
 
 fn deserialize_shortcut_overrides<'de, D>(
@@ -157,6 +168,7 @@ impl Default for Settings {
             lightweight_mode: false,
             auto_update: false,
             agent_enabled: true,
+            tasks_enabled: true,
             agent_history_enabled: true,
             agent_default_provider: String::new(),
             agent_default_model: String::new(),
@@ -454,6 +466,19 @@ mod compat {
             .expect("settings");
         let out = serde_json::to_value(settings).expect("serialize settings");
         assert_eq!(out["agentHistoryEnabled"], false);
+    }
+
+    #[test]
+    fn task_preferences_default_on_round_trip_off_and_tolerate_invalid_values() {
+        let legacy: Settings = serde_json::from_str(r#"{"schemaVersion":14}"#).unwrap();
+        assert!(legacy.tasks_enabled);
+        for invalid in [serde_json::json!(null), serde_json::json!(7), serde_json::json!("broken")] {
+            let settings: Settings = serde_json::from_value(serde_json::json!({ "tasksEnabled": invalid, "fontSize": 19 })).unwrap();
+            assert!(settings.tasks_enabled);
+            assert_eq!(settings.font_size, 19);
+        }
+        let disabled: Settings = serde_json::from_str(r#"{"tasksEnabled":false}"#).unwrap();
+        assert_eq!(serde_json::to_value(disabled).unwrap()["tasksEnabled"], false);
     }
 
     #[test]

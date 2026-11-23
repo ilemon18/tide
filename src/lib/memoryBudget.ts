@@ -31,6 +31,10 @@ export function lightMemory(): boolean {
  * a restart). Byte / char limits describe resident documents; count limits describe cached entries.
  */
 export const budget = {
+  /** Project task output characters, completed runs and parsed diagnostics per workspace. */
+  taskOutputChars: () => (lightMemory() ? 64 * 1024 : 256 * 1024),
+  taskHistory: () => (lightMemory() ? 3 : 8),
+  taskProblems: () => (lightMemory() ? 200 : 500),
   /** Context snapshot limits; request hard limits mirror agent/mod.rs. */
   agentAttachments: () => 8,
   agentAttachmentBytes: () => 32 * 1024,

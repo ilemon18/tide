@@ -30,6 +30,30 @@ afterEach(async () => {
   vi.useRealTimers()
 })
 
+describe('Project task preferences', () => {
+  it('migrates missing and malformed task settings while preserving saved values', async () => {
+    const { tasksEnabled: _missing, ...legacy } = DEFAULT_SETTINGS
+    vi.mocked(api.loadSettings).mockResolvedValue({ ...legacy, schemaVersion: 14, fontSize: 18 } as Settings)
+    await useSettings.getState().load()
+    expect(useSettings.getState()).toMatchObject({ tasksEnabled: true, fontSize: 18, schemaVersion: SETTINGS_SCHEMA_VERSION })
+    vi.mocked(api.loadSettings).mockResolvedValue({ ...DEFAULT_SETTINGS, tasksEnabled: 'broken' } as unknown as Settings)
+    await useSettings.getState().load()
+    expect(useSettings.getState().tasksEnabled).toBe(true)
+    vi.mocked(api.loadSettings).mockResolvedValue({ ...DEFAULT_SETTINGS, tasksEnabled: false })
+    await useSettings.getState().load()
+    expect(useSettings.getState().tasksEnabled).toBe(false)
+  })
+
+  it('writes the toggle immediately and syncs it without changing window layout', async () => {
+    useSettings.getState().patch({ tasksEnabled: false })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(api.saveSettings).toHaveBeenLastCalledWith(expect.objectContaining({ tasksEnabled: false }))
+    useSettings.setState({ sidebarWidth: 345 })
+    useSettings.getState().applyExternal({ ...DEFAULT_SETTINGS, tasksEnabled: true })
+    expect(useSettings.getState()).toMatchObject({ tasksEnabled: true, sidebarWidth: 345 })
+  })
+})
+
 describe('Agent preference persistence', () => {
   it.each([
     { agentDefaultProvider: 'codex' },

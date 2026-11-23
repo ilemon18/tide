@@ -20,6 +20,7 @@ Generated icons/vendor/Tauri output belong to their generators; `src/lib/memoryB
 | [git.md](./git.md) | Git actions, diffs and conflicts |
 | [i18n.md](./i18n.md) | Locales, UI copy and coded errors |
 | [runtime.md](./runtime.md) | Windows, settings, themes and memory |
+| [tasks.md](./tasks.md) | Project tasks, process execution and Problems diagnostics |
 | [terminal.md](./terminal.md) | PTY output, keyboard, IME and geometry |
 | [updates.md](./updates.md) | Update checks, download and install |
 <!-- END GENERATED ROUTES -->

@@ -360,6 +360,10 @@ fn main() {
             commands::terminal::pty_write,
             commands::terminal::pty_resize,
             commands::terminal::pty_close,
+            // project tasks
+            commands::tasks::task_list,
+            commands::tasks::task_run,
+            commands::tasks::task_stop,
             // agent
             commands::agent::agent_providers,
             commands::agent::agent_models,
@@ -421,6 +425,7 @@ fn main() {
             if matches!(event, tauri::WindowEvent::Destroyed) {
                 let state = window.state::<state::AppState>();
                 state.kill_window_ptys(label);
+                state.kill_window_tasks(label);
                 state.kill_window_agent_turns(label);
                 state.release_window(label);
             }
@@ -451,6 +456,7 @@ fn main() {
                 let state = app.state::<state::AppState>();
                 state.kill_all_watchers();
                 state.kill_all_ptys();
+                state.kill_all_tasks();
                 state.kill_all_agent_turns();
             }
             // Dock icon clicked: only focus a window, no "switch project" prompt

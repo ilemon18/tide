@@ -10,6 +10,7 @@ import { FileTree, ExplorerHeader } from './components/FileTree'
 import { SearchPanel } from './components/SearchPanel'
 import { GitPanel } from './components/GitPanel'
 import { StructurePanel } from './components/StructurePanel'
+import { TasksPanel } from './components/TasksPanel'
 import { EditorArea } from './components/EditorArea'
 import { StatusBar } from './components/StatusBar'
 import { Splitter } from './components/Splitter'
@@ -35,7 +36,7 @@ import {
   openSettings,
   openWorkspace,
 } from './lib/actions'
-import { api, type RecentWorkspace, type Settings } from './lib/ipc'
+import { api, errorText, type RecentWorkspace, type Settings } from './lib/ipc'
 import { installMemoryLifecycle } from './lib/memory'
 import {
   armEditorSession,
@@ -52,6 +53,7 @@ import { ensureEditorState } from './editor/openState'
 import { useAgent } from './store/agent'
 import { installAgentEvents } from './lib/agentEvents'
 import { flushAgentTabs, installAgentBridge, restoreAgentChats } from './lib/agentSession'
+import { useTaskStore } from './store/tasks'
 
 // The terminal is heavy (xterm + webgl): load on demand so the first screen does not carry it
 const TerminalPanel = lazy(() => import('./components/TerminalPanel'))
@@ -389,8 +391,30 @@ export function App() {
   }, [activityView])
 
   const hasRoots = useWorkspace((s) => s.roots.length > 0)
-  // The structure view has its own empty state and does not need a project.
-  const sidebarVisible = sidebarVisibleSetting && (hasRoots || activityView === 'structure')
+  const tasksEnabled = useSettings((s) => s.tasksEnabled)
+  useEffect(() => {
+    if (!tasksEnabled && activityView === 'tasks') setActivityView('explorer')
+  }, [tasksEnabled, activityView, setActivityView])
+  useEffect(() => {
+    if (tasksEnabled) return
+    const tasks = useTaskStore.getState()
+    for (const execution of Object.values(tasks.executions)) {
+      if (execution.status === 'starting' || execution.status === 'running') {
+        void tasks.stop(execution.id).catch(error => useUi.getState().toast(errorText(error), 'error'))
+      }
+    }
+  }, [tasksEnabled])
+  useEffect(() => {
+    return useWorkspace.subscribe((next, previous) => {
+      for (const root of previous.roots) {
+        if (!next.roots.some((item) => item.id === root.id && item.lifetime === root.lifetime)) {
+          useTaskStore.getState().clearRoot(root.id)
+        }
+      }
+    })
+  }, [])
+  // Structure and Tasks explain their empty states without an open project.
+  const sidebarVisible = sidebarVisibleSetting && (hasRoots || activityView === 'structure' || activityView === 'tasks')
   const sidebarTitle =
     activityView === 'explorer'
       ? t('sidebar.explorer')
@@ -398,7 +422,9 @@ export function App() {
         ? t('sidebar.search')
         : activityView === 'git'
           ? t('sidebar.git')
-          : t('sidebar.structure')
+          : activityView === 'tasks'
+            ? t('sidebar.tasks')
+            : t('sidebar.structure')
 
   // Before the first frame: themed background only, no half-restored layout (see `hydrated`)
   if (!hydrated) return <div className="h-full w-full bg-bg" />
@@ -419,6 +445,7 @@ export function App() {
               patchSettings({ sidebarVisible: true })
             }
           }}
+          tasksEnabled={tasksEnabled}
           onOpenSettings={() => openSettings()}
         />
 
@@ -445,6 +472,8 @@ export function App() {
                     <SearchPanel focusSeq={panelSearchFocus} />
                   ) : activityView === 'git' ? (
                     <GitPanel />
+                  ) : activityView === 'tasks' ? (
+                    <TasksPanel />
                   ) : (
                     <StructurePanel />
                   )}

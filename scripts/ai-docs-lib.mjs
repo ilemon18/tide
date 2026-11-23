@@ -66,6 +66,16 @@ export const ROUTING_FIXTURES = Object.freeze([
     expected: ['runtime.md'],
   },
   {
+    name: 'Project tasks and diagnostics',
+    paths: ['src/store/tasks.ts', 'src/components/TasksPanel.test.tsx', 'src/lib/problemParser.ts'],
+    expected: ['tasks.md'],
+  },
+  {
+    name: 'Project task processes',
+    paths: ['src-tauri/src/commands/tasks.rs'],
+    expected: ['tasks.md', 'terminal.md'],
+  },
+  {
     name: 'Editor',
     paths: ['src/components/EditorArea.tsx', 'src/store/tabs.test.ts'],
     expected: ['editor.md'],
@@ -99,6 +109,7 @@ export const QUERY_FIXTURES = Object.freeze([
   { query: '历史分页', expected: ['agent-storage.md'] },
   { query: ' COMPOSER ', expected: ['agent-composer.md'] },
   { query: 'settings', expected: ['runtime.md'] },
+  { query: '诊断', expected: ['tasks.md'] },
   { query: 'Git watcher', expected: ['git.md', 'file-tree.md'] },
   { query: 'quantumzebra', expected: [] },
 ])

@@ -22,7 +22,7 @@ import { DEFAULT_MONO_FONT } from '../lib/fonts'
 import { applyLocale, DEFAULT_LOCALE, isLocale } from '../i18n'
 import { applyMemoryProfileChange, setMemoryProfile } from '../lib/memoryBudget'
 
-export const SETTINGS_SCHEMA_VERSION = 14
+export const SETTINGS_SCHEMA_VERSION = 15
 export const AGENT_COMPOSER_MIN_HEIGHT = 90
 export const AGENT_COMPOSER_MAX_HEIGHT = 480
 
@@ -53,6 +53,7 @@ export const DEFAULT_SETTINGS: Settings = {
   lightweightMode: false,
   autoUpdate: false,
   agentEnabled: true,
+  tasksEnabled: true,
   agentHistoryEnabled: true,
   agentDefaultProvider: '',
   agentDefaultModel: '',
@@ -108,6 +109,7 @@ const SHARED_KEYS = [
   'lightweightMode',
   'autoUpdate',
   'agentEnabled',
+  'tasksEnabled',
   'agentHistoryEnabled',
   'agentDefaultProvider',
   'agentDefaultModel',
@@ -201,6 +203,7 @@ function snapshot(s: SettingsStore): Settings {
     lightweightMode: s.lightweightMode,
     autoUpdate: s.autoUpdate,
     agentEnabled: s.agentEnabled,
+    tasksEnabled: s.tasksEnabled,
     agentHistoryEnabled: s.agentHistoryEnabled,
     agentDefaultProvider: s.agentDefaultProvider,
     agentDefaultModel: s.agentDefaultModel,
@@ -284,6 +287,7 @@ function migrate(raw: Settings): Settings {
   // Agent defaults: free-form ids stay as written (a provider may add models later); only
   // the switch itself is normalized, so a corrupt value cannot hide the feature.
   if (typeof next.agentEnabled !== 'boolean') next.agentEnabled = true
+  if (typeof next.tasksEnabled !== 'boolean') next.tasksEnabled = true
   if (typeof next.agentHistoryEnabled !== 'boolean') next.agentHistoryEnabled = true
   if (typeof next.autoUpdate !== 'boolean') next.autoUpdate = false
   if (typeof next.agentDefaultProvider !== 'string') next.agentDefaultProvider = ''
@@ -374,6 +378,7 @@ export const useSettings = create<SettingsStore>((set, get) => ({
       patch.fontFamily !== undefined ||
       patch.uiFontSize !== undefined ||
       patch.autoUpdate !== undefined ||
+      patch.tasksEnabled !== undefined ||
       patch.agentHistoryEnabled !== undefined ||
       patch.agentDefaultProvider !== undefined ||
       patch.agentDefaultModel !== undefined ||

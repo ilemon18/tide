@@ -6,6 +6,7 @@ use parking_lot::Mutex;
 
 use crate::commands::agent::{kill_turns, AgentTurn};
 use crate::commands::terminal::PtySession;
+use crate::commands::tasks::TaskProcess;
 use crate::error::{AppError, AppResult};
 use crate::paths;
 use crate::watcher::WatchHandle;
@@ -44,6 +45,8 @@ pub struct AppState {
     /// opens one — a project should occupy exactly one window.
     opens: Mutex<()>,
     pub ptys: Mutex<HashMap<String, Arc<PtySession>>>,
+    /// Running project tasks, keyed by task id.
+    pub tasks: Mutex<HashMap<String, Arc<TaskProcess>>>,
     /// Running agent CLIs, keyed by chat id (one turn per chat)
     pub agent_turns: Mutex<HashMap<String, Arc<AgentTurn>>>,
     /// One file watcher per workspace root (removed when its refcount hits zero).
@@ -137,12 +140,15 @@ impl AppState {
             // Count and ownership disagree: treat as unused so the caller also stops the watcher
             None => true,
         };
-        if last {
+        let released = if last {
             grants.counts.remove(&path);
             RootRelease::Last
         } else {
             RootRelease::StillHeld
-        }
+        };
+        drop(grants);
+        self.kill_root_tasks(owner, &path);
+        released
     }
 
     /// Project roots open in any window (deduped + sorted by path; sorting is only for stable
@@ -244,6 +250,27 @@ impl AppState {
         for s in sessions {
             s.kill();
         }
+    }
+
+    pub fn kill_all_tasks(&self) {
+        let tasks: Vec<Arc<TaskProcess>> = self.tasks.lock().drain().map(|(_, task)| task).collect();
+        for task in tasks { task.stop(); }
+    }
+
+    pub fn kill_window_tasks(&self, owner: &str) {
+        let mut running = self.tasks.lock();
+        let ids: Vec<String> = running.iter().filter(|(_, task)| task.owner == owner).map(|(id, _)| id.clone()).collect();
+        let tasks: Vec<Arc<TaskProcess>> = ids.iter().filter_map(|id| running.remove(id)).collect();
+        drop(running);
+        for task in tasks { task.stop(); }
+    }
+
+    fn kill_root_tasks(&self, owner: &str, root: &Path) {
+        let mut running = self.tasks.lock();
+        let ids: Vec<String> = running.iter().filter(|(_, task)| task.owner == owner && task.root.as_path() == root).map(|(id, _)| id.clone()).collect();
+        let tasks: Vec<Arc<TaskProcess>> = ids.iter().filter_map(|id| running.remove(id)).collect();
+        drop(running);
+        for task in tasks { task.stop(); }
     }
 
     /// Stop every agent CLI (app exit).

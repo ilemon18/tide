@@ -11,7 +11,7 @@ vi.mock('../store/settings', async () => {
     fontSize: 14, ligatures: false, autoSave: false, wordWrap: true, tabSize: 4, formatMode: 'off',
     formatTool: 'auto', inlineBlame: false, indentGuides: false, trimTrailingWhitespace: false,
     insertFinalNewline: true, iconTheme: 'default', showHidden: false, compactFolders: false,
-    terminalFontSize: 13, terminalScrollback: 2000, terminalWebgl: false, agentEnabled: true,
+    terminalFontSize: 13, terminalScrollback: 2000, terminalWebgl: false, agentEnabled: true, tasksEnabled: true,
     agentDefaultProvider: '', agentDefaultModel: '', agentDefaultEffort: '',
     agentDefaultPermissionMode: 'workspace-write', agentHistoryEnabled: true, autoUpdate: false,
     patch: vi.fn(),
@@ -68,6 +68,14 @@ afterEach(() => {
 function selectSection(section: SettingsSectionId) {
   fireEvent.click(screen.getByRole('button', { name: t(`settings.section.${section}.label`) }))
 }
+
+it('exposes the project task toggle under General', () => {
+  render(<SettingsView />)
+  const toggle = screen.getByRole('button', { name: t('settings.tasks.enable') })
+  expect(toggle.getAttribute('aria-pressed')).toBe('true')
+  fireEvent.click(toggle)
+  expect(useSettings.getState().patch).toHaveBeenCalledExactlyOnceWith({ tasksEnabled: false })
+})
 
 it('places the history preference under Agent and patches it when toggled', () => {
   render(<SettingsView />)

@@ -9,6 +9,7 @@ import { useFolderChain } from '../store/folderChain'
 import { useSearch } from '../store/search'
 import { useTabs } from '../store/tabs'
 import { useWorkspace } from '../store/workspace'
+import { useTaskStore } from '../store/tasks'
 import { budget, onMemoryProfileChange } from './memoryBudget'
 
 /**
@@ -22,6 +23,7 @@ import { budget, onMemoryProfileChange } from './memoryBudget'
  * app switch); hidden drops documents too, keeping the active tab and any dirty ones.
  */
 export function reclaimMemory(level: 'idle' | 'hidden' = 'idle') {
+  useTaskStore.getState().trim()
   const { activeId } = useTabs.getState()
   if (level === 'hidden') {
     trimEditorStates(activeId)

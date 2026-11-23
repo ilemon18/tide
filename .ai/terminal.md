@@ -11,6 +11,7 @@ scope:
   - src-tauri/src/commands/terminal.rs
   - src-tauri/src/state.rs
   - src/components/TerminalContextAction.tsx
+  - src-tauri/src/commands/tasks.rs
   - src/components/EditorContextActions.test.tsx
   - src/lib/terminalSelection*.ts
 keywords:
@@ -60,6 +61,10 @@ keywords:
 - Snapshot metadata labels root/rel as startup location, never current shell cwd. Rootless shells use the
   active workspace for the conversation and mark startup location unavailable. Unregister on teardown,
   including failed initialization; existing snapshots do not depend on PTY lifetime or later output.
+
+Project tasks use a separate non-PTY process path. They inherit the authorized workspace cwd, forward bounded
+stdout/stderr events, expose exit codes and kill the whole process group/tree on stop, window destruction or app
+exit. Do not route task output through xterm or let tasks inherit terminal input.
 
 ## Change map and verification
 

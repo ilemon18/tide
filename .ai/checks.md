@@ -77,6 +77,12 @@ Rust agent tests also protect context root/path/range/byte validation and quoted
 
 ## Change map and verification
 
+Tasks and Problems changes require frontend tests for task discovery, execution state, output parsing, path
+filtering, custom cwd, aggregate diagnostics, settings migration, Problem navigation, early events, failed
+launch/stop retries, stale discovery and bounded history/output. Rust tests cover command discovery, bounded
+config validation, split UTF-8, process/group cleanup, ownership and workspace/symlink containment. Resource
+ceilings are owned by src/lib/memoryBudget.ts and src-tauri/src/commands/tasks.rs.
+
 Keep metadata parser, route/sync, guard and tests aligned; scope/index changes update fixtures and regenerated
 context together. Guard changes also update this map and [verify](./skills/release-verify/SKILL.md).
 Keep tests beside owners. Run targeted tests through the requested gate when test code or update/path/
