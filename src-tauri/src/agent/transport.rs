@@ -191,7 +191,7 @@ mod tests {
     fn request(mode: AgentPermissionMode, provider: &str) -> AgentTurnRequest {
         AgentTurnRequest { chat_id: "chat".into(), run_id: "run".into(), root: "/tmp".into(), provider: provider.into(),
             session_action: AgentSessionAction::New, session_id: None, model: None, effort: None,
-            prompt: "hello".into(), mentions: Vec::new(), read_only: false, permission_mode: mode }
+            prompt: "hello".into(), mentions: Vec::new(), attachments: Vec::new(), read_only: false, permission_mode: mode }
     }
 
     #[test]

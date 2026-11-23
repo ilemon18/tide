@@ -1,5 +1,5 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
-import { api, type AgentPlanAction, type AgentPermissionMode } from '../lib/ipc'
+import { api, type AgentContextAttachment, type AgentPlanAction, type AgentPermissionMode } from '../lib/ipc'
 vi.mock('../lib/ipc', () => ({ api: { agentChatOpen: vi.fn(), agentChatApply: vi.fn(), agentSend: vi.fn(),
   agentChatPage: vi.fn(), agentChatList: vi.fn(), agentChatClone: vi.fn(), agentChatReset: vi.fn(), agentCancel: vi.fn(), agentPermissionRespond: vi.fn(), agentModels: vi.fn() }, errorText: (error: unknown) => error instanceof Error ? error.message : String(error) }))
 vi.mock('../i18n', () => ({ t: (key: string) => key }))
@@ -10,8 +10,8 @@ const { settings, patchSettings } = vi.hoisted(() => {
   return { settings, patchSettings }
 })
 vi.mock('./settings', () => ({ useSettings: { getState: () => ({ ...settings, patch: patchSettings }) } }))
-const { setTabName } = vi.hoisted(() => ({ setTabName: vi.fn() }))
-vi.mock('./tabs', () => ({ useTabs: { getState: () => ({ setTabName, openChat: vi.fn(), openChatInRight: vi.fn() }) } }))
+const { setTabName, contextTabs } = vi.hoisted(() => ({ setTabName: vi.fn(), contextTabs: { tabs: [] as Array<{ id: string; kind: string; root: string }>, groups: [] as Array<{ activeId: string }> } }))
+vi.mock('./tabs', () => ({ useTabs: { getState: () => ({ ...contextTabs, setTabName, openChat: vi.fn(), openChatInRight: vi.fn() }) } }))
 vi.mock('./ui', () => ({ useUi: { getState: () => ({ toast: vi.fn() }) } }))
 vi.mock('./workspace', () => ({ activeRoot: () => null }))
 import { findPendingPlanAction, findPendingQuestion, useAgent, type AgentChat } from './agent'
@@ -21,18 +21,111 @@ import { ja } from '../i18n/messages/ja'
 import { ko } from '../i18n/messages/ko'
 import { zhCN } from '../i18n/messages/zh-CN'
 import { zhTW } from '../i18n/messages/zh-TW'
+import { setMemoryProfile } from '../lib/memoryBudget'
 
 const chat = (): AgentChat => ({ v: 1, id: 'chat-test', root: '/tmp/project', title: 'test', provider: 'codex',
   model: '', effort: '', sessionId: 'session-1', messages: [{ id: 'a1', role: 'assistant', at: 1, items: [] }],
   status: 'idle', error: null, createdAt: 1, updatedAt: 1 })
 const page = () => ({ header: chat(), messages: chat().messages, hasEarlier: false, hasLater: false,
   total: 1, hasPendingQuestion: false, hasUnhandledPlanAction: false, pendingMessageId: null })
+const contextAttachment = (id = 'context-1'): AgentContextAttachment => ({ id, kind: 'terminal-selection',
+  sourceRoot: '/tmp/project', capturedAt: 1, text: 'captured error', label: 'Terminal', startupRel: '' })
+
+describe('context attachment flow', () => {
+  it('prefers a visible same-root chat, appends instructions, and preserves draft metadata and permissions', () => {
+    const current = { ...chat(), planning: true, permissionMode: 'read-only' as const }
+    useAgent.setState({ chats: { 'chat-test': current, hidden: { ...chat(), id: 'hidden' } },
+      chatFocusOrder: { hidden: 1000 },
+      chatDrafts: { 'chat-test': { text: 'Keep this', mentions: [{ rel: 'a.ts', isDir: false }], command: 'plan' } } })
+    contextTabs.tabs = [{ id: 'chat:hidden', kind: 'chat', root: '/tmp/project' },
+      { id: 'chat:chat-test', kind: 'chat', root: '/tmp/project' }]
+    contextTabs.groups = [{ activeId: 'chat:chat-test' }]
+    expect(useAgent.getState().addContext('/tmp/project', [contextAttachment()], 'explain')).toBe(true)
+    expect(useAgent.getState().chatDrafts['chat-test']).toMatchObject({ text: 'Keep this\n\nagent.context.explainPrompt',
+      mentions: [{ rel: 'a.ts', isDir: false }], command: 'plan', attachments: [contextAttachment()] })
+    expect(useAgent.getState().chats['chat-test']).toMatchObject({ planning: true, permissionMode: 'read-only' })
+    expect(api.agentSend).not.toHaveBeenCalled()
+    expect(useAgent.getState().focusRequests['chat-test']).toBe(1)
+  })
+
+  it('creates a source-root chat and rejects mismatches and oversized additions atomically', () => {
+    expect(useAgent.getState().addContext('/tmp/project', [contextAttachment()])).toBe(true)
+    const id = Object.keys(useAgent.getState().chatDrafts)[0]
+    const before = useAgent.getState().chatDrafts[id]
+    expect(before.attachments?.[0].text).toBe('captured error')
+    expect(useAgent.getState().addContext('/other', [contextAttachment('other')])).toBe(false)
+    expect(useAgent.getState().addContext('/tmp/project', [{ ...contextAttachment('large'), text: 'x'.repeat(32769) }])).toBe(false)
+    expect(useAgent.getState().chatDrafts[id]).toBe(before)
+    expect(api.agentSend).not.toHaveBeenCalled()
+  })
+
+  it('keeps snapshots through queue drain and preserves a newer draft', async () => {
+    await useAgent.getState().sendMessage('chat-test', { text: 'first', mentions: [] })
+    const attachment = contextAttachment()
+    await useAgent.getState().sendMessage('chat-test', { text: 'second', mentions: [], attachments: [attachment] })
+    attachment.text = 'later mutation'
+    useAgent.getState().setChatDraft('chat-test', { text: 'newer', attachments: [contextAttachment('new')] })
+    const running = useAgent.getState().chats['chat-test']
+    useAgent.getState().applyEvent({ chatId: running.id, runId: running.activeRunId!, sequence: 1,
+      event: { kind: 'done', ok: true, cancelled: false, code: 0 } })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(api.agentSend).toHaveBeenLastCalledWith(expect.objectContaining({ attachments: [contextAttachment()] }))
+    expect(useAgent.getState().chatDrafts['chat-test'].text).toBe('newer')
+    expect(useAgent.getState().chats['chat-test'].messages.find(message => message.text === 'second')?.attachments).toEqual([contextAttachment()])
+  })
+
+  it('retains attachments after launch failure and persists them with the user turn', async () => {
+    const draft = { text: 'Analyze', mentions: [], attachments: [contextAttachment()] }
+    useAgent.getState().setChatDraft('chat-test', draft)
+    vi.mocked(api.agentSend).mockRejectedValueOnce(new Error('launch failed'))
+    await useAgent.getState().sendMessage('chat-test', draft)
+    expect(useAgent.getState().chatDrafts['chat-test'].attachments).toEqual(draft.attachments)
+    expect(api.agentChatApply).toHaveBeenCalledWith('chat-test', expect.objectContaining({
+      upserts: expect.arrayContaining([expect.objectContaining({ role: 'user', attachments: draft.attachments })]),
+    }))
+  })
+
+  it('recovers captured text from old compatible history without reading its source', async () => {
+    useAgent.setState({ chats: {} })
+    vi.mocked(api.agentChatOpen).mockResolvedValueOnce({ ...page(), messages: [
+      { id: 'old', role: 'user', at: 1, text: 'legacy' },
+      { id: 'new', role: 'user', at: 2, text: 'Analyze', attachments: [contextAttachment()] },
+    ] })
+    await useAgent.getState().loadChat('chat-test', '/tmp/project')
+    expect(useAgent.getState().chats['chat-test'].messages[0].attachments).toBeUndefined()
+    expect(useAgent.getState().chats['chat-test'].messages[1].attachments).toEqual([contextAttachment()])
+  })
+
+  it('enforces the shared light-mode draft and queue budget without consuming an addition', () => {
+    setMemoryProfile('light')
+    try {
+      useAgent.setState({ queues: { other: Array.from({ length: 4 }, (_, index) => ({ id: String(index), text: 'queued', mentions: [],
+        attachments: Array.from({ length: 4 }, (_, part) => ({ ...contextAttachment(index + '-' + part), text: 'x'.repeat(32768) })),
+      })) } })
+      const before = useAgent.getState().chatDrafts
+      expect(useAgent.getState().addContext('/tmp/project', [contextAttachment()])).toBe(false)
+      expect(useAgent.getState().chatDrafts).toBe(before)
+      expect(useAgent.getState().queues.other).toHaveLength(4)
+    } finally { setMemoryProfile('normal') }
+  })
+
+  it.each(['question', 'plan'] as const)('allows draft attachments while the %s gate continues blocking sends', async gate => {
+    contextTabs.tabs = [{ id: 'chat:chat-test', kind: 'chat', root: '/tmp/project' }]
+    useAgent.setState({ pages: { 'chat-test': { ...page(), hasPendingQuestion: gate === 'question', hasUnhandledPlanAction: gate === 'plan' } } })
+    expect(useAgent.getState().addContext('/tmp/project', [contextAttachment()], 'explain')).toBe(true)
+    await useAgent.getState().sendMessage('chat-test', useAgent.getState().chatDrafts['chat-test'])
+    expect(api.agentSend).not.toHaveBeenCalled()
+    expect(useAgent.getState().chatDrafts['chat-test'].attachments).toEqual([contextAttachment()])
+  })
+})
 beforeEach(() => {
   vi.useFakeTimers()
   vi.clearAllMocks()
+  contextTabs.tabs = []
+  contextTabs.groups = []
   Object.assign(settings, { agentEnabled: true, agentHistoryEnabled: true, agentDefaultProvider: '', agentDefaultModel: '', agentDefaultEffort: '',
     agentDefaultPermissionMode: 'workspace-write' })
-  useAgent.setState({ chats: { 'chat-test': chat() }, pages: {}, pageLoading: {}, historyByRoot: {}, queues: {}, interjecting: {}, running: {}, chatDrafts: {}, focusRequests: {}, localPicker: null,
+  useAgent.setState({ chatFocusOrder: {}, chats: { 'chat-test': chat() }, pages: {}, pageLoading: {}, historyByRoot: {}, queues: {}, interjecting: {}, running: {}, chatDrafts: {}, focusRequests: {}, localPicker: null,
     catalogs: {}, catalogLoading: {}, chatDefaults: { provider: '', model: '', effort: '' },
     providers: [{ id: 'codex', name: 'Codex', installed: true, supported: true, command: 'codex', version: '1', supportsFork: true }] })
   vi.mocked(api.agentModels).mockResolvedValue({ provider: 'codex', models: [], efforts: ['low', 'medium', 'high'], defaultModel: '' })
@@ -879,6 +972,7 @@ describe('queued message interjection', () => {
   const first = { id: 'first', text: 'First queued', mentions: [] }
   const selected = { id: 'selected', text: '  Selected work\nKeep whitespace  ',
     mentions: [{ rel: 'src/a.ts', isDir: false }],
+    attachments: [contextAttachment()],
     skills: [{ name: 'audit', path: 'skills/audit', source: 'project' as const }], command: 'plan' as const }
   const last = { id: 'last', text: 'Last queued', mentions: [] }
   const queue = () => useAgent.setState({ queues: { 'chat-test': [first, selected, last] } })
@@ -899,9 +993,9 @@ describe('queued message interjection', () => {
     finishTurn(ok, !ok)
     expect(await pending).toBe(true)
     expect(api.agentSend).toHaveBeenCalledTimes(2)
-    expect(api.agentSend).toHaveBeenLastCalledWith(expect.objectContaining({ mentions: selected.mentions, readOnly: true }))
+    expect(api.agentSend).toHaveBeenLastCalledWith(expect.objectContaining({ mentions: selected.mentions, attachments: selected.attachments, readOnly: true }))
     expect(useAgent.getState().chats['chat-test'].messages.at(-2)).toMatchObject({ role: 'user',
-      text: selected.text, mentions: selected.mentions, command: selected.command, skills: selected.skills })
+      text: selected.text, mentions: selected.mentions, attachments: selected.attachments, command: selected.command, skills: selected.skills })
     expect(useAgent.getState().queues['chat-test']).toEqual([first, last])
     expect(useAgent.getState().chatDrafts['chat-test']).toBe(newDraft)
     expect(useAgent.getState().interjecting['chat-test']).toBeUndefined()

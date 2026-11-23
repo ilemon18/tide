@@ -5,6 +5,8 @@ import { loadLanguage } from './languages'
 import { buildEditorTheme } from '../theme/cmTheme'
 import { palettes, type Palette } from '../theme/palettes'
 import { signals } from './signals'
+import { editorSelections } from './selectionRegistry'
+import { getGroupOfView } from './viewRef'
 import type { DocTier } from './largeFile'
 import { blameExtension, blameField, setBlameEffect } from './blame'
 import type { BlameResult } from '../lib/ipc'
@@ -287,6 +289,8 @@ export async function createFileState(opts: CreateFileOpts): Promise<EditorState
       blameCompartment.of(opts.inlineBlame && feature.inlineBlame() ? blameExtension : []),
       flashExtension,
       EditorView.updateListener.of((update) => {
+        const contextGroup = getGroupOfView(update.view)
+        if (contextGroup && (update.selectionSet || update.docChanged)) editorSelections.notify(contextGroup)
         // Keep the cache pointing at the view's latest state so tab switches, closes
         // and background reloads never overwrite unsaved content with a stale snapshot
         cacheEditorState(opts.id, update.state)

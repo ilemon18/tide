@@ -21,6 +21,7 @@ vi.mock('../store/agent', async () => {
   return { useAgent: create(() => ({ chats: {} as Record<string, AgentChat>, pages: {} })) }
 })
 vi.mock('../i18n', () => ({ t: (key: string) => key, useT: () => (key: string) => key }))
+vi.mock('./EditorContextActions', () => ({ EditorContextActions: () => null }))
 vi.mock('./AgentProviderIcon', () => ({ AgentProviderIcon: () => <span data-provider-icon /> }))
 vi.mock('./FileIcon', () => ({ FileIcon: () => <span data-file-icon /> }))
 vi.mock('./ContextMenu', () => ({ ContextMenu: () => null }))

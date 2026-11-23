@@ -545,7 +545,7 @@ mod tests {
             model: None,
             effort: None,
             prompt: "hi".into(),
-            mentions: Vec::new(),
+            mentions: Vec::new(), attachments: Vec::new(),
             read_only,
             permission_mode: super::super::AgentPermissionMode::WorkspaceWrite,
         }

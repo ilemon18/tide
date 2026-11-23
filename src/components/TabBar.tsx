@@ -22,6 +22,7 @@ import { tabTitle, tabTooltip } from '../lib/tabTitle'
 import { useAgent } from '../store/agent'
 import { AgentProviderIcon } from './AgentProviderIcon'
 import { AgentTabStatus } from './AgentTabStatus'
+import { EditorContextActions } from './EditorContextActions'
 
 const GAP = 2
 /** Position estimate only, until the intrinsic tab width has been measured. */
@@ -548,6 +549,8 @@ export function TabBar({ groupId }: { groupId: TabGroupId }) {
           </div>
         </div>
 
+        {(groupActiveTab?.kind === 'file' && !groupActiveTab.preview) || groupActiveTab?.kind === 'untitled'
+          ? <EditorContextActions groupId={groupId} /> : null}
         {markdownTab ? (
           <button
             onClick={() => toggleMarkdownPreview(groupId, markdownTab.id)}

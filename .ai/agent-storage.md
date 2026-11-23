@@ -39,6 +39,14 @@ restores primary-window tabs. Keep transcript v:1 compatible.
   an atomic chat reset that clears the complete persisted message list, including unloaded history, while
   retaining the chat id and header identity.
 
+## Snapshot persistence
+
+- Sent user-message attachments preserve exact capture text/metadata through atomic patches, paging,
+  eviction, reopen and cloning. Keep v:1; absent attachments mean none. normalizeChat rejects malformed
+  attachment records before rendering, while Rust continues preserving unknown message fields.
+- Draft and queued attachments follow existing in-memory lifetime: tab switches retain them; closing the
+  chat releases them. No unsent attachment recovery after restart is promised.
+
 ## Change map and verification
 
 Coordinate Rust/IPC/frontend DTOs. Saving a partial page preserves unloaded records; compact/reset preserves

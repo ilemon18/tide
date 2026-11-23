@@ -31,6 +31,11 @@ export function lightMemory(): boolean {
  * a restart). Byte / char limits describe resident documents; count limits describe cached entries.
  */
 export const budget = {
+  /** Context snapshot limits; request hard limits mirror agent/mod.rs. */
+  agentAttachments: () => 8,
+  agentAttachmentBytes: () => 32 * 1024,
+  agentMessageAttachmentBytes: () => 128 * 1024,
+  agentUnsentAttachmentBytes: () => (lightMemory() ? 512 * 1024 : 1024 * 1024),
   /** EditorStates kept resident (doc + syntax tree + undo history per tab) */
   editorStates: () => (lightMemory() ? 3 : 8),
   /** Large / preview documents kept resident at once */

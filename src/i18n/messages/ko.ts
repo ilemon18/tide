@@ -2,6 +2,24 @@ import type { Messages } from '../types'
 
 /** 한국어. 키는 `en.ts`와 완전히 일치해야 합니다(타입으로 강제). */
 export const ko: Messages = {
+  "agent.context.add": "선택 영역을 AI에 추가",
+  "agent.context.explain": "선택한 코드 설명",
+  "agent.context.refactor": "선택한 코드 리팩터링",
+  "agent.context.terminal": "선택한 출력을 AI에 추가",
+  "agent.context.attachments": "컨텍스트 첨부",
+  "agent.context.unsaved": "저장 안 됨",
+  "agent.context.startup": "시작 위치: {path}",
+  "agent.context.locationUnavailable": "사용 불가",
+  "agent.context.copy": "스냅샷 복사",
+  "agent.context.remove": "첨부 제거",
+  "agent.context.explainPrompt": "첨부한 코드를 설명해 주세요.",
+  "agent.context.refactorPrompt": "첨부한 코드를 리팩터링하고 변경 사항을 설명해 주세요.",
+  "agent.context.invalid": "첨부가 잘못되었거나 다른 작업 공간에 속합니다.",
+  "agent.context.limit": "첨부는 최대 8개, 각각 32 KiB, 합계 128 KiB입니다. 더 작은 영역을 선택하세요.",
+  "agent.context.memory": "첨부가 창 메모리 한도를 초과합니다. 사용하지 않는 초안이나 대기 중인 첨부를 제거하세요.",
+  "error.agent.context.invalid": "첨부가 잘못되었거나 다른 작업 공간에 속합니다.",
+  "error.agent.context.limit": "첨부는 최대 8개, 각각 32 KiB, 합계 128 KiB입니다. 더 작은 영역을 선택하세요.",
+
   'agent.permission.turnScope': "현재 턴에만 적용됩니다.",
 
   'agent.permission.command': "명령 실행",

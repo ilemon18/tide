@@ -2,6 +2,24 @@ import type { Messages } from '../types'
 
 /** 日本語。キーは `en.ts` と完全に一致している必要があります（型で強制）。 */
 export const ja: Messages = {
+  "agent.context.add": "選択範囲を AI に追加",
+  "agent.context.explain": "選択したコードを説明",
+  "agent.context.refactor": "選択したコードをリファクタリング",
+  "agent.context.terminal": "選択した出力を AI に追加",
+  "agent.context.attachments": "コンテキストの添付",
+  "agent.context.unsaved": "未保存",
+  "agent.context.startup": "起動時の場所: {path}",
+  "agent.context.locationUnavailable": "利用不可",
+  "agent.context.copy": "スナップショットをコピー",
+  "agent.context.remove": "添付を削除",
+  "agent.context.explainPrompt": "添付したコードを説明してください。",
+  "agent.context.refactorPrompt": "添付したコードをリファクタリングし、変更を説明してください。",
+  "agent.context.invalid": "添付が無効か、別のワークスペースに属しています。",
+  "agent.context.limit": "添付は最大 8 個、各 32 KiB、合計 128 KiB です。選択範囲を小さくしてください。",
+  "agent.context.memory": "添付がウィンドウのメモリ上限を超えています。未使用の下書きや待機中の添付を削除してください。",
+  "error.agent.context.invalid": "添付が無効か、別のワークスペースに属しています。",
+  "error.agent.context.limit": "添付は最大 8 個、各 32 KiB、合計 128 KiB です。選択範囲を小さくしてください。",
+
   'agent.permission.turnScope': "このターンにのみ適用されます。",
 
   'agent.permission.command': "コマンドの実行",

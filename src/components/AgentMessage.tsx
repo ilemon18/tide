@@ -1,3 +1,5 @@
+import { AgentAttachments } from './AgentAttachments'
+import { serializeAttachments } from '../lib/agentContext'
 import { memo, useLayoutEffect, useRef, useState } from 'react'
 import type { AgentItem, AgentMessage as Message } from '../store/agent'
 import type { AgentMention, AgentPlanAction } from '../lib/ipc'
@@ -44,6 +46,8 @@ export function serializeUserMessage(message: Message): string {
   if (message.command) parts.push(`/${message.command}`)
   for (const skill of message.skills ?? []) parts.push(`$${skill.name} (${skill.path})`)
   for (const mention of message.mentions ?? []) parts.push(`@${mention.rel}`)
+  const attachments = serializeAttachments(message.attachments)
+  if (attachments) parts.push(attachments)
   if (message.text) parts.push(message.text)
   return parts.join('\n')
 }
@@ -584,6 +588,7 @@ export const UserMessage = memo(function UserMessage({
           {message.mentions && message.mentions.length > 0 ? (
             <MentionRow root={root} mentions={message.mentions} />
           ) : null}
+          <AgentAttachments attachments={message.attachments} />
           {message.text ? (
             <div className="whitespace-pre-wrap break-words text-sm leading-relaxed text-fg/90">
               {message.text}

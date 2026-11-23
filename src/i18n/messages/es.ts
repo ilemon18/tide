@@ -2,6 +2,24 @@ import type { Messages } from '../types'
 
 /** Español. Las claves deben coincidir exactamente con `en.ts` (lo exige el tipo). */
 export const es: Messages = {
+  "agent.context.add": "Añadir selección a IA",
+  "agent.context.explain": "Explicar código seleccionado",
+  "agent.context.refactor": "Refactorizar código seleccionado",
+  "agent.context.terminal": "Añadir salida seleccionada a IA",
+  "agent.context.attachments": "Archivos de contexto",
+  "agent.context.unsaved": "sin guardar",
+  "agent.context.startup": "Ubicación de inicio: {path}",
+  "agent.context.locationUnavailable": "No disponible",
+  "agent.context.copy": "Copiar captura",
+  "agent.context.remove": "Quitar adjunto",
+  "agent.context.explainPrompt": "Explica el código adjunto.",
+  "agent.context.refactorPrompt": "Refactoriza el código adjunto y explica los cambios.",
+  "agent.context.invalid": "El adjunto no es válido o pertenece a otro espacio de trabajo.",
+  "agent.context.limit": "Añade hasta 8 adjuntos, de 32 KiB cada uno y 128 KiB en total. Selecciona un rango menor.",
+  "agent.context.memory": "Los adjuntos superan el límite de memoria de la ventana. Quita adjuntos de borradores o mensajes en cola que no uses.",
+  "error.agent.context.invalid": "El adjunto no es válido o pertenece a otro espacio de trabajo.",
+  "error.agent.context.limit": "Añade hasta 8 adjuntos, de 32 KiB cada uno y 128 KiB en total. Selecciona un rango menor.",
+
   'agent.permission.turnScope': "Solo se aplica a este turno.",
 
   'agent.permission.command': "Ejecutar comando",

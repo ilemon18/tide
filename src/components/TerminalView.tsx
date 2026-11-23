@@ -12,6 +12,10 @@ import { isLayoutDragging, onLayoutDragging } from '../lib/layoutBus'
 import { isMac } from '../lib/paths'
 import { shortcutKey } from '../lib/keys'
 import { isLowDpi, onLowDpiChange } from '../lib/displayScale'
+import { terminalSelections } from '../lib/terminalSelection'
+import { agentUid } from '../store/agent'
+import { activeRoot } from '../store/workspace'
+import { t } from '../i18n'
 
 
 /**
@@ -85,6 +89,17 @@ export function TerminalView({ tab, active }: Props) {
       fontWeightBold: isLowDpi() ? 650 : 600,
     })
     termRef.current = term
+    const unregisterSelection = terminalSelections.register(tab.id, () => {
+      const text = term.getSelection()
+      if (!text) return null
+      const root = tab.root || activeRoot()?.id || ''
+      return { root, attachments: [{
+        id: agentUid('context'), kind: 'terminal-selection', sourceRoot: root,
+        capturedAt: Date.now(), text, label: t('terminal.title', { index: tab.ordinal }),
+        startupRel: tab.root ? tab.rel : null,
+      }] }
+    }, () => term.hasSelection())
+    const selectionChanged = term.onSelectionChange(() => terminalSelections.notify(tab.id))
 
     const fit = new FitAddon()
     term.loadAddon(fit)
@@ -95,6 +110,8 @@ export function TerminalView({ tab, active }: Props) {
     } catch (e) {
       console.error('终端初始化失败', errorText(e))
       return () => {
+        selectionChanged.dispose()
+        unregisterSelection()
         try {
           term.dispose()
         } catch {
@@ -381,6 +398,8 @@ export function TerminalView({ tab, active }: Props) {
       } catch {
         /* ignore */
       }
+      selectionChanged.dispose()
+      unregisterSelection()
       try {
         unregister?.()
       } catch {

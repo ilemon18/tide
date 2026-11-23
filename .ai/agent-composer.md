@@ -13,6 +13,10 @@ scope:
   - src-tauri/src/agent/question.rs
   - src-tauri/src/agent/skills.rs
   - src-tauri/src/commands/agent.rs
+  - src/lib/agentContext*.ts
+  - src/lib/contextSelection*.ts
+  - src/lib/commands*.ts
+  - src/components/AgentAttachments*.tsx
 keywords:
   - composer
   - input
@@ -92,6 +96,18 @@ actions and queue gates. Rust parses questions/scans skills. Provider/model/perm
   flag, preserving CLI/per-chat defaults.
 - /compact requires idle/no queue/no pending card. Keep transcript; atomically persist read-only summary
   before session/context/usage reset. Summary becomes new-session preamble; failure preserves session.
+
+## Context attachments
+
+- Explicit editor/terminal actions append immutable snapshots to a same-root draft, then focus it. Prefer
+  visible chat tabs, then other open chats, ordered by last focus; otherwise create a same-root chat.
+  Explain/refactor append editable instructions without replacing text, tags, skills or permissions.
+- Draft/user-message/request attachments are optional for v:1 compatibility. snapshotAgentDraft owns
+  queue/interjection copies; adding context never sends. Existing question/plan gates remain authoritative.
+- AgentAttachments renders bounded, expandable plain-text previews with capture time, copy and removal.
+  Queue/user-turn copies include snapshot text and source metadata. Unsent drafts/queues remain in memory.
+- Limits live in src/lib/memoryBudget.ts and Rust agent/mod.rs: reject entire additions rather than
+  truncating. Validate source root, shape, duplicate ids and UTF-8 sizes before changing a draft or sending.
 
 ## Change map and verification
 

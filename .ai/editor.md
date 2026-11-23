@@ -15,6 +15,7 @@ scope:
   - src/lib/markdown.ts
   - src/lib/untitledDrafts.ts
   - src/lib/tabTitle.ts
+  - src/components/EditorContextActions*.tsx
 keywords:
   - editor
   - tab
@@ -83,6 +84,16 @@ EditorHost selects tab kinds; markdown helpers own contained links and images.
 - Reconfigure theme/font/blame/wrap via Compartments; rebuilding state discards undo. DOM extensions
   (conflicts/blame/folds) need editor/locale.ts effects and destroy-time watchLocale unsubscribe. Large-file
   outline traversal must tolerate viewport-only Lezer trees.
+
+## Selection context
+
+- EditorHost registers its live view and mounted tab in editor/selectionRegistry; stateCache publishes only
+  selection availability. Read snapshots on explicit actions, by group id, and reject hidden/stale views.
+  Capture all nonempty ranges in document order with one-based, end-exclusive UTF-16 line/column metadata.
+- EditorContextActions preserves selection on toolbar focus, captures before opening its menu, and offers
+  add/explain/refactor. Command palette closures capture their source when commands are built. Untitled
+  buffers use the active root and retain a label; file snapshots include dirty text without disk reads.
+  Both registrations and tab-store subscriptions are released with the view.
 
 ## Change map and verification
 

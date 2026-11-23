@@ -1,5 +1,6 @@
 import { type ReactNode, type RefObject, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { errorText, type AgentMention, type AgentPermissionMode, type DirEntryInfo } from '../lib/ipc'
+import { errorText, type AgentContextAttachment, type AgentMention, type AgentPermissionMode, type DirEntryInfo } from '../lib/ipc'
+import { AgentAttachments } from './AgentAttachments'
 import type { AgentCommandId, AgentPromptCommandId, AgentSkillRef, ComposerTrigger } from '../lib/agentCommand'
 import {
   isAgentPromptCommandId,
@@ -35,6 +36,8 @@ type Props = {
   popupBoundaryRef?: RefObject<HTMLDivElement | null>
   draft: string
   mentions: AgentMention[]
+  attachments?: AgentContextAttachment[]
+  onRemoveAttachment?: (id: string) => void
   command?: AgentPromptCommandId
   skills: AgentSkillRef[]
   provider: string
@@ -117,6 +120,8 @@ export function AgentComposer({
   popupBoundaryRef,
   draft,
   mentions,
+  attachments,
+  onRemoveAttachment,
   command,
   skills,
   provider,
@@ -340,7 +345,7 @@ export function AgentComposer({
       window.removeEventListener('resize', measure)
       window.removeEventListener('scroll', measure, true)
     }
-  }, [showPopup, popupBoundaryRef, outlined, draft, mentions, skills, command, effectiveComposerHeight, maxComposerHeight])
+  }, [showPopup, popupBoundaryRef, outlined, draft, mentions, attachments, skills, command, effectiveComposerHeight, maxComposerHeight])
 
   // `/plan` typed without committing the chip still counts as a command, not as text
   const pending = normalizeAgentDraft({ text: draft, mentions, command, skills })
@@ -363,6 +368,7 @@ export function AgentComposer({
 
   return (
     <div ref={composerRef} className={`relative flex min-w-0 flex-col gap-1.5 ${outlined ? 'rounded-[var(--r-popup)] border border-accent bg-panel p-3' : ''}`}>
+      <AgentAttachments attachments={attachments} onRemove={onRemoveAttachment} />
       {command || skills.length > 0 || mentions.length > 0 ? (
         <div className="flex flex-wrap gap-1">
           {command ? <CommandChip id={command} onRemove={() => onCommand(undefined)} /> : null}

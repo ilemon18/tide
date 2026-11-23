@@ -15,6 +15,8 @@ import { Icon } from './Icon'
 import { ModelPicker } from './AgentPickers'
 import { AgentContextUsage } from './AgentContextUsage'
 import { CopyButton } from './CopyButton'
+import { AgentAttachments } from './AgentAttachments'
+import { serializeAttachments } from '../lib/agentContext'
 
 /** Queued prompt plus the metadata that will be sent with it. */
 function serializeQueuedMessage(item: AgentDraft): string {
@@ -22,6 +24,8 @@ function serializeQueuedMessage(item: AgentDraft): string {
   if (item.command) parts.push(`/${item.command}`)
   for (const skill of item.skills ?? []) parts.push(`$${skill.name} (${skill.path})`)
   for (const mention of item.mentions ?? []) parts.push(`@${mention.rel}`)
+  const attachments = serializeAttachments(item.attachments)
+  if (attachments) parts.push(attachments)
   if (item.text) parts.push(item.text)
   return parts.join('\n')
 }
@@ -53,6 +57,9 @@ export function AgentChat({ chatId }: { chatId: string }) {
   }, [])
   const enabled = useSettings((s) => s.agentEnabled)
   const focused = useTabs((s) => s.activeId === chatTabId(chatId))
+  useEffect(() => {
+    if (focused) useAgent.getState().markChatFocused(chatId)
+  }, [focused, chatId])
 
   useEffect(() => {
     if (!historyVisible || !chat?.root) return
@@ -264,7 +271,9 @@ export function AgentChat({ chatId }: { chatId: string }) {
     !(queued?.length)
 
   return (
-    <div className="absolute inset-0 flex flex-col bg-bg">
+    <div className="absolute inset-0 flex flex-col bg-bg"
+      onFocusCapture={() => useAgent.getState().markChatFocused(chatId)}
+      onPointerDownCapture={() => useAgent.getState().markChatFocused(chatId)}>
       <div className="flex h-9 shrink-0 items-center gap-1.5 border-b border-line bg-bg px-2.5">
         <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-[5px] bg-accent/15 text-accent">
           <Icon name="agent" size={12} />
@@ -433,12 +442,13 @@ export function AgentChat({ chatId }: { chatId: string }) {
             ) : null}
             {initialConversation && chat.error ? <div role="alert" className="text-xs text-danger">{chat.error}</div> : null}
             {queued && queued.length > 0 ? (
-              <div className="flex flex-col gap-1">
+              <div className="flex max-h-[240px] flex-col gap-1 overflow-y-auto">
                 {queued.map((item) => (
                   <div
                     key={item.id}
-                    className="group/item flex items-center gap-1.5 rounded-[var(--r-row)] border border-line-soft bg-panel px-2 py-1 text-2xs text-muted"
+                    className="group/item flex flex-wrap items-center gap-1.5 rounded-[var(--r-row)] border border-line-soft bg-panel px-2 py-1 text-2xs text-muted"
                   >
+                    {item.attachments?.length ? <div className="w-full min-w-0"><AgentAttachments attachments={item.attachments} /></div> : null}
                     <Icon name="clock" size={11} className="shrink-0" />
                     <span className="shrink-0">{t('agent.queue.badge')}</span>
                     {item.command ? (
@@ -553,6 +563,10 @@ export function AgentChat({ chatId }: { chatId: string }) {
               root={chat.root}
               draft={draft.text}
               mentions={draft.mentions}
+              attachments={draft.attachments}
+              onRemoveAttachment={id => useAgent.getState().setChatDraft(chatId, {
+                attachments: draft.attachments?.filter(item => item.id !== id),
+              })}
               command={draft.command}
               skills={draft.skills ?? []}
               provider={chat.provider}

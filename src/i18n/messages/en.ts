@@ -6,6 +6,24 @@
  * - Placeholders are written `{name}`; param names must match the call site (a check script verifies).
  */
 export const en = {
+  "agent.context.add": "Add selection to AI",
+  "agent.context.explain": "Explain selected code",
+  "agent.context.refactor": "Refactor selected code",
+  "agent.context.terminal": "Add selected output to AI",
+  "agent.context.attachments": "Context attachments",
+  "agent.context.unsaved": "unsaved",
+  "agent.context.startup": "Startup location: {path}",
+  "agent.context.locationUnavailable": "Unavailable",
+  "agent.context.copy": "Copy snapshot",
+  "agent.context.remove": "Remove attachment",
+  "agent.context.explainPrompt": "Explain the attached code.",
+  "agent.context.refactorPrompt": "Refactor the attached code and explain the changes.",
+  "agent.context.invalid": "The context attachment is invalid or belongs to another workspace.",
+  "agent.context.limit": "Use up to 8 attachments, 32 KiB each and 128 KiB total. Select a smaller range.",
+  "agent.context.memory": "Context attachments exceed the window memory budget. Remove unused draft or queued attachments.",
+  "error.agent.context.invalid": "The context attachment is invalid or belongs to another workspace.",
+  "error.agent.context.limit": "Use up to 8 attachments, 32 KiB each and 128 KiB total. Select a smaller range.",
+
   'agent.permission.turnScope': "Applies only to this turn.",
 
   'agent.permission.command': "Run command",

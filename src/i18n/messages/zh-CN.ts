@@ -2,6 +2,24 @@ import type { Messages } from '../types'
 
 /** 简体中文。键必须和 `en.ts` 完全一致（类型会强制检查）。 */
 export const zhCN: Messages = {
+  "agent.context.add": "添加选区到 AI",
+  "agent.context.explain": "解释选中代码",
+  "agent.context.refactor": "重构选中代码",
+  "agent.context.terminal": "添加选中输出到 AI",
+  "agent.context.attachments": "上下文附件",
+  "agent.context.unsaved": "未保存",
+  "agent.context.startup": "启动位置：{path}",
+  "agent.context.locationUnavailable": "不可用",
+  "agent.context.copy": "复制快照",
+  "agent.context.remove": "移除附件",
+  "agent.context.explainPrompt": "请解释附件中的代码。",
+  "agent.context.refactorPrompt": "请重构附件中的代码，并说明改动。",
+  "agent.context.invalid": "上下文附件无效或属于其他工作区。",
+  "agent.context.limit": "最多添加 8 个附件，每个不超过 32 KiB，总计不超过 128 KiB。请选择更小范围。",
+  "agent.context.memory": "上下文附件超过窗口内存预算。请移除未使用的草稿或排队附件。",
+  "error.agent.context.invalid": "上下文附件无效或属于其他工作区。",
+  "error.agent.context.limit": "最多添加 8 个附件，每个不超过 32 KiB，总计不超过 128 KiB。请选择更小范围。",
+
   'agent.permission.turnScope': "仅在当前轮次内有效。",
 
   'agent.permission.command': "执行命令",

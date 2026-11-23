@@ -21,6 +21,8 @@ import { foldAll, foldCode, unfoldAll, unfoldCode } from '@codemirror/language'
 import type { EditorView } from '@codemirror/view'
 import { getEditorView } from '../editor/viewRef'
 import type { MessageKey } from '../i18n'
+import { editorSelections } from '../editor/selectionRegistry'
+import { terminalSelections } from './terminalSelection'
 
 /** Folding commands all act on the focused pane's view */
 function withView(fn: (view: EditorView) => boolean) {
@@ -44,6 +46,10 @@ export function buildCommands(): Command[] {
   const ui = useUi.getState()
   const terminal = useTerminal.getState()
   const root = activeRoot()
+  const agentEnabled = useSettings.getState().agentEnabled
+  // Capture before command-palette focus changes the source. Closures retain immutable text.
+  const editorSource = agentEnabled ? editorSelections.read(tabs.activeGroupId) : null
+  const terminalSource = agentEnabled && terminal.activeId ? terminalSelections.read(terminal.activeId) : null
 
   const list: Command[] = [
     { id: 'folder.open', groupKey: 'commands.group.file', titleKey: 'commands.folder.open', shortcut: 'Mod O', run: () => openFolderDialog() },
@@ -192,10 +198,27 @@ export function buildCommands(): Command[] {
     { id: 'git.push', groupKey: 'commands.group.git', titleKey: 'commands.git.push', run: async () => { if (root) await git.push(root.id) } },
   ]
 
+  if (agentEnabled) {
+    if (editorSource?.attachments.length) {
+      for (const intent of ['add', 'explain', 'refactor'] as const) {
+        list.push({
+          id: 'agent.context.' + intent, groupKey: 'commands.group.agent',
+          titleKey: intent === 'add' ? 'agent.context.add' : intent === 'explain' ? 'agent.context.explain' : 'agent.context.refactor',
+          run: () => { useAgent.getState().addContext(editorSource.root, editorSource.attachments, intent) },
+        })
+      }
+    }
+    if (terminalSource?.attachments.length) list.push({
+      id: 'agent.context.terminal', groupKey: 'commands.group.agent', titleKey: 'agent.context.terminal',
+      run: () => { useAgent.getState().addContext(terminalSource.root, terminalSource.attachments) },
+    })
+  }
+
   if (!root) {
     return list.filter(
       (c) =>
         c.id === 'folder.open' ||
+        c.id.startsWith('agent.context.') ||
         c.id === 'view.projects' ||
         c.id.startsWith('theme.') ||
         c.id === 'prefs.open' ||

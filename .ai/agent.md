@@ -105,6 +105,14 @@ CLIs own auth/models/tools; Rust owns processes; the agent store owns queues/UI.
   project history toggle is in Settings → Agent; permission defaults and the explanatory permission card
   are not exposed there, while chat-level permission controls remain available.
 
+## Snapshot transport
+
+- AgentTurnRequest carries structured attachments. agent/mod.rs validates them before provider setup,
+  authorizes their owning root and contained relative paths, and serializes metadata/text as quoted JSON
+  context after prompt guidance. It does not reread snapshot content or change permission/planning state.
+- Request count/byte limits are owned by agent/mod.rs and mirror src/lib/memoryBudget.ts. Old callers
+  omit attachments safely. Provider test request fixtures include the new field.
+
 ## Change map and verification
 
 Coordinate Rust emitters, frontend reducers and IPC types. Preserve native schemas, ownership and cleanup;

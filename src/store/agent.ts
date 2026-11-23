@@ -7,6 +7,7 @@ import {
   type AgentChatApply,
   type AgentEventPayload,
   type AgentMention,
+  type AgentContextAttachment,
   type AgentPlanAction,
   type AgentPermissionMode,
   type AgentChatSummary,
@@ -24,6 +25,8 @@ import {
   type AgentSkillInfo,
 } from '../lib/agentCommand'
 import { t } from '../i18n'
+import { attachmentBytes, isContextAttachment, snapshotAgentDraft, validateAttachments, type ContextIntent } from '../lib/agentContext'
+import { budget } from '../lib/memoryBudget'
 import { useSettings } from './settings'
 import { useTabs } from './tabs'
 import { useUi } from './ui'
@@ -87,6 +90,7 @@ export type AgentMessage = {
   at: number
   text?: string
   mentions?: AgentMention[]
+  attachments?: AgentContextAttachment[]
   /** Tag sent around the text, e.g. plan → <plan>…</plan> */
   command?: AgentDraft['command']
   skills?: AgentDraft['skills']
@@ -217,6 +221,9 @@ type AgentStore = {
   loadingChats: Record<string, boolean>
   /** Per-chat composer text: switching tabs must not throw a half-written prompt away */
   chatDrafts: Record<string, AgentDraft>
+  chatFocusOrder: Record<string, number>
+  markChatFocused: (chatId: string) => void
+  addContext: (root: string, attachments: AgentContextAttachment[], intent?: ContextIntent) => boolean
   /** Skill picker source, scanned once per root; missing = not scanned yet */
   skillsByRoot: Record<string, AgentSkillInfo[]>
   skillsLoading: Record<string, boolean>
@@ -417,6 +424,7 @@ function normalizeChat(raw: unknown, recover = false): AgentChat | null {
         ...message,
         command,
         skills: skills.length > 0 ? skills : undefined,
+        attachments: Array.isArray(message.attachments) ? message.attachments.filter(isContextAttachment) : undefined,
         readOnly: undefined,
       }
     })
@@ -498,6 +506,9 @@ export const useAgent = create<AgentStore>((set, get) => {
     // The backend re-checks the toggle: make sure its 400ms debounced write has landed first
     useSettings.getState().flush()
     const sentDraft = get().chatDrafts[chatId]
+    draft = snapshotAgentDraft(draft)
+    const contextError = validateAttachments(chat.root, draft.attachments ?? [])
+    if (contextError) { useUi.getState().toast(t(contextError), 'error'); return false }
     const now = Date.now()
     const messages = chat.messages.slice()
     if (appendUser) {
@@ -507,6 +518,7 @@ export const useAgent = create<AgentStore>((set, get) => {
         at: now,
         text: draft.text,
         mentions: draft.mentions,
+        attachments: draft.attachments,
         command: draft.command,
         skills: draft.skills,
       })
@@ -565,6 +577,7 @@ export const useAgent = create<AgentStore>((set, get) => {
         prompt: [!chat.sessionId && chat.compactSummary ? `Previous conversation summary:\n${chat.compactSummary}` : '',
           compact ? draft.text : buildAgentPrompt(planning ? { ...draft, command: 'plan' } : draft, readOnly)].filter(Boolean).join('\n\n'),
         mentions: draft.mentions,
+        attachments: draft.attachments,
         readOnly,
         permissionMode: readOnly ? 'read-only' : chat.permissionMode === 'full-access' ? 'full-access' : 'workspace-write',
       })
@@ -628,7 +641,7 @@ export const useAgent = create<AgentStore>((set, get) => {
     set({
       queues: {
         ...get().queues,
-        [chatId]: [...queue, { id: agentUid('q'), ...draft }],
+        [chatId]: [...queue, { id: agentUid('q'), ...snapshotAgentDraft(draft) }],
       },
       // The message left the composer; a new draft typed meanwhile stays untouched
       chatDrafts: Object.fromEntries(
@@ -651,7 +664,7 @@ export const useAgent = create<AgentStore>((set, get) => {
     set({ queues })
     void runTurn(
       chatId,
-      { text: head.text, mentions: head.mentions, command: head.command, skills: head.skills },
+      snapshotAgentDraft(head),
       true,
       false,
     ).then(accepted => {
@@ -764,6 +777,43 @@ export const useAgent = create<AgentStore>((set, get) => {
     chats: {},
     running: {},
     loadingChats: {},
+    chatFocusOrder: {},
+    markChatFocused: (chatId) => {
+      if (get().chats[chatId]) set({ chatFocusOrder: { ...get().chatFocusOrder, [chatId]: ++localSeq } })
+    },
+    addContext: (root, attachments, intent = 'add') => {
+      if (!useSettings.getState().agentEnabled) return false
+      const fail = (key: 'agent.context.invalid' | 'agent.context.limit' | 'agent.context.memory' | 'error.workspace.notOpen') => {
+        useUi.getState().toast(t(key), 'error'); return false
+      }
+      if (!root) return fail('error.workspace.notOpen')
+      const initialError = validateAttachments(root, attachments)
+      if (initialError) return fail(initialError)
+      if (!attachments.length) return false
+      const tabs = useTabs.getState()
+      const open = (tabs.tabs ?? []).filter(tab => tab.kind === 'chat' && tab.root === root && get().chats[tab.id.slice(5)])
+      const visible = new Set((tabs.groups ?? []).map(group => group.activeId))
+      const ranked = [...open].sort((a, b) => Number(visible.has(b.id)) - Number(visible.has(a.id)) ||
+        (get().chatFocusOrder[b.id.slice(5)] ?? 0) - (get().chatFocusOrder[a.id.slice(5)] ?? 0))
+      const existingId = ranked[0]?.id.slice(5)
+      const previous = existingId ? get().chatDrafts[existingId] : undefined
+      const combined = [...(previous?.attachments ?? []), ...attachments]
+      const error = validateAttachments(root, combined)
+      if (error) return fail(error)
+      const unsentBytes = Object.values(get().chatDrafts).reduce((sum, draft) => sum + attachmentBytes(draft.attachments), 0) +
+        Object.values(get().queues).flat().reduce((sum, draft) => sum + attachmentBytes(draft.attachments), 0)
+      if (unsentBytes + attachmentBytes(attachments) > budget.agentUnsentAttachmentBytes()) return fail('agent.context.memory')
+      const id = existingId ?? get().newChat(root)
+      if (!id) return false
+      const draft = get().chatDrafts[id] ?? { text: '', mentions: [] }
+      const instruction = intent === 'explain' ? t('agent.context.explainPrompt') : intent === 'refactor' ? t('agent.context.refactorPrompt') : ''
+      get().setChatDraft(id, { attachments: combined.map(item => ({ ...item })),
+        text: instruction ? [draft.text, instruction].filter(Boolean).join('\n\n') : draft.text })
+      get().openChatTab(id)
+      get().markChatFocused(id)
+      set({ focusRequests: { ...get().focusRequests, [id]: (get().focusRequests[id] ?? 0) + 1 } })
+      return true
+    },
     chatDrafts: {},
     queues: {},
     interjecting: {},
@@ -942,6 +992,8 @@ export const useAgent = create<AgentStore>((set, get) => {
       delete running[id]
       const chatDrafts = { ...get().chatDrafts }
       delete chatDrafts[id]
+      const chatFocusOrder = { ...get().chatFocusOrder }
+      delete chatFocusOrder[id]
       const queues = { ...get().queues }
       delete queues[id]
       const interjecting = { ...get().interjecting }
@@ -955,7 +1007,7 @@ export const useAgent = create<AgentStore>((set, get) => {
       delete pages[id]
       const pageLoading = { ...get().pageLoading }
       delete pageLoading[id]
-      set({ chats, running, chatDrafts, queues, interjecting, pages, pageLoading })
+      set({ chats, running, chatDrafts, chatFocusOrder, queues, interjecting, pages, pageLoading })
     },
 
     openChatTab: (id) => {
@@ -1104,7 +1156,9 @@ export const useAgent = create<AgentStore>((set, get) => {
       }
       if (get().pages[chatId]?.hasLater) await get().loadPage(chatId, 'latest')
       if (get().pages[chatId]?.hasLater || get().pageLoading[chatId]) return
-      const next = normalizeAgentDraft(draft)
+      const next = snapshotAgentDraft(normalizeAgentDraft(draft))
+      const contextError = validateAttachments(chat.root, next.attachments ?? [])
+      if (contextError) { useUi.getState().toast(t(contextError), 'error'); return }
       if (!next.text.trim() && !(next.skills ?? []).length) return
       // A structured question owns the next turn. The answer must go through answerQuestion so
       // it carries the source question and the planning read-only boundary.
@@ -1309,7 +1363,7 @@ export const useAgent = create<AgentStore>((set, get) => {
         if (!queues[chatId].length) delete queues[chatId]
         removed = { item, index }
         set({ queues })
-        accepted = await runTurn(chatId, { text: item.text, mentions: item.mentions, command: item.command, skills: item.skills }, true, false)
+        accepted = await runTurn(chatId, snapshotAgentDraft(item), true, false)
         return accepted
       } catch (error) {
         const chat = get().chats[chatId]

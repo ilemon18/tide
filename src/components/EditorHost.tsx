@@ -44,6 +44,9 @@ import { Splitter } from './Splitter'
 import { useT } from '../i18n'
 import { tabTitle } from '../lib/tabTitle'
 import { isMarkdownPath } from '../lib/markdown'
+import { captureEditorContext } from '../editor/agentContext'
+import { editorSelections } from '../editor/selectionRegistry'
+import { activeRoot } from '../store/workspace'
 
 /**
  * Swap the state and its scroll position together: a new file starts at the top, switching back to a
@@ -183,6 +186,21 @@ export function EditorHost({ groupId }: { groupId: TabGroupId }) {
     const view = new EditorView({ parent: host })
     viewRef.current = view
     setEditorView(groupId, view)
+    const unregisterContext = editorSelections.register(groupId, () => {
+      const state = useTabs.getState()
+      const id = state.groups.find(group => group.id === groupId)?.activeId
+      const tab = state.tabs.find(tab => tab.id === id)
+      if (!tab || shownIdRef.current !== tab.id || isEditorHidden(tab)) return null
+      const root = tab.root || activeRoot()?.id || ''
+      return { root, attachments: captureEditorContext(view.state, tab, root) }
+    }, () => {
+      const state = useTabs.getState()
+      const id = state.groups.find(group => group.id === groupId)?.activeId
+      const tab = state.tabs.find(tab => tab.id === id)
+      return Boolean(tab && shownIdRef.current === tab.id && !isEditorHidden(tab) &&
+        view.state.selection.ranges.some(range => !range.empty))
+    })
+    const unsubscribeContext = useTabs.subscribe(() => editorSelections.notify(groupId))
     if (useTabs.getState().activeGroupId === groupId) setFocusedGroup(groupId)
 
     // Keep the recorded position fresh while the reader scrolls. Every path back to a tab (switching,
@@ -200,6 +218,8 @@ export function EditorHost({ groupId }: { groupId: TabGroupId }) {
     view.scrollDOM.addEventListener('scroll', onScroll, { passive: true })
 
     return () => {
+      unsubscribeContext()
+      unregisterContext()
       view.scrollDOM.removeEventListener('scroll', onScroll)
       if (frame) cancelAnimationFrame(frame)
       unlinkView(view)
@@ -218,6 +238,7 @@ export function EditorHost({ groupId }: { groupId: TabGroupId }) {
     const forgetShown = () => {
       if (shownIdRef.current) unlinkMirror(shownIdRef.current, groupId)
       shownIdRef.current = null
+      editorSelections.notify(groupId)
     }
 
     if (!activeId) {
@@ -287,6 +308,7 @@ export function EditorHost({ groupId }: { groupId: TabGroupId }) {
         )
       }
       shownIdRef.current = activeId
+      editorSelections.notify(groupId)
       linkMirror(activeId, groupId, view)
       signals.onOutlineReady(activeId)
       const head = cached.selection.main.head
@@ -343,6 +365,7 @@ export function EditorHost({ groupId }: { groupId: TabGroupId }) {
         view.requestMeasure()
       })
       shownIdRef.current = activeId
+      editorSelections.notify(groupId)
       linkMirror(activeId, groupId, view)
       signals.onOutlineReady(activeId)
       setRestoring(false)

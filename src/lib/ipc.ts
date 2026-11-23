@@ -353,6 +353,19 @@ export type AgentCatalog = {
 /** A file or folder mentioned in a prompt (workspace-relative) */
 export type AgentMention = { rel: string; isDir: boolean }
 
+/** Immutable text captured by the user, independent from subsequent file/terminal changes. */
+export type AgentContextAttachment = {
+  id: string
+  sourceRoot: string
+  capturedAt: number
+  text: string
+  label: string
+} & (
+  | { kind: 'editor-selection'; rel: string | null; unsaved: boolean;
+      startLine: number; startColumn: number; endLine: number; endColumn: number }
+  | { kind: 'terminal-selection'; startupRel: string | null }
+)
+
 export type AgentQuestionOption = { label: string; description: string }
 
 /** Where a skill was found: the open project, or the user's own CLI config */
@@ -386,6 +399,7 @@ export type AgentTurnRequest = {
   effort: string | null
   prompt: string
   mentions: AgentMention[]
+  attachments?: AgentContextAttachment[]
   /** Planning turns and their question-answer follow-ups cannot modify the workspace. */
   readOnly: boolean
   permissionMode: AgentPermissionMode

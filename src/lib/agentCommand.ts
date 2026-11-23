@@ -1,4 +1,4 @@
-import type { AgentMention, AgentSkillInfo, AgentSkillSource } from './ipc'
+import type { AgentContextAttachment, AgentMention, AgentSkillInfo, AgentSkillSource } from './ipc'
 
 export type { AgentSkillInfo, AgentSkillSource }
 
@@ -61,6 +61,7 @@ export type AgentSkillRef = Pick<AgentSkillInfo, 'name' | 'path' | 'source'>
 export type AgentDraft = {
   text: string
   mentions: AgentMention[]
+  attachments?: AgentContextAttachment[]
   command?: AgentPromptCommandId
   skills?: AgentSkillRef[]
 }

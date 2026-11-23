@@ -5,6 +5,7 @@ import { Icon } from './Icon'
 import { ErrorBoundary } from './ErrorBoundary'
 import { useT } from '../i18n'
 import type { TerminalTab } from '../store/terminal'
+import { TerminalContextAction } from './TerminalContextAction'
 
 /** Terminal tab title: built from the current locale, never stored in state */
 function terminalTitle(
@@ -78,6 +79,7 @@ export default function TerminalPanel({ height }: { height: number }) {
             )
           })}
         </div>
+        <TerminalContextAction tabId={shownId} />
         <button
           data-tip={t('terminal.newTip')}
           onClick={() => open()}

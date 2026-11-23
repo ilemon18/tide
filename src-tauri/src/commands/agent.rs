@@ -140,6 +140,7 @@ pub fn agent_send(
     }
     // The workspace allow-list is the permission boundary: never spawn outside a granted root.
     let root = state.authorize(&request.root)?;
+    agent::validate_context(&root, &request.attachments)?;
 
     let info = providers::scan(false)
         .into_iter()
@@ -181,7 +182,7 @@ pub fn agent_send(
         return Err(AppError::c("agent.tooManyTurns"));
     }
 
-    let prompt = agent::build_prompt(&request.prompt, &request.mentions);
+    let prompt = agent::build_prompt(&request.prompt, &request.mentions, &request.attachments);
     // Codex has no system-prompt flag: the workspace boundary travels with the prompt.
     let prompt = if request.provider == "codex" {
         format!("{}\n\n{prompt}", agent::workspace_note(&root))

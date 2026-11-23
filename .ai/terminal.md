@@ -10,6 +10,9 @@ scope:
   - src/lib/keys.ts
   - src-tauri/src/commands/terminal.rs
   - src-tauri/src/state.rs
+  - src/components/TerminalContextAction.tsx
+  - src/components/EditorContextActions.test.tsx
+  - src/lib/terminalSelection*.ts
 keywords:
   - terminal
   - pty
@@ -45,6 +48,15 @@ keywords:
 - Maximize is window-memory state. Restore uses saved normal height unchanged. Drag upward to top maximizes;
   drag downward starts continuously at current region height and resumes normal persisted updates.
   Hidden/last-closed panels exit maximize. Existing resize/fit sends native PTY resize after layout changes.
+
+## Selection context
+
+- TerminalView registers a lazy selected-text reader with terminalSelection; selection changes publish
+  availability without copying output. TerminalContextAction targets the active tab and preserves its
+  selection on toolbar clicks. Exited terminals can still contribute visible selected output.
+- Snapshot metadata labels root/rel as startup location, never current shell cwd. Rootless shells use the
+  active workspace for the conversation and mark startup location unavailable. Unregister on teardown,
+  including failed initialization; existing snapshots do not depend on PTY lifetime or later output.
 
 ## Change map and verification
 

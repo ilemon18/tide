@@ -2,6 +2,24 @@ import type { Messages } from '../types'
 
 /** 繁體中文（台灣用語）。鍵必須跟 `en.ts` 完全一致（型別會強制檢查）。 */
 export const zhTW: Messages = {
+  "agent.context.add": "將選取範圍加入 AI",
+  "agent.context.explain": "解釋選取的程式碼",
+  "agent.context.refactor": "重構選取的程式碼",
+  "agent.context.terminal": "將選取的輸出加入 AI",
+  "agent.context.attachments": "上下文附件",
+  "agent.context.unsaved": "未儲存",
+  "agent.context.startup": "啟動位置：{path}",
+  "agent.context.locationUnavailable": "無法使用",
+  "agent.context.copy": "複製快照",
+  "agent.context.remove": "移除附件",
+  "agent.context.explainPrompt": "請解釋附件中的程式碼。",
+  "agent.context.refactorPrompt": "請重構附件中的程式碼，並說明變更。",
+  "agent.context.invalid": "上下文附件無效或屬於其他工作區。",
+  "agent.context.limit": "最多加入 8 個附件，每個不超過 32 KiB，總計不超過 128 KiB。請選取較小範圍。",
+  "agent.context.memory": "上下文附件超過視窗記憶體預算。請移除未使用的草稿或佇列附件。",
+  "error.agent.context.invalid": "上下文附件無效或屬於其他工作區。",
+  "error.agent.context.limit": "最多加入 8 個附件，每個不超過 32 KiB，總計不超過 128 KiB。請選取較小範圍。",
+
   'agent.permission.turnScope': "僅在目前回合內有效。",
 
   'agent.permission.command': "執行命令",

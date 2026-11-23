@@ -785,6 +785,24 @@ mod tests {
     }
 
     #[test]
+    fn context_snapshots_survive_partial_patches_serialization_and_paging() {
+        let mut doc = document();
+        let attachments = json!([{
+            "id": "context-1", "kind": "terminal-selection", "sourceRoot": "/tmp/project",
+            "capturedAt": 1, "label": "Terminal", "startupRel": "src", "text": "captured\nerror"
+        }]);
+        doc.messages[0]["attachments"] = attachments.clone();
+        let patch: AgentChatPatch = serde_json::from_value(json!({
+            "header": {}, "upserts": [{ "id": "m2", "role": "assistant", "at": 1, "text": "updated" }]
+        })).expect("patch");
+        let updated = apply_document(doc, patch).expect("partial patch");
+        let parsed = parse_document(&serialize_document(&updated).expect("serialize")).expect("parse");
+        let page = page_document(&parsed, 0, 1);
+        assert_eq!(page.messages[0]["attachments"], attachments);
+        assert_eq!(page.messages.len(), 1);
+    }
+
+    #[test]
     fn detects_pending_questions_across_full_history() {
         let mut doc = document();
         doc.messages.push(json!({
