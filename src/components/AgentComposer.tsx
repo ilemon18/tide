@@ -331,8 +331,8 @@ export function AgentComposer({
       ) : null}
 
       {showPopup && trigger ? (
-        // In normal flow: an absolute list above the box is clipped by the transcript scroll area
-        <div ref={commandListRef} className="max-h-[260px] w-full overflow-auto rounded-[var(--r-popup)] border border-line-soft bg-panel py-1 shadow-popup">
+        // Keep suggestions out of the composer flow so opening a picker cannot resize the chat footer.
+        <div ref={commandListRef} className="absolute bottom-full left-0 z-20 mb-1 max-h-[260px] w-full overflow-auto rounded-[var(--r-popup)] border border-line-soft bg-panel py-1 shadow-popup">
           <div className="px-2.5 pb-1 pt-0.5 text-2xs text-muted">
             {trigger.kind === 'mention'
               ? t('agent.mentionPick')

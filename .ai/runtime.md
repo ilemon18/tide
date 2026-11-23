@@ -78,6 +78,8 @@ App owns hydration/window coordination; the settings store and Rust theme comman
   temporary plan options never become defaults.
 - settings.json/session.json use app_config_dir and the Rust theme lock; chat storage follows
   [agent-storage.md](./agent-storage.md). `public/theme-boot.js` paints before React with CSP-safe external JS.
+  Sidebar width is a per-window layout field: dragging updates it live and the splitter commits the latest value
+  immediately, while other windows keep their own layout state.
 
 ## Change map and verification
 

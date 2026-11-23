@@ -657,6 +657,7 @@ export function App() {
                   sidebarWidth: clamp(useSettings.getState().sidebarWidth + dx, 180, 560),
                 })
               }
+              onCommit={() => useSettings.getState().flush()}
             />
           </>
         ) : null}

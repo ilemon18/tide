@@ -71,6 +71,17 @@ it('selects a command candidate on Enter before sending', () => {
   expect(onSend).toHaveBeenCalledOnce()
 })
 
+it('renders command candidates as a floating layer without changing the composer structure', () => {
+  const { input, container } = composer({ draft: '/pla' })
+  fireEvent.change(input, { target: { value: '/pla', selectionStart: 4 } })
+  const candidate = screen.getByText('/plan')
+  const popup = candidate.closest('div')
+  expect(popup?.classList.contains('absolute')).toBe(true)
+  expect(popup?.classList.contains('bottom-full')).toBe(true)
+  expect(container.querySelector('textarea')).toBe(input)
+  expect(screen.getByRole('button', { name: 'agent.send' })).toBeTruthy()
+})
+
 it.each([{ draft: '  ' }, { pendingQuestion: true }, { pendingPlan: true }])('keeps empty and pending-card send guards: %j', options => {
   const { input, onSend } = composer(options)
   fireEvent.keyDown(input, { key: 'Enter' })

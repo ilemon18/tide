@@ -97,6 +97,13 @@ describe('Agent preference persistence', () => {
     expect(api.saveSettings).toHaveBeenCalledWith(expect.objectContaining({ ...next, sidebarWidth: 333, panelHeight: 444 }))
   })
 
+  it('flushes the latest sidebar width immediately after a drag commit', async () => {
+    useSettings.getState().patch({ sidebarWidth: 368 })
+    useSettings.getState().flush()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(api.saveSettings).toHaveBeenCalledWith(expect.objectContaining({ sidebarWidth: 368 }))
+  })
+
   it('ignores an older self echo after a newer permission selection', async () => {
     useSettings.getState().patch({ agentDefaultPermissionMode: 'read-only' })
     await vi.advanceTimersByTimeAsync(0)

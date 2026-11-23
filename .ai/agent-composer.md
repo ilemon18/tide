@@ -48,7 +48,8 @@ actions and queue gates. Rust parses questions/scans skills. Provider/model/perm
   Nearest /, $ or @ wins. Slash/mention need a boundary; skills reject preceding word/$; $5 stays prose.
   Mentions show eight fuzzy matches, preserve {rel,isDir} chips and queued references. Slash commands use a
   stable frequency order, show at most eight candidates at once, and keep the full result set available to
-  Arrow Up/Arrow Down navigation. Scan project/user skills lazily, cache results, keep plan tags single.
+  Arrow Up/Arrow Down navigation. Candidate menus are positioned overlays and must not change composer or
+  chat-footer layout. Scan project/user skills lazily, cache results, keep plan tags single.
 - A new conversation centers its workspace heading above one complete accent-bordered composer. Messages,
   persisted history/pages, loading, running, existing sessions or queued sends keep the transcript/footer layout.
   First send changes layout without remounting the composer; provider/error guidance remains visible.
