@@ -73,6 +73,8 @@ describe('project chat history', () => {
     vi.mocked(api.agentChatOpen).mockResolvedValueOnce(page())
     expect(await useAgent.getState().resumeChat('chat-test', '/tmp/project')).toBe(true)
     expect(useAgent.getState().chats['chat-test'].sessionId).toBe('session-1')
+    expect(useAgent.getState().chats['chat-test'].title).toBe('test')
+    expect(setTabName).toHaveBeenCalledWith('chat:chat-test', 'test')
   })
 })
 afterEach(async () => {
@@ -176,6 +178,24 @@ describe('remembered Agent choices', () => {
 
 describe('chat protocol state', () => {
   it.each([
+    { name: 'trimmed first line', text: '  \n  Fix login failure  \nMore details here  ', title: 'Fix login failure' },
+    { name: 'exactly 48 characters', text: 'x'.repeat(48), title: 'x'.repeat(48) },
+    { name: 'over 48 characters', text: 'x'.repeat(49), title: `${'x'.repeat(48)}…` },
+    { name: 'Unicode code points', text: '\u{1f680}'.repeat(49), title: `${'\u{1f680}'.repeat(48)}…` },
+  ])('uses the first prompt for the conversation and tab title: $name', async ({ text, title }) => {
+    useAgent.setState({ chats: { 'chat-test': { ...chat(), title: '', sessionId: null, messages: [] } } })
+
+    await useAgent.getState().sendMessage('chat-test', { text, mentions: [] })
+
+    expect(useAgent.getState().chats['chat-test'].title).toBe(title)
+    expect(setTabName).toHaveBeenCalledWith('chat:chat-test', title)
+    expect(api.agentChatApply).toHaveBeenCalledWith('chat-test', expect.objectContaining({
+      header: expect.objectContaining({ title }),
+    }))
+    expect(api.agentSend).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
     { name: 'successful', ok: true, cancelled: false },
     { name: 'failed', ok: false, cancelled: false },
     { name: 'cancelled', ok: false, cancelled: true },
@@ -271,6 +291,27 @@ describe('chat protocol state', () => {
     expect(next.permissionMode).toBe('full-access')
     expect(useAgent.getState().chatDrafts['chat-test']).toBeUndefined()
     expect(useAgent.getState().queues['chat-test']).toBeUndefined()
+  })
+  it('clears the tab title on /new and names it from the next prompt', async () => {
+    await useAgent.getState().sendMessage('chat-test', { text: '/new', mentions: [] })
+
+    expect(useAgent.getState().chats['chat-test'].title).toBe('')
+    expect(setTabName).toHaveBeenLastCalledWith('chat:chat-test', '')
+    expect(api.agentSend).not.toHaveBeenCalled()
+    setTabName.mockClear()
+
+    await useAgent.getState().sendMessage('chat-test', { text: 'Investigate a new issue\nSteps to reproduce', mentions: [] })
+
+    expect(useAgent.getState().chats['chat-test'].title).toBe('Investigate a new issue')
+    expect(setTabName).toHaveBeenCalledWith('chat:chat-test', 'Investigate a new issue')
+    expect(api.agentSend).toHaveBeenCalledTimes(1)
+
+    finishTurn()
+    await useAgent.getState().sendMessage('chat-test', { text: 'Continue investigating', mentions: [] })
+
+    expect(useAgent.getState().chats['chat-test'].title).toBe('Investigate a new issue')
+    expect(setTabName).toHaveBeenLastCalledWith('chat:chat-test', 'Investigate a new issue')
+    expect(api.agentSend).toHaveBeenCalledTimes(2)
   })
   it('keeps the transcript, draft and queue when cancelling /new fails', async () => {
     const current = useAgent.getState().chats['chat-test']

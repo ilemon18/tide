@@ -51,6 +51,36 @@ beforeEach(() => {
 })
 afterEach(() => { cleanup(); vi.unstubAllGlobals() })
 
+it('shows saved conversation titles and retains provider icons and execution status', () => {
+  const { container } = render(<TabBar groupId="primary" />)
+  const item = container.querySelector<HTMLElement>('[data-tab-id="chat:one"]')!
+  expect(within(item).getByText('Example')).toBeTruthy()
+  expect(item.title).toBe('Example')
+  expect(item.querySelector('[data-provider-icon]')).toBeTruthy()
+  expect(within(item).getByRole('img', { name: 'agent.working' })).toBeTruthy()
+  expect(within(item).queryByText('agent.tabLabel')).toBeNull()
+})
+
+it('falls back to new chat and updates its label and tooltip when the title changes or resets', () => {
+  useTabs.setState({ tabs: useTabs.getState().tabs.map((item) =>
+    item.id === 'chat:one' ? { ...item, name: '' } : item) })
+  const { container } = render(<TabBar groupId="primary" />)
+  const item = container.querySelector<HTMLElement>('[data-tab-id="chat:one"]')!
+  expect(within(item).getByText('agent.newChat')).toBeTruthy()
+  expect(item.title).toBe('agent.newChat')
+
+  act(() => useTabs.setState({ tabs: useTabs.getState().tabs.map((current) =>
+    current.id === 'chat:one' ? { ...current, name: 'Fix login failure' } : current) }))
+  expect(within(item).getByText('Fix login failure')).toBeTruthy()
+  expect(within(item).queryByText('agent.newChat')).toBeNull()
+  expect(item.title).toBe('Fix login failure')
+
+  act(() => useTabs.setState({ tabs: useTabs.getState().tabs.map((current) =>
+    current.id === 'chat:one' ? { ...current, name: '' } : current) }))
+  expect(within(item).getByText('agent.newChat')).toBeTruthy()
+  expect(item.title).toBe('agent.newChat')
+})
+
 it.each(['idle', 'error', 'cancelled'] as const)('restores closing when a running agent becomes %s', (status) => {
   const { container } = render(<TabBar groupId="primary" />)
   const item = container.querySelector<HTMLElement>('[data-tab-id="chat:one"]')!
@@ -62,6 +92,8 @@ it.each(['idle', 'error', 'cancelled'] as const)('restores closing when a runnin
 
   // A live store update must reach the memoized tab without rerendering its parent.
   act(() => useAgent.setState({ chats: { ...useAgent.getState().chats, one: chat(status) } }))
+  expect(within(item).getByText('Example')).toBeTruthy()
+  expect(item.title).toBe('Example')
   fireEvent.click(within(item).getByRole('button', { name: 'tabs.closeTip' }))
   expect(useTabs.getState().closeIn).toHaveBeenCalledWith('chat:one', 'primary')
   act(() => useAgent.setState({ chats: { ...useAgent.getState().chats, one: chat('running') } }))

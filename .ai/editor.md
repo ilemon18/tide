@@ -65,9 +65,12 @@ EditorHost selects tab kinds; markdown helpers own contained links and images.
   have no Unsplit button. `src/store/tabs.test.ts` covers single/bulk closes, shared tabs, moves and cancellation.
 - Each tab selects its own chat-running flag. Running agents hide close buttons even on hover/focus;
   idle/failed/cancelled restore them; pinned tabs keep pins. Other close commands retain their behavior.
-- Chat tabs/drag ghosts use live provider icon + Agent + optional execution status, with generic loading
-  fallback. tabTitle returns Agent; tooltips/headers keep conversation titles. Reply links reuse
-  openFile/openAt with the owning root and normalized relative path.
+- Chat tabs/drag ghosts use live provider icon + conversation title + optional execution status, with generic
+  loading icon fallback. tabTitle uses tab.name or the localized New chat fallback; tooltips/headers use the
+  same conversation title. src/store/agent.ts's titleFromPrompt takes the trimmed first prompt's first line,
+  keeping up to 48 Unicode code points and appending an ellipsis only when truncated. Follow-ups keep that
+  title; history/session restoration reuses it. /new clears the title so the next prompt names the
+  conversation again. Reply links reuse openFile/openAt with the owning root and normalized relative path.
 
 ## Markdown and CodeMirror
 
