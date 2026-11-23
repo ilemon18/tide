@@ -35,6 +35,9 @@ keywords:
 
 ## Keyboard and IME
 
+- App capture shortcuts use the shared configurable dispatcher before xterm. Clear terminal is a mounted
+  runtime action, with no hardcoded Cmd/Ctrl+K fallback after rebinding. Recording captures before PTY input.
+  [Runtime](./runtime.md) owns conflict/persistence rules.
 - App capture shortcuts precede xterm. Forward printable punctuation held with macOS Cmd or Windows/Linux
   Ctrl+Shift after app shortcuts. Cmd/Ctrl +/- remain visible input; plain Ctrl+punctuation stays control input.
 - macOS Cmd+/ sends ASCII ? directly on physical-slash keydown, including Chinese IME. Prevent browser/

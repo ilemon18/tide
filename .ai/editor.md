@@ -73,6 +73,12 @@ EditorHost selects tab kinds; markdown helpers own contained links and images.
   title; history/session restoration reuses it. /new clears the title so the next prompt names the
   conversation again. Reply links reuse openFile/openAt with the owning root and normalized relative path.
 
+## Keyboard ownership
+
+- App's shared shortcut dispatcher owns managed fold/unfold shortcuts; setup.ts must not register fallback
+  foldKeymap aliases that survive a rebind/unbind. Default editing/history/multi-cursor keymaps remain local.
+  Runtime shortcut contracts and persistence: [runtime.md](./runtime.md).
+
 ## Markdown and CodeMirror
 
 - TabGroup.markdownPreview is per pane/tab and retains the source-pane ratio. Preserve through moves;

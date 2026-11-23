@@ -1,3 +1,4 @@
+import { normalizeOverrides, overridesEqual } from '../lib/shortcuts'
 import { create } from 'zustand'
 import { api, errorText, type MonoFont, type Settings } from '../lib/ipc'
 import {
@@ -21,11 +22,12 @@ import { DEFAULT_MONO_FONT } from '../lib/fonts'
 import { applyLocale, DEFAULT_LOCALE, isLocale } from '../i18n'
 import { applyMemoryProfileChange, setMemoryProfile } from '../lib/memoryBudget'
 
-export const SETTINGS_SCHEMA_VERSION = 13
+export const SETTINGS_SCHEMA_VERSION = 14
 export const AGENT_COMPOSER_MIN_HEIGHT = 90
 export const AGENT_COMPOSER_MAX_HEIGHT = 480
 
 export const DEFAULT_SETTINGS: Settings = {
+  shortcutOverrides: {},
   schemaVersion: SETTINGS_SCHEMA_VERSION,
   locale: DEFAULT_LOCALE,
   theme: DEFAULT_THEME,
@@ -81,6 +83,7 @@ type SettingsStore = Settings & {
  * window and stay out of sync, otherwise windows fight each other.
  */
 const SHARED_KEYS = [
+  'shortcutOverrides',
   'locale',
   'theme',
   'iconTheme',
@@ -115,7 +118,7 @@ const SHARED_KEYS = [
 
 /** Compare field by field so JSON key order does not matter */
 function settingsEqual(a: Settings, b: Settings): boolean {
-  return (Object.keys(DEFAULT_SETTINGS) as (keyof Settings)[]).every((key) => a[key] === b[key])
+  return (Object.keys(DEFAULT_SETTINGS) as (keyof Settings)[]).every((key) => key === 'shortcutOverrides' ? overridesEqual(a[key], b[key]) : a[key] === b[key])
 }
 
 /**
@@ -172,6 +175,7 @@ function snapshot(s: SettingsStore): Settings {
   return {
     // Unknown fields first, then known ones: on conflict this version wins
     ...unknownFields,
+    shortcutOverrides: s.shortcutOverrides,
     schemaVersion: SETTINGS_SCHEMA_VERSION,
     locale: s.locale,
     theme: s.theme,
@@ -258,6 +262,7 @@ function migrate(raw: Settings): Settings {
   // DEFAULT_SETTINGS covers
   // missing values for each of these additions.
   // Keep larger stored heights when the current window is short: the composer clamps them for display only.
+  next.shortcutOverrides = normalizeOverrides(next.shortcutOverrides)
   next.schemaVersion = SETTINGS_SCHEMA_VERSION
 
   // Theme / icon set / font: only check the type, keep unknown-but-valid strings so an older version does not
@@ -342,6 +347,7 @@ export const useSettings = create<SettingsStore>((set, get) => ({
   },
 
   patch: (patch) => {
+    if (patch.shortcutOverrides !== undefined) patch = { ...patch, shortcutOverrides: normalizeOverrides(patch.shortcutOverrides) }
     set(patch as Partial<SettingsStore>)
     if (patch.locale) applyLocale(patch.locale)
     if (patch.lightweightMode !== undefined) {
@@ -361,6 +367,7 @@ export const useSettings = create<SettingsStore>((set, get) => ({
     if (patch.fontFamily !== undefined) applyMonoFont(monoStack(patch.fontFamily as MonoFont))
     // Appearance and Agent defaults persist at once for new / other windows.
     const immediate =
+      patch.shortcutOverrides !== undefined ||
       patch.locale !== undefined ||
       patch.theme !== undefined ||
       patch.iconTheme !== undefined ||
@@ -386,12 +393,13 @@ export const useSettings = create<SettingsStore>((set, get) => ({
 
   applyExternal: (next) => {
     // Our own write echoed back: local state is newer, ignore it
+    next = { ...next, shortcutOverrides: normalizeOverrides(next.shortcutOverrides) }
     if (isSelfEcho(next)) return
     const current = get()
     // Follow all shared fields, else this window's stale value writes the other side's change back on next save
     const patch: Partial<SettingsStore> = {}
     for (const key of SHARED_KEYS) {
-      if (next[key] !== current[key]) (patch as Record<string, unknown>)[key] = next[key]
+      if (key === 'shortcutOverrides' ? !overridesEqual(next[key], current[key]) : next[key] !== current[key]) (patch as Record<string, unknown>)[key] = next[key]
     }
     // Layout fields (sidebar width, panel height, ...) are per window, leave them alone
     if (Object.keys(patch).length === 0) return

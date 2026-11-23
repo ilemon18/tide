@@ -1,3 +1,4 @@
+import { useShortcut } from '../lib/useShortcut'
 import { useWorkspace } from '../store/workspace'
 import { newWindow, openFolderDialog, openWorkspace } from '../lib/actions'
 import { Icon } from './Icon'
@@ -9,6 +10,10 @@ import { useT } from '../i18n'
 /** Welcome page: the empty state with all tabs closed, also a normal tab opened from the home icon (closes via its ×). */
 export function Welcome() {
   const t = useT()
+  const folderKeys = useShortcut('folder.open')
+  const quickKeys = useShortcut('view.quickOpen')
+  const windowKeys = useShortcut('app.newWindow')
+  const commandKeys = useShortcut('view.commands')
   const roots = useWorkspace((s) => s.roots)
   const recent = useWorkspace((s) => s.recent)
   // Projects already open in this window are listed separately as "current projects" and kept out of recents:
@@ -31,7 +36,7 @@ export function Welcome() {
           >
             <Icon name="folder-open" size={16} className="text-accent" />
             <span className="flex-1">{t('welcome.openFolder')}</span>
-            <span className="text-xs text-muted">⌘O</span>
+            <span className="text-xs text-muted">{folderKeys}</span>
           </button>
           <button
             onClick={() => openQuickOpen()}
@@ -40,7 +45,7 @@ export function Welcome() {
           >
             <Icon name="search" size={16} className="text-accent" />
             <span className="flex-1">{t('welcome.quickOpen')}</span>
-            <span className="text-xs text-muted">⌘P</span>
+            <span className="text-xs text-muted">{quickKeys}</span>
           </button>
           <button
             onClick={() => void newWindow()}
@@ -48,7 +53,7 @@ export function Welcome() {
           >
             <Icon name="window" size={16} className="text-accent" />
             <span className="flex-1">{t('welcome.newWindow')}</span>
-            <span className="text-xs text-muted">⇧⌘N</span>
+            <span className="text-xs text-muted">{windowKeys}</span>
           </button>
           <button
             onClick={() => setOverlay('commands')}
@@ -56,7 +61,7 @@ export function Welcome() {
           >
             <Icon name="command" size={16} className="text-accent" />
             <span className="flex-1">{t('welcome.commandPalette')}</span>
-            <span className="text-xs text-muted">⌘⇧P</span>
+            <span className="text-xs text-muted">{commandKeys}</span>
           </button>
         </div>
 

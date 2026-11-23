@@ -1,3 +1,5 @@
+import { registerCommandHandlers } from '../lib/commandRuntime'
+import { terminalFocused } from '../store/terminal'
 import { useEffect, useRef } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
@@ -309,6 +311,11 @@ export function TerminalView({ tab, active }: Props) {
       writePty(data)
     })
 
+    const unregisterCommands = registerCommandHandlers({
+      'terminal.clear': { available: () => !disposed && terminalFocused() && term.element?.contains(document.activeElement) === true,
+        run: () => { term.write('\x1b[2J\x1b[3J\x1b[H') } },
+    })
+
     // Intercept a few VSCode-style combos; everything else goes to the shell unchanged.
     term.attachCustomKeyEventHandler((event) => {
       if (event.type !== 'keydown') return true
@@ -336,13 +343,6 @@ export function TerminalView({ tab, active }: Props) {
       }
 
       if (!primary || event.shiftKey || event.altKey) return true
-
-      // ⌘K clears the screen
-      if (key === 'k') {
-        // 2J clears the viewport, 3J the scrollback, H returns to the top-left (VSCode's Clear)
-        term.write('\x1b[2J\x1b[3J\x1b[H')
-        return false
-      }
 
       // ⌘← / ⌘→ (Ctrl on Windows / Linux): start / end of line.
       // xterm swallows Meta + arrow on macOS, so send readline's ^A / ^E instead.
@@ -394,6 +394,7 @@ export function TerminalView({ tab, active }: Props) {
       outputSize = 0
       flushOutputRef.current = () => {}
       try {
+        unregisterCommands()
         dataSub.dispose()
       } catch {
         /* ignore */

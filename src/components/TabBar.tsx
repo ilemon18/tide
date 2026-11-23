@@ -1,3 +1,4 @@
+import { useShortcut, useShortcutTip } from '../lib/useShortcut'
 import {
   memo,
   useCallback,
@@ -75,6 +76,7 @@ const TabItem = memo(function TabItem({
   onClose,
 }: TabItemProps) {
   const t = useT()
+  const closeTip = useShortcutTip('tab.closeCurrent', 'tabs.closeTip')
   const running = useAgent((state) =>
     tab.kind === 'chat' && state.chats[tab.id.slice('chat:'.length)]?.status === 'running',
   )
@@ -137,8 +139,8 @@ const TabItem = memo(function TabItem({
               ? 'opacity-60 hover:opacity-100'
               : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'
           }`}
-          data-tip={t('tabs.closeTip')}
-          aria-label={t('tabs.closeTip')}
+          data-tip={closeTip}
+          aria-label={closeTip}
         >
           <Icon name="close" size={11} strokeWidth={2} />
         </button>
@@ -148,6 +150,10 @@ const TabItem = memo(function TabItem({
 })
 
 export function TabBar({ groupId }: { groupId: TabGroupId }) {
+  const closeKeys = useShortcut('tab.close')
+  const rightKeys = useShortcut('view.splitRight')
+  const downKeys = useShortcut('view.splitDown')
+  const splitTip = useShortcutTip('view.splitRight', 'tabs.splitTip')
   const t = useT()
   const allTabs = useTabs((s) => s.tabs)
   const activeGroupId = useTabs((s) => s.activeGroupId)
@@ -330,7 +336,7 @@ export function TabBar({ groupId }: { groupId: TabGroupId }) {
     ? [
         {
           label: t('tabs.close'),
-          shortcut: '⇧⌘W',
+          shortcut: closeKeys,
           onClick: () => void closeIn(menu.tabId, groupId),
         },
         { label: t('tabs.closeOthers'), onClick: () => void closeOthers(menu.tabId) },
@@ -358,8 +364,8 @@ export function TabBar({ groupId }: { groupId: TabGroupId }) {
         { type: 'separator' as const },
         { label: t('tabs.splitRightMove'), onClick: () => void split('row', true) },
         { label: t('tabs.splitDownMove'), onClick: () => void split('column', true) },
-        { label: t('tabs.splitRight'), shortcut: '⌘\\', onClick: () => void split('row', false) },
-        { label: t('tabs.splitDown'), shortcut: '⇧⌘\\', onClick: () => void split('column', false) },
+        { label: t('tabs.splitRight'), shortcut: rightKeys, onClick: () => void split('row', false) },
+        { label: t('tabs.splitDown'), shortcut: downKeys, onClick: () => void split('column', false) },
         ...(splitOrientation
           ? [
               { type: 'separator' as const },
@@ -571,7 +577,7 @@ export function TabBar({ groupId }: { groupId: TabGroupId }) {
         {splitOrientation ? null : (
           <button
             onClick={() => void split('row', false)}
-            data-tip={t('tabs.splitTip')}
+            data-tip={splitTip}
             className="ml-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-[var(--r-control)] text-muted transition-colors duration-fast hover:bg-hover hover:text-fg"
           >
             <Icon name="split-right" size={15} />

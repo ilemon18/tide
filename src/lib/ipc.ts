@@ -1,3 +1,4 @@
+import type { ShortcutOverrides } from './shortcuts'
 import { invoke } from '@tauri-apps/api/core'
 import type { Locale } from '../i18n/types'
 import { hasMessage, t } from '../i18n'
@@ -104,6 +105,7 @@ export type GitStatus = {
 export type MonoFont = 'jetbrains' | 'fira' | 'ibm-plex' | 'source-code' | 'system'
 
 export type Settings = {
+  shortcutOverrides: ShortcutOverrides
   schemaVersion: number
   /** UI language: en (default) | zh-CN | ja | es */
   locale: Locale

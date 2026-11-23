@@ -1,3 +1,4 @@
+import { useShortcut } from '../lib/useShortcut'
 import {
   createContext,
   memo,
@@ -19,7 +20,7 @@ import { Icon, type IconName } from './Icon'
 import { FileIcon } from './FileIcon'
 import { ContextMenu, type MenuItem } from './ContextMenu'
 import type { DirEntryInfo, GitFile } from '../lib/ipc'
-import { basename, dirname, modKey } from '../lib/paths'
+import { basename, dirname } from '../lib/paths'
 import { readWorkspaceEntry } from '../lib/workspaceEntries'
 import { deleteEntryFlow, renameEntryFlow, revealEntry } from '../lib/actions'
 import { copyText } from '../lib/clipboard'
@@ -352,6 +353,7 @@ const RepoSection = memo(function RepoSection({
   const openDiff = useTabs((s) => s.openDiff)
   const openFile = useTabs((s) => s.openFile)
   const refreshFromDisk = useTabs((s) => s.refreshFromDisk)
+  const agentKeys = useShortcut('agent.ask')
   const agentEnabled = useSettings(s => s.agentEnabled)
 
   const [message, setMessage] = useState('')
@@ -634,7 +636,7 @@ const RepoSection = memo(function RepoSection({
     if (entry && !entry.isDir) {
       if (fileItems.length) fileItems.push({ type: 'separator' })
       if (agentEnabled && regularFile) fileItems.push({
-        label: t('titlebar.agentTip', { shortcut: `${modKey()}A` }),
+        label: agentKeys ? t('titlebar.agentTip', { shortcut: agentKeys }) : t('commands.agent.ask'),
         onClick: () => { useAgent.getState().newChat(root.id, [{ rel: file.path, isDir: false }]) },
       })
       fileItems.push(

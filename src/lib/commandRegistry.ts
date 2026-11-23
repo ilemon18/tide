@@ -1,0 +1,86 @@
+import type { MessageKey } from '../i18n'
+
+export type ShortcutScope = 'app' | 'editor' | 'tree' | 'terminal' | 'context'
+export type CommandDefinition = {
+  id: string
+  titleKey: MessageKey
+  groupKey: MessageKey
+  scope: ShortcutScope
+  defaults: readonly string[]
+}
+
+/** Stable metadata remains available when an action is hidden or unavailable. */
+export const COMMANDS: readonly CommandDefinition[] = [
+  {id: 'folder.open', groupKey: 'commands.group.file', titleKey: 'commands.folder.open', scope: 'app', defaults: ['Mod+o']},
+  {id: 'app.newWindow', groupKey: 'commands.group.file', titleKey: 'commands.app.newWindow', scope: 'app', defaults: ['Mod+Shift+n']},
+  {id: 'folder.close', groupKey: 'commands.group.file', titleKey: 'commands.folder.close', scope: 'app', defaults: ['Mod+Shift+q']},
+  {id: 'file.new', groupKey: 'commands.group.file', titleKey: 'commands.file.new', scope: 'app', defaults: ['Mod+n']},
+  {id: 'file.newOnDisk', groupKey: 'commands.group.file', titleKey: 'commands.file.newOnDisk', scope: 'app', defaults: []},
+  {id: 'folder.new', groupKey: 'commands.group.file', titleKey: 'commands.folder.new', scope: 'app', defaults: []},
+  {id: 'file.save', groupKey: 'commands.group.file', titleKey: 'commands.file.save', scope: 'app', defaults: ['Mod+s']},
+  {id: 'file.saveAll', groupKey: 'commands.group.file', titleKey: 'commands.file.saveAll', scope: 'app', defaults: ['Mod+Shift+s']},
+  {id: 'editor.format', groupKey: 'commands.group.file', titleKey: 'commands.editor.format', scope: 'editor', defaults: ['Shift+Alt+f']},
+  {id: 'tab.close', groupKey: 'commands.group.file', titleKey: 'commands.tab.close', scope: 'app', defaults: ['Mod+Shift+w']},
+  {id: 'tab.next', groupKey: 'commands.group.file', titleKey: 'commands.tab.next', scope: 'app', defaults: ['Mod+Shift+]']},
+  {id: 'tab.prev', groupKey: 'commands.group.file', titleKey: 'commands.tab.prev', scope: 'app', defaults: ['Mod+Shift+[']},
+  {id: 'tab.welcome', groupKey: 'commands.group.file', titleKey: 'commands.tab.welcome', scope: 'app', defaults: []},
+  {id: 'agent.ask', groupKey: 'commands.group.agent', titleKey: 'commands.agent.ask', scope: 'app', defaults: ['Mod+Shift+a']},
+  {id: 'tab.closeOthers', groupKey: 'commands.group.tabs', titleKey: 'commands.tab.closeOthers', scope: 'app', defaults: []},
+  {id: 'tab.closeLeft', groupKey: 'commands.group.tabs', titleKey: 'commands.tab.closeLeft', scope: 'app', defaults: []},
+  {id: 'tab.closeRight', groupKey: 'commands.group.tabs', titleKey: 'commands.tab.closeRight', scope: 'app', defaults: []},
+  {id: 'tab.closeAll', groupKey: 'commands.group.tabs', titleKey: 'commands.tab.closeAll', scope: 'app', defaults: []},
+  {id: 'tab.reopenClosed', groupKey: 'commands.group.tabs', titleKey: 'commands.tab.reopenClosed', scope: 'app', defaults: ['Mod+Shift+t']},
+  {id: 'view.gotoLine', groupKey: 'commands.group.view', titleKey: 'commands.view.gotoLine', scope: 'app', defaults: ['Ctrl+g']},
+  {id: 'tab.closeUnmodified', groupKey: 'commands.group.tabs', titleKey: 'commands.tab.closeUnmodified', scope: 'app', defaults: []},
+  {id: 'tab.pin', groupKey: 'commands.group.tabs', titleKey: 'commands.tab.pin', scope: 'app', defaults: []},
+  {id: 'view.splitRight', groupKey: 'commands.group.tabs', titleKey: 'commands.view.splitRight', scope: 'app', defaults: ['Mod+\\']},
+  {id: 'view.splitDown', groupKey: 'commands.group.tabs', titleKey: 'commands.view.splitDown', scope: 'app', defaults: ['Mod+Shift+\\']},
+  {id: 'view.splitRightMove', groupKey: 'commands.group.tabs', titleKey: 'commands.view.splitRightMove', scope: 'app', defaults: []},
+  {id: 'view.splitDownMove', groupKey: 'commands.group.tabs', titleKey: 'commands.view.splitDownMove', scope: 'app', defaults: []},
+  {id: 'view.unsplit', groupKey: 'commands.group.tabs', titleKey: 'commands.view.unsplit', scope: 'app', defaults: []},
+  {id: 'view.fold', groupKey: 'commands.group.view', titleKey: 'commands.view.fold', scope: 'editor', defaults: ['Mod+Alt+[', 'Ctrl+Alt+[']},
+  {id: 'view.unfold', groupKey: 'commands.group.view', titleKey: 'commands.view.unfold', scope: 'editor', defaults: ['Mod+Alt+]', 'Ctrl+Alt+]']},
+  {id: 'view.foldAll', groupKey: 'commands.group.view', titleKey: 'commands.view.foldAll', scope: 'editor', defaults: ['Mod+Alt+Shift+[', 'Ctrl+Alt+Shift+[']},
+  {id: 'view.unfoldAll', groupKey: 'commands.group.view', titleKey: 'commands.view.unfoldAll', scope: 'editor', defaults: ['Mod+Alt+Shift+]', 'Ctrl+Alt+Shift+]']},
+  {id: 'view.wordWrap', groupKey: 'commands.group.view', titleKey: 'commands.view.wordWrap', scope: 'editor', defaults: ['Alt+z']},
+  {id: 'view.sidebar', groupKey: 'commands.group.view', titleKey: 'commands.view.sidebar', scope: 'app', defaults: ['Mod+b']},
+  {id: 'view.explorer', groupKey: 'commands.group.view', titleKey: 'commands.view.explorer', scope: 'app', defaults: ['Mod+Shift+e']},
+  {id: 'view.search', groupKey: 'commands.group.view', titleKey: 'commands.view.search', scope: 'app', defaults: ['Mod+Shift+f']},
+  {id: 'view.git', groupKey: 'commands.group.view', titleKey: 'commands.view.git', scope: 'app', defaults: ['Mod+Shift+g']},
+  {id: 'view.structure', groupKey: 'commands.group.view', titleKey: 'commands.view.structure', scope: 'app', defaults: ['Mod+u']},
+  {id: 'view.goToSymbol', groupKey: 'commands.group.view', titleKey: 'commands.view.goToSymbol', scope: 'app', defaults: []},
+  {id: 'view.panel', groupKey: 'commands.group.view', titleKey: 'commands.view.panel', scope: 'app', defaults: ['Mod+j']},
+  {id: 'view.projects', groupKey: 'commands.group.view', titleKey: 'commands.view.projects', scope: 'app', defaults: ['Mod+Shift+o']},
+  {id: 'terminal.new', groupKey: 'commands.group.terminal', titleKey: 'commands.terminal.new', scope: 'app', defaults: []},
+  {id: 'search.clear', groupKey: 'commands.group.search', titleKey: 'commands.search.clear', scope: 'app', defaults: []},
+  {id: 'theme.cycle', groupKey: 'commands.group.appearance', titleKey: 'commands.theme.cycle', scope: 'app', defaults: ['Mod+Shift+k']},
+  {id: 'theme.eyecare', groupKey: 'commands.group.appearance', titleKey: 'commands.theme.eyecare', scope: 'app', defaults: []},
+  {id: 'theme.dracula', groupKey: 'commands.group.appearance', titleKey: 'commands.theme.dracula', scope: 'app', defaults: []},
+  {id: 'blame.toggle', groupKey: 'commands.group.appearance', titleKey: 'commands.blame.toggle', scope: 'app', defaults: []},
+  {id: 'prefs.open', groupKey: 'commands.group.appearance', titleKey: 'commands.prefs.open', scope: 'app', defaults: ['Mod+,']},
+  {id: 'tree.collapse', groupKey: 'commands.group.project', titleKey: 'commands.tree.collapse', scope: 'app', defaults: []},
+  {id: 'tree.refresh', groupKey: 'commands.group.project', titleKey: 'commands.tree.refresh', scope: 'app', defaults: []},
+  {id: 'workspace.remove', groupKey: 'commands.group.project', titleKey: 'commands.workspace.remove', scope: 'app', defaults: []},
+  {id: 'git.refresh', groupKey: 'commands.group.git', titleKey: 'commands.git.refresh', scope: 'app', defaults: []},
+  {id: 'git.pull', groupKey: 'commands.group.git', titleKey: 'commands.git.pull', scope: 'app', defaults: []},
+  {id: 'git.push', groupKey: 'commands.group.git', titleKey: 'commands.git.push', scope: 'app', defaults: []},
+  {id: 'view.quickOpen', groupKey: 'commands.group.view', titleKey: 'shortcuts.action.view.quickOpen', scope: 'app', defaults: ['Mod+p']},
+  {id: 'view.commands', groupKey: 'commands.group.view', titleKey: 'shortcuts.action.view.commands', scope: 'app', defaults: ['Mod+Shift+p']},
+  {id: 'editor.find', groupKey: 'commands.group.view', titleKey: 'shortcuts.action.editor.find', scope: 'editor', defaults: ['Mod+f']},
+  {id: 'tab.closeCurrent', groupKey: 'commands.group.tabs', titleKey: 'shortcuts.action.tab.closeCurrent', scope: 'app', defaults: ['Mod+w']},
+  {id: 'tab.newCurrent', groupKey: 'commands.group.tabs', titleKey: 'shortcuts.action.tab.newCurrent', scope: 'app', defaults: ['Mod+t']},
+  {id: 'app.cycleWindow', groupKey: 'commands.group.view', titleKey: 'shortcuts.action.app.cycleWindow', scope: 'app', defaults: ['Mod+`']},
+  {id: 'editor.zoomIn', groupKey: 'commands.group.appearance', titleKey: 'shortcuts.action.editor.zoomIn', scope: 'editor', defaults: ['Mod+=', 'Mod+Shift+=']},
+  {id: 'editor.zoomOut', groupKey: 'commands.group.appearance', titleKey: 'shortcuts.action.editor.zoomOut', scope: 'editor', defaults: ['Mod+-']},
+  {id: 'tree.rename', groupKey: 'commands.group.project', titleKey: 'shortcuts.action.tree.rename', scope: 'tree', defaults: ['Mod+r', 'f2']},
+  {id: 'tree.delete', groupKey: 'commands.group.project', titleKey: 'shortcuts.action.tree.delete', scope: 'tree', defaults: ['Mod+backspace', 'Mod+delete', 'delete']},
+  {id: 'terminal.clear', groupKey: 'commands.group.terminal', titleKey: 'shortcuts.action.terminal.clear', scope: 'terminal', defaults: ['Mod+k']},
+  {id: 'panel.show', groupKey: 'commands.group.view', titleKey: 'shortcuts.action.panel.show', scope: 'app', defaults: []},
+  {id: 'context.openOrLatest', groupKey: 'commands.group.view', titleKey: 'shortcuts.action.context.openOrLatest', scope: 'context', defaults: ['Mod+arrowdown']},
+  {id: 'agent.context.add', groupKey: 'commands.group.agent', titleKey: 'agent.context.add', scope: 'context', defaults: []},
+  {id: 'agent.context.explain', groupKey: 'commands.group.agent', titleKey: 'agent.context.explain', scope: 'context', defaults: []},
+  {id: 'agent.context.refactor', groupKey: 'commands.group.agent', titleKey: 'agent.context.refactor', scope: 'context', defaults: []},
+  {id: 'agent.context.terminal', groupKey: 'commands.group.agent', titleKey: 'agent.context.terminal', scope: 'context', defaults: []},
+]
+
+export const commandDefinition = (id: string) => COMMANDS.find(command => command.id === id)

@@ -1,3 +1,5 @@
+import { useShortcut } from '../lib/useShortcut'
+import { registerCommandHandlers } from '../lib/commandRuntime'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useWorkspace, type DirState, type RootNode } from '../store/workspace'
 import { useSettings } from '../store/settings'
@@ -15,8 +17,7 @@ import { useTerminal } from '../store/terminal'
 import { useFolderChain } from '../store/folderChain'
 import { openFolderDialog } from '../lib/actions'
 import { beginFilePointerDrag, wasFileDragJustFinished } from '../lib/fileDragState'
-import { dirname, parentChain, basename, isUnder, modKey } from '../lib/paths'
-import { shortcutKey } from '../lib/keys'
+import { dirname, parentChain, basename, isUnder } from '../lib/paths'
 import { t as translate, useLocale, useT } from '../i18n'
 import { copyText } from '../lib/clipboard'
 
@@ -239,6 +240,9 @@ function buildRows(
 }
 
 export function FileTree() {
+  const agentKeys = useShortcut('agent.ask')
+  const renameKeys = useShortcut('tree.rename')
+  const deleteKeys = useShortcut('tree.delete')
   const t = useT()
   const locale = useLocale()
   const roots = useWorkspace((s) => s.roots)
@@ -632,6 +636,22 @@ export function FileTree() {
     void useSearch.getState().run()
   }
 
+  useEffect(() => {
+    const row = rows.find(row => row.key === selected)
+    const available = () => Boolean(row && !renaming)
+    const nodeAvailable = () => Boolean(row?.kind === 'node' && !renaming)
+    return registerCommandHandlers({
+      'tree.rename': { available: nodeAvailable, run: () => {
+        if (row?.kind === 'node') setRenaming({ root: row.root, rel: row.rel })
+      } },
+      'tree.delete': { available: nodeAvailable, run: () => {
+        if (row?.kind === 'node') return deleteEntryFlow(row.root, row.rel)
+      } },
+      'context.openOrLatest': { available: () => available() && Boolean(containerRef.current?.contains(document.activeElement)),
+        run: () => { if (row) openRow(row) } },
+    })
+  })
+
   const onKeyDown = (e: React.KeyboardEvent) => {
     const index = rows.findIndex((r) => r.key === selected)
     const row = index >= 0 ? rows[index] : null
@@ -680,12 +700,6 @@ export function FileTree() {
       }
       return
     }
-    // ⌘↓ follows Finder's "Open": open a file / expand a directory; Enter is used for renaming
-    if ((e.metaKey || e.ctrlKey) && e.key === 'ArrowDown' && row) {
-      e.preventDefault()
-      openRow(row)
-      return
-    }
     // Enter follows Finder: it renames the selection (whole name selected),
     // while opening is left to ⌘↓, single click and double click.
     if (e.key === 'Enter' && row) {
@@ -694,31 +708,7 @@ export function FileTree() {
       else openRow(row)
       return
     }
-    // ⌘R / ⌃R renames (that combo means "rename symbol" in VSCode, but this tree has no symbols,
-    // so renaming is a better fit); F2 also works
-    if ((e.metaKey || e.ctrlKey) && shortcutKey(e) === 'r' && row?.kind === 'node') {
-      e.preventDefault()
-      e.stopPropagation()
-      setRenaming({ root: row.root, rel: row.rel })
-      return
-    }
-    if (e.key === 'F2' && row?.kind === 'node') {
-      e.preventDefault()
-      setRenaming({ root: row.root, rel: row.rel })
-      return
-    }
-    // ⌘⌫ (macOS) / Delete (Windows habit) deletes the selection, matching VSCode's explorer.
-    // Plain ⌫ does not delete: on macOS that is backspace and a mispress is too costly.
-    if ((e.metaKey || e.ctrlKey) && (e.key === 'Backspace' || e.key === 'Delete') && row?.kind === 'node') {
-      e.preventDefault()
-      e.stopPropagation()
-      void deleteEntryFlow(row.root, row.rel)
-      return
-    }
-    if (e.key === 'Delete' && row?.kind === 'node') {
-      e.preventDefault()
-      void deleteEntryFlow(row.root, row.rel)
-    }
+
   }
 
   if (roots.length === 0) {
@@ -738,6 +728,7 @@ export function FileTree() {
   return (
     <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
       <div
+        data-shortcut-tree
         ref={containerRef}
         tabIndex={0}
         onKeyDown={onKeyDown}
@@ -936,7 +927,7 @@ export function FileTree() {
                   ...(agentEnabled && !menu.isSymlink
                     ? [
                         {
-                          label: t('titlebar.agentTip', { shortcut: `${modKey()}A` }),
+                          label: agentKeys ? t('titlebar.agentTip', { shortcut: agentKeys }) : t('commands.agent.ask'),
                           onClick: () =>
                             useAgent.getState().newChat(menu.root, [
                               { rel: menu.rel || '.', isDir: menu.isDir },
@@ -958,8 +949,8 @@ export function FileTree() {
                         { type: 'separator' },
                       ] as MenuItem[])
                     : []),
-                  { label: t('explorer.rename'), shortcut: '⌘R / F2', onClick: () => setRenaming({ root: menu.root, rel: menu.rel }) },
-                  { label: t('explorer.delete'), shortcut: '⌘⌫', danger: true, onClick: () => void deleteEntryFlow(menu.root, menu.rel) },
+                  { label: t('explorer.rename'), shortcut: renameKeys, onClick: () => setRenaming({ root: menu.root, rel: menu.rel }) },
+                  { label: t('explorer.delete'), shortcut: deleteKeys, danger: true, onClick: () => void deleteEntryFlow(menu.root, menu.rel) },
                   { type: 'separator' },
                   { label: t('explorer.revealInFinder'), onClick: () => void revealEntry(menu.root, menu.rel) },
                   {

@@ -12,14 +12,9 @@ import {
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
 import {
   bracketMatching,
-  foldAll,
-  foldCode,
   foldGutter,
-  foldKeymap,
   indentOnInput,
   indentUnit,
-  unfoldAll,
-  unfoldCode,
 } from '@codemirror/language'
 import {
   autocompletion,
@@ -107,17 +102,6 @@ export function buildBaseExtensions(opts: BaseOptions): Extension[] {
       // (⌥⌘↑/↓ adding cursors comes with defaultKeymap)
       { key: 'Mod-d', run: selectNextOccurrence },
       { key: 'Mod-Shift-l', run: selectSelectionMatches },
-      // Fold keys: ⌘⌥[ / ⌘⌥] on macOS. foldKeymap's own Ctrl-Shift-[ is swallowed
-      // by App.tsx's capture-phase prev/next tab, so add explicit Ctrl-Alt bindings.
-      ...(foldable
-        ? [
-            { key: 'Ctrl-Alt-[', run: foldCode },
-            { key: 'Ctrl-Alt-]', run: unfoldCode },
-            { key: 'Ctrl-Alt-Shift-[', run: foldAll },
-            { key: 'Ctrl-Alt-Shift-]', run: unfoldAll },
-            ...foldKeymap,
-          ]
-        : []),
       ...historyKeymap,
       indentWithTab,
     ]),

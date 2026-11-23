@@ -1,3 +1,4 @@
+import { useShortcut, useShortcutTip } from '../lib/useShortcut'
 import { useEffect, useMemo, useState } from 'react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { activeRoot, IS_PRIMARY_WINDOW, useWorkspace } from '../store/workspace'
@@ -7,7 +8,7 @@ import { useAgent } from '../store/agent'
 import { Icon } from './Icon'
 import { UpdateBadge } from './UpdateBadge'
 import { newWindow, revealInExplorer } from '../lib/actions'
-import { isMac, modKey } from '../lib/paths'
+import { isMac } from '../lib/paths'
 import { useT } from '../i18n'
 
 function hasTauriWindow(): boolean {
@@ -138,7 +139,9 @@ export function TitleBar() {
   const activeId = useTabs((s) => s.activeId)
   const tabs = useTabs((s) => s.tabs)
   const agentEnabled = useSettings((s) => s.agentEnabled)
-  const agentTip = t('titlebar.agentTip', { shortcut: `${modKey()}A` })
+  const agentKeys = useShortcut('agent.ask')
+  const agentTip = agentKeys ? t('titlebar.agentTip', { shortcut: agentKeys }) : t('commands.agent.ask')
+  const windowTip = useShortcutTip('app.newWindow', 'titlebar.newWindowTip')
 
   const active = tabs.find((t) => t.id === activeId)
   // Breadcrumbs follow the active tab's project so they can't disagree with activeRoot
@@ -218,7 +221,7 @@ export function TitleBar() {
           <Icon name="home" size={15} />
         </button>
         <button
-          data-tip={t('titlebar.newWindowTip')}
+          data-tip={windowTip}
           onClick={() => void newWindow()}
           className="flex h-6 w-6 items-center justify-center rounded-[var(--r-control)] text-muted transition-colors duration-fast hover:bg-hover hover:text-fg"
         >

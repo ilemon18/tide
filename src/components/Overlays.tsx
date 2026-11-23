@@ -1,3 +1,5 @@
+import { shortcutLabel } from '../lib/useShortcut'
+import { useSettings } from '../store/settings'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useWorkspace } from '../store/workspace'
 import { editorStateKey, useTabs } from '../store/tabs'
@@ -333,7 +335,9 @@ function CommandPalette() {
   const [index, setIndex] = useState(0)
   const listRef = useRef<HTMLDivElement>(null)
 
-  const commands = useMemo<Command[]>(() => buildCommands(), [])
+  const capturedCommands = useMemo<Command[]>(() => buildCommands(), [])
+  const shortcutOverrides = useSettings(state => state.shortcutOverrides)
+  const commands = useMemo(() => capturedCommands.map(command => ({ ...command, shortcut: shortcutLabel(command.id) })), [capturedCommands, shortcutOverrides])
 
   // No result caching: there are few commands, and a cache would have to track locale changes (titles change)
   const q = query.trim().toLowerCase()

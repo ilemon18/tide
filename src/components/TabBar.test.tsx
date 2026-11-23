@@ -20,6 +20,7 @@ vi.mock('../store/agent', async () => {
   const { create } = await import('zustand')
   return { useAgent: create(() => ({ chats: {} as Record<string, AgentChat>, pages: {} })) }
 })
+vi.mock('../lib/useShortcut', () => ({ useShortcut: () => '', useShortcutTip: (_id: string, key: string) => key }))
 vi.mock('../i18n', () => ({ t: (key: string) => key, useT: () => (key: string) => key }))
 vi.mock('./EditorContextActions', () => ({ EditorContextActions: () => null }))
 vi.mock('./AgentProviderIcon', () => ({ AgentProviderIcon: () => <span data-provider-icon /> }))

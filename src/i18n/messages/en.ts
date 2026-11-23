@@ -6,6 +6,40 @@
  * - Placeholders are written `{name}`; param names must match the call site (a check script verifies).
  */
 export const en = {
+  "shortcuts.search": "Search actions or shortcuts",
+  "shortcuts.resetAll": "Restore all defaults",
+  "shortcuts.help": "Record a single key combination. Saving an occupied shortcut removes it from the previous action. Basic editing shortcuts are reserved. Escape cancels recording.",
+  "shortcuts.recordTitle": "Record shortcut",
+  "shortcuts.recordHint": "Press the key combination you want to use.",
+  "shortcuts.invalid": "Use a modifier with a key, or a function key. Basic editing shortcuts are reserved.",
+  "shortcuts.conflict": "Currently used by {commands}. Saving removes the previous binding.",
+  "shortcuts.replaced": "Removed the previous binding from {commands}.",
+  "shortcuts.save": "Save shortcut",
+  "shortcuts.modified": "Modified",
+  "shortcuts.unbound": "Unbound",
+  "shortcuts.add": "Add binding",
+  "shortcuts.reset": "Restore default",
+  "shortcuts.editBinding": "Edit {keys}",
+  "shortcuts.removeBinding": "Remove {keys}",
+  "shortcuts.scope.app": "Application",
+  "shortcuts.scope.editor": "Editor",
+  "shortcuts.scope.tree": "File tree",
+  "shortcuts.scope.terminal": "Terminal",
+  "shortcuts.scope.context": "File tree / active chat",
+  "shortcuts.action.view.quickOpen": "Quick open file",
+  "shortcuts.action.view.commands": "Command palette",
+  "shortcuts.action.editor.find": "Find in editor",
+  "shortcuts.action.tab.closeCurrent": "Close focused editor or terminal tab",
+  "shortcuts.action.tab.newCurrent": "Open welcome / new terminal in focused terminal",
+  "shortcuts.action.app.cycleWindow": "Next Tide window",
+  "shortcuts.action.editor.zoomIn": "Increase editor font size",
+  "shortcuts.action.editor.zoomOut": "Decrease editor font size",
+  "shortcuts.action.tree.rename": "Rename selected tree entry",
+  "shortcuts.action.tree.delete": "Delete selected tree entry",
+  "shortcuts.action.terminal.clear": "Clear terminal",
+  "shortcuts.action.panel.show": "Show terminal panel",
+  "shortcuts.action.context.openOrLatest": "Open tree selection / jump to latest chat message",
+
   "agent.context.add": "Add selection to AI",
   "agent.context.explain": "Explain selected code",
   "agent.context.refactor": "Refactor selected code",
@@ -113,18 +147,18 @@ export const en = {
   'app.project': 'Project',
 
   // ---------------------------------------------------------------- Activity bar
-  'activity.explorerTip': 'Explorer (⇧⌘E)',
-  'activity.searchTip': 'Search (⇧⌘F)',
-  'activity.gitTip': 'Source Control (⇧⌘G)',
+  'activity.explorerTip': 'Explorer',
+  'activity.searchTip': 'Search',
+  'activity.gitTip': 'Source Control',
   'activity.terminal': 'Terminal',
-  'activity.terminalTip': 'Terminal (⌘J)',
-  'activity.settingsTip': 'Settings (⌘,)',
+  'activity.terminalTip': 'Terminal',
+  'activity.settingsTip': 'Settings',
 
   // ---------------------------------------------------------------- Title bar
   'titlebar.projectTip': 'Project: {name}',
   'titlebar.projectAria': 'Project {name}',
   'titlebar.welcomeTip': 'Welcome',
-  'titlebar.newWindowTip': 'New window (⇧⌘N)',
+  'titlebar.newWindowTip': 'New window',
   'titlebar.minimizeTip': 'Minimize',
   'titlebar.maximizeTip': 'Maximize',
   'titlebar.restoreTip': 'Restore',
@@ -136,7 +170,7 @@ export const en = {
   'sidebar.git': 'Source Control',
 
   // ---------------------------------------------------------------- Status bar
-  'status.switchProjectTip': 'Switch project (⇧⌘O)',
+  'status.switchProjectTip': 'Switch project',
   'status.projectCount': '{count} project | {count} projects',
   'status.switchBranchTip': 'Switch branch',
   'status.checkingOut': 'Switching…',
@@ -151,7 +185,7 @@ export const en = {
   'status.formatUnavailableTip': '{rule} → {tool}: no formatter available',
   'status.formatUnavailable': 'unavailable',
   'status.plainText': 'Plain Text',
-  'status.themeTip': 'Change theme (⌘⇧K)',
+  'status.themeTip': 'Change theme',
   'status.themeSystem': 'System',
 
   // ---------------------------------------------------------------- Dialogs / toasts
@@ -418,8 +452,8 @@ export const en = {
   'tabs.unsplit': 'Unsplit',
   'tabs.unsavedTip': 'Unsaved',
   'tabs.pinnedTip': 'Pinned · right-click to unpin',
-  'tabs.closeTip': 'Close (⌘W)',
-  'tabs.splitTip': 'Split right (⌘\\)',
+  'tabs.closeTip': 'Close',
+  'tabs.splitTip': 'Split right',
   'tabs.editSource': 'Edit source',
   'tabs.viewSvg': 'View SVG image',
   'tabs.showMarkdownPreview': 'Show Markdown preview',
@@ -535,7 +569,7 @@ export const en = {
   'commands.file.save': 'Save',
   'commands.file.saveAll': 'Save all',
   'commands.editor.format': 'Format current file',
-  'commands.tab.close': 'Close current tab',
+  'commands.tab.close': 'Close editor tab',
   'commands.tab.next': 'Next tab',
   'commands.tab.prev': 'Previous tab',
   'commands.tab.welcome': 'Open welcome page',
@@ -679,8 +713,8 @@ export const en = {
 
   // ---------------------------------------------------------------- Editor (CodeMirror built-in DOM)
   'editor.uncommitted': 'Uncommitted',
-  'editor.foldTip': 'Fold (⌘⌥[)',
-  'editor.unfoldTip': 'Unfold (⌘⌥])',
+  'editor.foldTip': 'Fold',
+  'editor.unfoldTip': 'Unfold',
   'editor.oursLabel': 'current',
   'editor.nestedConflictHint': 'Resolve the inner conflict first',
   'editor.acceptOurs': 'Accept current change',
@@ -801,7 +835,7 @@ export const en = {
 
   // ---------------------------------------------------------------- Catalog anchor (new keys go above this line)
   // ---------------------------------------------------------------- Structure outline
-  'activity.structureTip': 'Structure ({keys})',
+  'activity.structureTip': 'Structure',
   'sidebar.structure': 'Structure',
   'structure.filterPlaceholder': 'Filter symbols',
   'structure.empty': 'No symbols in this file',

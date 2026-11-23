@@ -21,6 +21,9 @@ static SETTINGS_LOCK: Mutex<()> = Mutex::new(());
 #[serde(rename_all = "camelCase", default)]
 pub struct Settings {
     pub schema_version: u32,
+    /// Per-command key overrides; an empty array explicitly removes the default.
+    #[serde(deserialize_with = "deserialize_shortcut_overrides")]
+    pub shortcut_overrides: serde_json::Map<String, serde_json::Value>,
     /// UI language (en / zh-CN / ja / es): native text such as the Dock menu follows it.
     pub locale: String,
     /// tide | dark-modern | dracula | one-dark | monokai | github-dark | nord
@@ -88,6 +91,30 @@ pub struct Settings {
     pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
+fn deserialize_shortcut_overrides<'de, D>(
+    deserializer: D,
+) -> Result<serde_json::Map<String, serde_json::Value>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    Ok(value
+        .as_object()
+        .map(|map| {
+            map.iter()
+                .filter_map(|(id, value)| {
+                    let values = value.as_array()?;
+                    let valid: Vec<_> = values.iter().filter(|value| value.is_string()).cloned().collect();
+                    if !values.is_empty() && valid.is_empty() {
+                        return None;
+                    }
+                    Some((id.clone(), serde_json::Value::Array(valid)))
+                })
+                .collect()
+        })
+        .unwrap_or_default())
+}
+
 fn deserialize_agent_permission_mode<'de, D>(deserializer: D) -> Result<String, D::Error>
 where
     D: serde::Deserializer<'de>,
@@ -104,6 +131,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             schema_version: 0,
+            shortcut_overrides: serde_json::Map::new(),
             locale: "en".into(),
             theme: "tide".into(),
             icon_theme: "material".into(),
@@ -446,6 +474,26 @@ mod compat {
             assert_eq!(settings.agent_default_model, "custom-model");
             assert_eq!(settings.font_size, 17);
         }
+    }
+
+    #[test]
+    fn shortcuts_tolerate_invalid_fields_and_preserve_explicit_removals() {
+        for invalid in [serde_json::json!(null), serde_json::json!(7), serde_json::json!([])] {
+            let settings: Settings = serde_json::from_value(serde_json::json!({
+                "fontSize": 19, "shortcutOverrides": invalid
+            })).expect("invalid shortcut field must not reset settings");
+            assert_eq!(settings.font_size, 19);
+            assert!(settings.shortcut_overrides.is_empty());
+        }
+        let settings: Settings = serde_json::from_value(serde_json::json!({
+            "shortcutOverrides": { "agent.ask": ["Mod+Shift+p"], "view.commands": [],
+                "future.command": ["Mod+Shift+i"], "broken": 7, "mixed": [7, "Mod+s"] }
+        })).expect("shortcut overrides");
+        let out = serde_json::to_value(settings).expect("serialize settings");
+        assert_eq!(out["shortcutOverrides"]["view.commands"], serde_json::json!([]));
+        assert_eq!(out["shortcutOverrides"]["future.command"], serde_json::json!(["Mod+Shift+i"]));
+        assert_eq!(out["shortcutOverrides"]["mixed"], serde_json::json!(["Mod+s"]));
+        assert!(out["shortcutOverrides"].get("broken").is_none());
     }
 
     /// A corrupted file must only yield Err and let read_json fall back to defaults, never panic

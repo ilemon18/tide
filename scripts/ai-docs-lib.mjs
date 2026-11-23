@@ -56,6 +56,11 @@ export const ROUTING_FIXTURES = Object.freeze([
     expected: ['agent-composer.md', 'agent-storage.md', 'agent.md'],
   },
   {
+    name: 'Configurable shortcuts',
+    paths: ['src/lib/shortcuts.ts', 'src/lib/commandRegistry.ts', 'src/components/ShortcutSettings.tsx'],
+    expected: ['runtime.md'],
+  },
+  {
     name: 'Settings migration',
     paths: ['src/store/settings.ts', 'src-tauri/src/commands/theme.rs'],
     expected: ['runtime.md'],

@@ -1,5 +1,7 @@
+import { dispatchShortcut } from './lib/shortcutDispatch'
+import { registerCommandHandlers } from './lib/commandRuntime'
 import { dragTerminalHeight, terminalAvailableHeight } from './lib/terminalLayout'
-import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react'
+import { Suspense, lazy, useEffect, useRef, useState } from 'react'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
 import { listen } from '@tauri-apps/api/event'
 import { TitleBar } from './components/TitleBar'
@@ -26,20 +28,14 @@ import { useTabs } from './store/tabs'
 import { IS_PRIMARY_WINDOW, useWorkspace } from './store/workspace'
 import { useUi } from './store/ui'
 import { useGit } from './store/git'
-import { setupPtyEvents, terminalFocused, useTerminal } from './store/terminal'
+import { setupPtyEvents, useTerminal } from './store/terminal'
 import {
-  closeWorkspaceDialog,
-  newWindow,
   openDroppedPaths,
   openFolderDialog,
   openSettings,
   openWorkspace,
-  toggleSidebar,
-  toggleTerminal,
 } from './lib/actions'
 import { api, type RecentWorkspace, type Settings } from './lib/ipc'
-import { shortcutKey } from './lib/keys'
-import { isMac } from './lib/paths'
 import { installMemoryLifecycle } from './lib/memory'
 import {
   armEditorSession,
@@ -337,222 +333,28 @@ export function App() {
     return () => window.removeEventListener('focus', onFocus)
   }, [])
 
-  const onKeyDown = useCallback((e: KeyboardEvent): boolean => {
-    const shortcut = shortcutKey(e)
-    // ⇧⌥F: format the current file (same combo as VSCode; no ⌘, so check before mod)
-    if (e.shiftKey && e.altKey && !e.metaKey && !e.ctrlKey && shortcut === 'f') {
-      void useTabs.getState().formatActive()
-      return true
-    }
-    // ⌥Z: toggle word wrap for this file (VSCode). No ⌘ / ⌃, and not while an input owns the key.
-    // ⌥ changes e.key on macOS (⌥Z types "Ω"), so the physical key decides here instead of shortcutKey.
-    if (
-      e.altKey &&
-      !e.metaKey &&
-      !e.ctrlKey &&
-      !e.shiftKey &&
-      (e.code === 'KeyZ' || shortcut === 'z')
-    ) {
-      const target = e.target as HTMLElement | null
-      // A text field (search box, rename, dialog) keeps its own ⌥Z
-      if (target?.closest('input, textarea, [contenteditable="true"]')) return false
-      useTabs.getState().toggleWordWrap()
-      return true
-    }
-    const mod = e.metaKey || e.ctrlKey
-    if (!mod) return false
-    const key = shortcut
-    const shift = e.shiftKey
-    const tabsStore = useTabs.getState()
-    const settingsStore = useSettings.getState()
-    const ui = useUi.getState()
-
-    // Cmd/Ctrl+A opens the agent only from the app chrome. Editors, terminals, text fields and
-    // dialogs retain their native select-all behavior.
-    if (key === 'a' && !shift && !e.altKey) {
-      const target = e.target as HTMLElement | null
-      const nativeOwner = target?.closest('input, textarea, [contenteditable="true"], .cm-editor, .xterm')
-      if (!nativeOwner && !terminalFocused() && !ui.overlay && !ui.confirmReq && !ui.promptReq) {
-        if (settingsStore.agentEnabled) useAgent.getState().newChat()
-        return settingsStore.agentEnabled
-      }
-      return false
-    }
-
-    // Leave native editor / terminal shortcuts alone (undo, copy-paste, select all, find again, ...)
-    // ⌃G: go to line (VSCode-like), opens quick open prefilled with `:`
-    if (e.ctrlKey && !e.metaKey && key === 'g') {
-      ui.openQuickOpen(':')
-      return true
-    }
-    // ⌘U / Ctrl+U: reveal Structure (a letter from "outline"; VS Code's output panel does not exist here)
-    if (key === 'u' && !shift) {
-      // With Ctrl as the modifier, Ctrl+U still belongs to the field that has focus: readline's kill-line
-      // in the terminal, and the same editing key in macOS text fields. ⌘U on macOS is unused.
-      if (e.ctrlKey && !e.metaKey) {
-        const target = e.target as HTMLElement | null
-        if (terminalFocused() || target?.closest('input, textarea, [contenteditable="true"]')) return false
-      }
-      ui.setActivityView('structure')
-      if (!settingsStore.sidebarVisible) settingsStore.patch({ sidebarVisible: true })
-      return true
-    }
-    if (['c', 'v', 'x', 'z', 'y', 'u', 'g'].includes(key)) return false
-    if (shortcut === 'arrowleft' || shortcut === 'arrowright') return false
-
-    if (key === 'f' && shift) {
-      ui.setActivityView('search')
-      if (!settingsStore.sidebarVisible) settingsStore.patch({ sidebarVisible: true })
-      setPanelSearchFocus((n) => n + 1)
-      return true
-    }
-    if (key === 'f') {
-      // With an image / SVG preview the editor is hidden: find-replace must not touch an invisible file
-      const active = tabsStore.tabs.find((t) => t.id === tabsStore.activeId)
-      if ((active?.kind === 'file' || active?.kind === 'untitled') && !active.preview) {
-        setSearchOpen(true)
-        // Focus is in the editor (bar possibly already open): hand it back to the input instead of doing nothing
-        setSearchFocus((n) => n + 1)
-      }
-      return true
-    }
-    if (key === 'o' && shift) {
-      ui.setOverlay('projects')
-      return true
-    }
-    if (key === 'o' && !shift) {
-      void openFolderDialog()
-      return true
-    }
-    // ⌘⇧T: reopen the tab just closed (same shortcut as VSCode)
-    if (key === 't' && shift) {
-      void tabsStore.reopenClosed()
-      return true
-    }
-    // ⌘T / ⌃T: open (or switch to) the welcome page; with focus in the terminal, a new terminal tab
-    // (the mirror image of ⌘W, which closes the terminal tab when focus is in a terminal)
-    if (key === 't' && !shift) {
-      const terminal = useTerminal.getState()
-      if (terminal.visible && terminalFocused()) {
-        // Same working directory as the terminal in front: a second shell next to the first
-        const current = terminal.tabs.find((t) => t.id === terminal.activeId)
-        terminal.open(current?.root ?? undefined, current?.rel ?? '')
-        return true
-      }
-      tabsStore.openWelcome()
-      return true
-    }
-    if (key === 's' && shift) {
-      void tabsStore.saveAll()
-      return true
-    }
-    if (key === 's') {
-      void tabsStore.saveActive()
-      return true
-    }
-    if (key === 'w') {
-      // ⌘W closes the terminal tab when focus is in a terminal, else the editor tab (⇧⌘W always the editor)
-      const terminal = useTerminal.getState()
-      if (!shift && terminal.visible && terminal.activeId && terminalFocused()) {
-        terminal.close(terminal.activeId)
-        return true
-      }
-      void tabsStore.closeActive()
-      return true
-    }
-    if (shortcut === '\\') {
-      void tabsStore.split(shift ? 'column' : 'row', false)
-      return true
-    }
-    if (key === 'n' && shift) {
-      void newWindow()
-      return true
-    }
-    if (key === 'n') {
-      // VSCode: ⌘N is an untitled buffer; "new file" in the explorer still asks for a name on disk
-      useTabs.getState().openUntitled()
-      return true
-    }
-    if (key === 'p' && shift) {
-      ui.setOverlay('commands')
-      return true
-    }
-    if (key === 'p') {
-      // Goes through openQuickOpen to clear the `:` prefill left by a previous ⌃G
-      ui.openQuickOpen()
-      return true
-    }
-    if (key === 'b') {
-      toggleSidebar()
-      return true
-    }
-    if (key === 'j') {
-      toggleTerminal()
-      return true
-    }
-    if (shortcut === '`' && !shift) {
-      void api.cycleWindow()
-      return true
-    }
-    if (key === 'k' && shift) {
-      settingsStore.cycleTheme()
-      return true
-    }
-    if (shortcut === ',') {
-      // Settings is a normal tab, no dialog anymore
-      openSettings()
-      return true
-    }
-    if (shortcut === '[' && shift) {
-      tabsStore.activateOffset(-1)
-      return true
-    }
-    if (shortcut === ']' && shift) {
-      tabsStore.activateOffset(1)
-      return true
-    }
-    if (shortcut === 'e' && shift) {
-      ui.setActivityView('explorer')
-      if (!settingsStore.sidebarVisible) settingsStore.patch({ sidebarVisible: true })
-      return true
-    }
-    if (shortcut === 'g' && shift) {
-      ui.setActivityView('git')
-      if (!settingsStore.sidebarVisible) settingsStore.patch({ sidebarVisible: true })
-      return true
-    }
-    // Let the terminal's key handler send these characters before the global font shortcut.
-    if (terminalFocused() && !e.altKey && (isMac() ? e.metaKey : e.ctrlKey) &&
-        (shortcut === '=' || shortcut === '-')) return false
-    // ⌘+ / ⌘= both fold into "=" (shifted punctuation is normalized), and ⌘- goes the other way
-    if (shortcut === '=') {
-      settingsStore.patch({ fontSize: clamp(settingsStore.fontSize + 1, 10, 24) })
-      return true
-    }
-    if (shortcut === '-') {
-      settingsStore.patch({ fontSize: clamp(settingsStore.fontSize - 1, 10, 24) })
-      return true
-    }
-    if (key === 'q' && shift) {
-      void closeWorkspaceDialog()
-      return true
-    }
-    return false
-  }, [])
+  useEffect(() => registerCommandHandlers({
+    'view.search': { run: () => {
+      useUi.getState().setActivityView('search')
+      if (!useSettings.getState().sidebarVisible) useSettings.getState().patch({ sidebarVisible: true })
+      setPanelSearchFocus(n => n + 1)
+    } },
+    'editor.find': {
+      available: () => {
+        const tabs = useTabs.getState()
+        const active = tabs.tabs.find(tab => tab.id === tabs.activeId)
+        return Boolean(active && (active.kind === 'file' || active.kind === 'untitled') && !active.preview)
+      },
+      run: () => { setSearchOpen(true); setSearchFocus(n => n + 1) },
+    },
+  }), [])
 
   useEffect(() => {
-    // Capture phase: CodeMirror / xterm can stopPropagation on their own DOM, killing the bubble
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') return
-      const handled = onKeyDown(e)
-      if (handled) {
-        e.preventDefault()
-        e.stopPropagation()
-      }
-    }
+    // Capture before CodeMirror/xterm; recording is handled before all app commands.
+    const handler = (event: KeyboardEvent) => { dispatchShortcut(event) }
     window.addEventListener('keydown', handler, true)
     return () => window.removeEventListener('keydown', handler, true)
-  }, [onKeyDown])
+  }, [])
 
   // Esc closes the in-editor search bar
   useEffect(() => {

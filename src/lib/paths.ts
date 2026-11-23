@@ -54,7 +54,7 @@ export function humanSize(bytes: number): string {
 }
 
 export function isMac(): boolean {
-  return navigator.platform.toLowerCase().includes('mac') || navigator.userAgent.includes('Mac')
+  return typeof navigator !== 'undefined' && (navigator.platform.toLowerCase().includes('mac') || navigator.userAgent.includes('Mac'))
 }
 
 /** Display text for ⌘ / Ctrl */

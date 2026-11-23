@@ -1,3 +1,4 @@
+import { ShortcutSettings } from './ShortcutSettings'
 import { useEffect, useRef, useState } from 'react'
 import { useUi } from '../store/ui'
 import { useSettings } from '../store/settings'
@@ -119,23 +120,6 @@ function pill(active: boolean) {
 
 /** Project home; opened through the update module's allowlisted opener (https + github.com only) */
 const REPOSITORY_URL = 'https://github.com/ilemon18/tide'
-
-const SHORTCUTS: [MessageKey, string][] = [
-  ['settings.keys.openFolder', '⌘O'],
-  ['settings.keys.quickOpen', '⌘P'],
-  ['settings.keys.commandPalette', '⌘⇧P'],
-  ['settings.keys.searchInFiles', '⌘⇧F'],
-  ['settings.keys.findInEditor', '⌘F'],
-  ['settings.keys.save', '⌘S / ⌘⇧S'],
-  ['settings.keys.closeTab', '⌘W'],
-  ['settings.keys.newFile', '⌘N'],
-  ['settings.keys.rename', '⌘R / F2'],
-  ['settings.keys.delete', '⌘⌫'],
-  ['settings.keys.toggleSidebar', '⌘B'],
-  ['settings.keys.toggleTerminal', '⌘J'],
-  ['settings.keys.toggleProject', '⌘⇧O'],
-  ['settings.keys.toggleTheme', '⌘⇧K'],
-]
 
 /** Settings page: a normal editor-area tab (`kind: 'settings'`), section nav on the left, items on the right, each scrolling on its own. */
 export function SettingsView() {
@@ -636,21 +620,7 @@ export function SettingsView() {
       </>
     ),
 
-    keys: (
-      <Card>
-        <div className="px-4 text-xs text-muted">
-          {SHORTCUTS.map(([labelKey, key]) => (
-            <div
-              key={labelKey}
-              className="flex items-center justify-between gap-8 border-b border-line/40 py-2.5 last:border-b-0"
-            >
-              <span className="min-w-0">{t(labelKey)}</span>
-              <span className="shrink-0 tabular-nums text-fg/80">{key}</span>
-            </div>
-          ))}
-        </div>
-      </Card>
-    ),
+    keys: section === 'keys' ? <ShortcutSettings /> : null,
 
     about: (
       <>

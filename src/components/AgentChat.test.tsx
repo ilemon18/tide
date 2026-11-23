@@ -11,7 +11,7 @@ const { state, initialChat, actions, settings } = vi.hoisted(() => {
     messages: [{ id: 'reply', role: 'assistant', at: 0, items: [{ id: 'text', type: 'text', text: 'Latest output' }] }],
   }
   const actions = { markChatFocused: vi.fn(), loadCatalog: vi.fn(), loadPage: vi.fn(), loadHistory: vi.fn(), clearHistory: vi.fn(), resumeChat: vi.fn().mockResolvedValue(true), loadChat: vi.fn().mockResolvedValue(undefined), openChatTab: vi.fn(), sendMessage: vi.fn(), interjectQueued: vi.fn(), removeQueued: vi.fn() }
-  const settings = { agentEnabled: true, agentHistoryEnabled: true }
+  const settings = { agentEnabled: true, agentHistoryEnabled: true, shortcutOverrides: {} }
   return { initialChat, actions, settings, state: {
     chats: { chat: initialChat }, pages: {} as Record<string, Partial<AgentChatPage>>,
     pageLoading: {} as Record<string, boolean>, loadingChats: {} as Record<string, boolean>,
@@ -31,7 +31,7 @@ vi.mock('../store/agent', () => ({
   chatTabId: (id: string) => `chat:${id}`, findPendingQuestion: () => null, findPendingPlanAction: () => null,
 }))
 vi.mock('../store/tabs', () => ({ useTabs: (select: (state: unknown) => unknown) => select(tabs) }))
-vi.mock('../store/settings', () => ({ useSettings: (select: (state: unknown) => unknown) => select(settings) }))
+vi.mock('../store/settings', () => ({ useSettings: Object.assign((select: (state: unknown) => unknown) => select(settings), { getState: () => settings }) }))
 vi.mock('../store/ui', () => ({ useUi: { getState: () => ui } }))
 vi.mock('../lib/paths', () => ({ isMac: () => platform.mac }))
 vi.mock('../lib/actions', () => ({ openSettings: vi.fn() }))

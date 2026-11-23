@@ -1,3 +1,4 @@
+import { useShortcutTip } from '../lib/useShortcut'
 import { useEffect, useState } from 'react'
 import { useTabs } from '../store/tabs'
 import { api, type FormatToolStatus } from '../lib/ipc'
@@ -14,6 +15,8 @@ import { useT } from '../i18n'
 
 export function StatusBar() {
   const t = useT()
+  const projectTip = useShortcutTip('view.projects', 'status.switchProjectTip')
+  const themeTip = useShortcutTip('theme.cycle', 'status.themeTip')
   const roots = useWorkspace((s) => s.roots)
   const activeRootId = useWorkspace((s) => s.activeRootId)
   const statuses = useGit((s) => s.statuses)
@@ -75,7 +78,7 @@ export function StatusBar() {
         <button
           onClick={() => setOverlay('projects')}
           className="flex items-center gap-1 rounded-[var(--r-row)] px-1.5 py-0.5 transition-colors duration-fast hover:bg-hover hover:text-fg"
-          data-tip={t('status.switchProjectTip')}
+          data-tip={projectTip}
         >
           <Icon name="folder-open" size={12} />
           <span className="max-w-[160px] truncate">
@@ -210,7 +213,7 @@ export function StatusBar() {
           })
         }}
         className="flex items-center gap-1 rounded-[var(--r-row)] px-1.5 py-0.5 transition-colors duration-fast hover:bg-hover hover:text-fg"
-        data-tip={t('status.themeTip')}
+        data-tip={themeTip}
       >
         <span
           className="h-2.5 w-2.5 rounded-full border border-black/20"

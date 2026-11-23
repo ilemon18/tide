@@ -1,9 +1,9 @@
+import { useShortcutTip } from '../lib/useShortcut'
 import { Icon, type IconName } from './Icon'
 import { useGit } from '../store/git'
 import { useWorkspace } from '../store/workspace'
 import { useTerminal } from '../store/terminal'
 import { toggleTerminal } from '../lib/actions'
-import { isMac, modKey } from '../lib/paths'
 import { useT } from '../i18n'
 
 export type ActivityView = 'explorer' | 'search' | 'git' | 'structure'
@@ -51,6 +51,12 @@ function Item({
 
 export function ActivityBar({ view, onChange, onOpenSettings }: Props) {
   const t = useT()
+  const explorerTip = useShortcutTip('view.explorer', 'activity.explorerTip')
+  const searchTip = useShortcutTip('view.search', 'activity.searchTip')
+  const gitTip = useShortcutTip('view.git', 'activity.gitTip')
+  const structureTip = useShortcutTip('view.structure', 'activity.structureTip')
+  const terminalTip = useShortcutTip('view.panel', 'activity.terminalTip')
+  const settingsTip = useShortcutTip('prefs.open', 'activity.settingsTip')
   const statuses = useGit((s) => s.statuses)
   const roots = useWorkspace((s) => s.roots)
   const terminalVisible = useTerminal((s) => s.visible)
@@ -73,26 +79,26 @@ export function ActivityBar({ view, onChange, onOpenSettings }: Props) {
       <div className="flex flex-col items-center gap-1.5">
         <Item
           icon="files"
-          label={t('activity.explorerTip')}
+          label={explorerTip}
           active={view === 'explorer'}
           onClick={() => onChange('explorer')}
         />
         <Item
           icon="search"
-          label={t('activity.searchTip')}
+          label={searchTip}
           active={view === 'search'}
           onClick={() => onChange('search')}
         />
         <Item
           icon="git"
-          label={t('activity.gitTip')}
+          label={gitTip}
           active={view === 'git'}
           badge={changeCount}
           onClick={() => onChange('git')}
         />
         <Item
           icon="structure"
-          label={t('activity.structureTip', { keys: isMac() ? `${modKey()}U` : 'Ctrl+U' })}
+          label={structureTip}
           active={view === 'structure'}
           onClick={() => onChange('structure')}
         />
@@ -100,11 +106,11 @@ export function ActivityBar({ view, onChange, onOpenSettings }: Props) {
       <div className="flex flex-col items-center gap-1.5 pb-1">
         <Item
           icon="terminal-panel"
-          label={t('activity.terminalTip')}
+          label={terminalTip}
           active={terminalVisible}
           onClick={toggleTerminal}
         />
-        <Item icon="settings" label={t('activity.settingsTip')} onClick={onOpenSettings} />
+        <Item icon="settings" label={settingsTip} onClick={onOpenSettings} />
       </div>
     </div>
   )

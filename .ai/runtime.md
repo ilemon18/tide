@@ -11,6 +11,15 @@ scope:
   - src/components/ThemeMenu.tsx
   - src/lib/memoryBudget.ts
   - src/lib/displayScale.ts
+  - src/lib/commandRegistry.ts
+  - src/lib/commandRuntime.ts
+  - src/lib/shortcuts*.ts
+  - src/lib/shortcutDispatch*.ts
+  - src/lib/useShortcut.ts
+  - src/components/ShortcutSettings*.tsx
+  - src/components/ActivityBar.tsx
+  - src/components/StatusBar.tsx
+  - src/components/Welcome.tsx
   - src/lib/settingsSections.ts
   - src/lib/fonts.ts
   - src/lib/iconTheme.ts
@@ -44,8 +53,8 @@ App owns hydration/window coordination; the settings store and Rust theme comman
 
 ## Windows and startup
 
-- Cmd/Ctrl+A opens the agent from application chrome and uses the same action as the title-bar agent button;
-  editor, terminal, text-field, contenteditable and dialog targets retain native select-all behavior.
+- Mod+Shift+A opens Agent using the title-bar action, including from editors/terminals/text fields. Mod+A
+  always remains native; dialogs/overlays block app shortcuts. Shared shortcut contracts are below.
 
 - One window/project. Only `IS_PRIMARY_WINDOW` persists session/chat state; secondaries use the window URL
   project without overwriting primary state. `app:open-file` has no listener; do not assume consumption.
@@ -58,6 +67,25 @@ App owns hydration/window coordination; the settings store and Rust theme comman
   `src/App.test.tsx` covers initial render with real hooks, without native effects.
 - Right editor region owns terminal geometry. Maximize hides its wrapper without unmount/sidebar changes;
   follow [terminal.md](./terminal.md) for drag/restore.
+
+## Keyboard shortcuts
+
+- commandRegistry owns stable metadata/default strokes/scopes; commands owns executable actions and shared
+  availability; commandRuntime registers mounted surface callbacks. Shortcuts resolves overrides, platform
+  identities and conflicts; App capture dispatches them before CodeMirror/xterm. Settings/palette/tooltips
+  use the same resolver. Palette selection closures retain captured context while key labels update live.
+- One physical stroke has one owner across managed actions; Mod expands before comparison. The shared
+  Mod+Down action opens a focused tree row or jumps in the active chat. Other ordinary widget navigation,
+  native editing and terminal character input keep their local handlers.
+- Saving a recording transfers the stroke and persists explicit removals for all previous owners in one
+  patch, including hidden actions. Keep other aliases. Single reset transfers default strokes the same way;
+  global reset clears overrides. Recording captures before dispatch, Escape cancels, modifier-only/repeat/
+  composition events never save. Plain/Shift-only typing and native select/copy/paste/cut/undo/redo keys
+  cannot be assigned. Only explicit Save commits; no extra conflict confirmation.
+- v14 shortcutOverrides defaults to {}; absent id means defaults, [] explicitly unbinds. Normalize damaged
+  entries without resetting other settings; retain unknown ids but never execute them. Compare key content,
+  preserve override order for deterministic duplicate recovery, save immediately and share across windows.
+  Rust handles malformed shortcut fields independently from the remaining settings.
 
 ## Settings and memory
 
@@ -77,7 +105,7 @@ App owns hydration/window coordination; the settings store and Rust theme comman
 - Settings → Agent no longer exposes permission defaults or a permission explanation card. Chat composer
   permission controls and the persisted permission field remain runtime contracts for existing and new chats.
 - Schema v11 adds agentDefaultPermissionMode=workspace-write, schema v12 adds autoUpdate=false, and schema
-  v13 adds agentHistoryEnabled=true. Invalid
+  v13 adds agentHistoryEnabled=true; v14 adds shortcutOverrides={}. Invalid
   values fall back without resetting other settings. Provider/model/effort/permission and update preferences
   write immediately and sync windows; UI patches related fields together. Historical chats keep saved options;
   temporary plan options never become defaults.

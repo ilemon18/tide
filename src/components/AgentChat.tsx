@@ -1,3 +1,5 @@
+import { registerCommandHandlers } from '../lib/commandRuntime'
+import { matchesShortcut, useShortcut } from '../lib/useShortcut'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { chatTabId, findPendingPlanAction, findPendingQuestion, useAgent } from '../store/agent'
 import { useTabs } from '../store/tabs'
@@ -6,8 +8,6 @@ import type { AgentDraft } from '../lib/agentCommand'
 import { useSettings } from '../store/settings'
 import { useT } from '../i18n'
 import { openSettings } from '../lib/actions'
-import { isMac } from '../lib/paths'
-import { shortcutKey } from '../lib/keys'
 import { AgentComposer } from './AgentComposer'
 import { AssistantMessage, UserMessage } from './AgentMessage'
 import { AgentSpinner } from './AgentSpinner'
@@ -157,7 +157,7 @@ export function AgentChat({ chatId }: { chatId: string }) {
   }
 
   const running = chat?.status === 'running'
-  const jumpKeys = isMac() ? '⌘↓' : 'Ctrl+↓'
+  const jumpKeys = useShortcut('context.openOrLatest')
 
   // Esc stops the turn of the focused chat. Pickers and the context-usage popup handle Escape
   // first and stop propagation, so dismissing them must not cancel the agent.
@@ -193,19 +193,22 @@ export function AgentChat({ chatId }: { chatId: string }) {
     if (chat?.provider) void useAgent.getState().loadCatalog(chat.provider)
   }, [chat?.provider])
 
-  // ⌘↓ / Ctrl+↓ also works while the composer has focus.
   useEffect(() => {
     if (!focused) return
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (!(isMac() ? e.metaKey : e.ctrlKey) || e.shiftKey || e.altKey || shortcutKey(e) !== 'arrowdown' ||
-        e.repeat || e.isComposing || e.keyCode === 229 || e.defaultPrevented) return
+    const unregister = registerCommandHandlers({
+      'context.openOrLatest': { available: () => focused && !document.activeElement?.closest('[data-shortcut-tree]'), run: jumpToLatest },
+    })
+    // A standalone chat also uses the shared configuration. App capture consumes this first when mounted.
+    const handler = (event: KeyboardEvent) => {
+      if (document.activeElement?.closest('[data-shortcut-tree]') || event.defaultPrevented || event.repeat || event.isComposing || event.keyCode === 229 ||
+        !matchesShortcut('context.openOrLatest', event)) return
       const ui = useUi.getState()
       if (ui.overlay || ui.confirmReq || ui.promptReq) return
-      e.preventDefault()
+      event.preventDefault()
       void jumpToLatest()
     }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
+    window.addEventListener('keydown', handler)
+    return () => { unregister(); window.removeEventListener('keydown', handler) }
   }, [focused, jumpToLatest])
 
   const last = chat && chat.messages.length > 0 ? chat.messages[chat.messages.length - 1] : undefined

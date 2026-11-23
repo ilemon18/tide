@@ -90,7 +90,8 @@ CLIs own auth/models/tools; Rust owns processes; the agent store owns queues/UI.
   markdown/tool updates do not remount or flash the elapsed line. Its own one-second clock remains local.
   AgentSpinner rotates a fixed HTML box on the compositor, keeping SVG painting separate. The live reply
   uses visible content rendering; only inactive messages use automatic skipped-content rendering.
-- Cmd+Down/Ctrl+Down jumps only in the active chat, respecting overlays and IME. Jumping loads the latest
+- The configurable context.openOrLatest action (default Mod+Down) jumps only in the active chat, respecting
+  overlays and IME; its other focus context opens a file-tree row. Jumping loads the latest
   history page first. Sends and successful interjections resume following after transcript commits, through
   deferred content/viewport resizing and final completion layout. Upward reading gestures pause following;
   content-growth scroll events alone never clear that intent. Queued cards use the lighter panel surface.

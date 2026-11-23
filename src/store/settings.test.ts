@@ -214,3 +214,50 @@ describe('Agent settings migration', () => {
       fontSize: 17, agentDefaultModel: 'custom-model' })
   })
 })
+
+
+describe('Shortcut settings', () => {
+  it('migrates legacy settings to empty overrides without resetting other preferences', async () => {
+    const { shortcutOverrides: _missing, ...legacy } = DEFAULT_SETTINGS
+    vi.mocked(api.loadSettings).mockResolvedValue({ ...legacy, schemaVersion: 13, fontSize: 19 } as Settings)
+    await useSettings.getState().load()
+    expect(useSettings.getState()).toMatchObject({ schemaVersion: 14, shortcutOverrides: {}, fontSize: 19 })
+  })
+
+  it('writes transferred ownership immediately and restores explicit unbinding after reload', async () => {
+    const shortcutOverrides = { 'agent.ask': ['Mod+Shift+p'], 'view.commands': [], futureCommand: ['Mod+Shift+i'] }
+    useSettings.getState().patch({ shortcutOverrides })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(api.saveSettings).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ shortcutOverrides }))
+    const saved = structuredClone(vi.mocked(api.saveSettings).mock.calls[0][0])
+    vi.mocked(api.loadSettings).mockResolvedValue(saved)
+    useSettings.setState({ shortcutOverrides: {} })
+    await useSettings.getState().load()
+    expect(useSettings.getState().shortcutOverrides).toEqual(shortcutOverrides)
+  })
+
+  it('syncs key content without rewriting equivalent objects or resetting local geometry', async () => {
+    const shortcutOverrides = { 'view.commands': [], 'agent.ask': ['Mod+Shift+p'] }
+    useSettings.setState({ shortcutOverrides, sidebarWidth: 333 })
+    useSettings.getState().applyExternal({ ...DEFAULT_SETTINGS, shortcutOverrides: {
+      'agent.ask': ['Mod+Shift+p'], 'view.commands': [],
+    } })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(api.saveSettings).not.toHaveBeenCalled()
+    useSettings.getState().applyExternal({ ...DEFAULT_SETTINGS, shortcutOverrides: { 'agent.ask': [] } })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(useSettings.getState()).toMatchObject({ shortcutOverrides: { 'agent.ask': [] }, sidebarWidth: 333 })
+    expect(api.saveSettings).toHaveBeenCalledTimes(1)
+  })
+
+  it('ignores a cloned echo of a recent write without rolling back a newer binding', async () => {
+    useSettings.getState().patch({ shortcutOverrides: { 'agent.ask': ['Mod+Shift+i'] } })
+    await vi.advanceTimersByTimeAsync(0)
+    const old = structuredClone(vi.mocked(api.saveSettings).mock.calls[0][0])
+    useSettings.getState().patch({ shortcutOverrides: { 'agent.ask': ['Mod+Shift+l'] } })
+    await vi.advanceTimersByTimeAsync(0)
+    useSettings.getState().applyExternal(old)
+    expect(useSettings.getState().shortcutOverrides).toEqual({ 'agent.ask': ['Mod+Shift+l'] })
+    expect(api.saveSettings).toHaveBeenCalledTimes(2)
+  })
+})
