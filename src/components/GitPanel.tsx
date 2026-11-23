@@ -13,11 +13,16 @@ import { useWorkspace } from '../store/workspace'
 import { useGit } from '../store/git'
 import { useTabs } from '../store/tabs'
 import { useBlame } from '../store/blame'
+import { useAgent } from '../store/agent'
+import { useSettings } from '../store/settings'
 import { Icon, type IconName } from './Icon'
 import { FileIcon } from './FileIcon'
 import { ContextMenu, type MenuItem } from './ContextMenu'
-import type { GitFile } from '../lib/ipc'
-import { basename, dirname } from '../lib/paths'
+import type { DirEntryInfo, GitFile } from '../lib/ipc'
+import { basename, dirname, modKey } from '../lib/paths'
+import { readWorkspaceEntry } from '../lib/workspaceEntries'
+import { deleteEntryFlow, renameEntryFlow, revealEntry } from '../lib/actions'
+import { copyText } from '../lib/clipboard'
 import { beginFilePointerDrag, wasFileDragJustFinished } from '../lib/fileDragState'
 import { useT, type MessageKey } from '../i18n'
 import { budget } from '../lib/memoryBudget'
@@ -53,6 +58,8 @@ const FILE_ROW_OVERSCAN = 10
 type RowAction = { icon: IconName; title: string; run: () => void }
 type RowActionFactory = (file: GitFile) => RowAction[]
 type ClickFile = (file: GitFile) => void
+type FileGroup = 'conflicts' | 'staged' | 'changes'
+type OpenFileMenu = (file: GitFile, group: FileGroup, x: number, y: number) => void
 type GitScrollState = {
   scrollTop: number
   viewportHeight: number
@@ -117,6 +124,8 @@ type GitFileRowProps = {
   rootId: string
   rowActions: RowActionFactory
   onClickFile: ClickFile
+  group: FileGroup
+  onFileMenu: OpenFileMenu
 }
 
 /** A fixed-height row so only the visible slice needs to exist. Actions are created after hover/focus. */
@@ -129,6 +138,8 @@ const GitFileRow = memo(function GitFileRow({
   rootId,
   rowActions,
   onClickFile,
+  group,
+  onFileMenu,
 }: GitFileRowProps) {
   const [actionsVisible, setActionsVisible] = useState(false)
   const hovered = useRef(false)
@@ -146,7 +157,16 @@ const GitFileRow = memo(function GitFileRow({
         if ((event.target as HTMLElement).closest('button')) return
         beginFilePointerDrag(event, { root: rootId, rel: file.path })
       }}
-      onClick={openFile}
+      onClick={event => { if (event.detail <= 1) openFile() }}
+      onDoubleClick={event => {
+        if ((event.target as HTMLElement).closest('button') || wasFileDragJustFinished()) return
+        onFileMenu(file, group, event.clientX, event.clientY)
+      }}
+      onContextMenu={event => {
+        event.preventDefault()
+        if ((event.target as HTMLElement).closest('button')) return
+        onFileMenu(file, group, event.clientX, event.clientY)
+      }}
       onPointerEnter={() => {
         hovered.current = true
         updateActions()
@@ -164,6 +184,12 @@ const GitFileRow = memo(function GitFileRow({
         updateActions()
       }}
       onKeyDown={(event) => {
+        if (event.target === event.currentTarget && (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10'))) {
+          event.preventDefault()
+          const rect = event.currentTarget.getBoundingClientRect()
+          onFileMenu(file, group, rect.left, rect.bottom)
+          return
+        }
         if (event.target !== event.currentTarget || (event.key !== 'Enter' && event.key !== ' ')) return
         event.preventDefault()
         openFile()
@@ -219,6 +245,8 @@ type VirtualFileRowsProps = {
   conflictGroup: boolean
   rowActions: RowActionFactory
   onClickFile: ClickFile
+  group: FileGroup
+  onFileMenu: OpenFileMenu
 }
 
 function VirtualFileRows({
@@ -228,6 +256,8 @@ function VirtualFileRows({
   conflictGroup,
   rowActions,
   onClickFile,
+  group,
+  onFileMenu,
 }: VirtualFileRowsProps) {
   const scroll = useContext(GitScrollContext)
   const activeRel = useTabs((state) => {
@@ -289,6 +319,8 @@ function VirtualFileRows({
             rootId={rootId}
             rowActions={rowActions}
             onClickFile={onClickFile}
+            group={group}
+            onFileMenu={onFileMenu}
           />
         )
       })}
@@ -320,6 +352,7 @@ const RepoSection = memo(function RepoSection({
   const openDiff = useTabs((s) => s.openDiff)
   const openFile = useTabs((s) => s.openFile)
   const refreshFromDisk = useTabs((s) => s.refreshFromDisk)
+  const agentEnabled = useSettings(s => s.agentEnabled)
 
   const [message, setMessage] = useState('')
   /** Last content auto-filled into the box: only overwrite while it still equals it */
@@ -328,7 +361,35 @@ const RepoSection = memo(function RepoSection({
   const touched = useRef(false)
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
+  const [fileMenu, setFileMenu] = useState<{
+    x: number; y: number; file: GitFile; group: FileGroup; request: symbol; entry?: DirEntryInfo; loading: boolean; metadataFailed?: boolean
+  } | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  const onFileMenu = useCallback<OpenFileMenu>((file, group, x, y) => {
+    setMenu(null)
+    setFileMenu({ file, group, x, y, request: Symbol(), loading: true })
+  }, [])
+  const menuPath = fileMenu?.file.path
+  const menuRequest = fileMenu?.request
+  useEffect(() => {
+    if (!menuPath) return
+    let current = true
+    void readWorkspaceEntry(root.id, menuPath, () => current).then(entry => {
+      if (current) setFileMenu(previous => previous && previous.request === menuRequest ? { ...previous, entry, loading: false } : previous)
+    }).catch(() => {
+      // Unreadable/missing metadata never enables actions that require a disk entry.
+      if (current) setFileMenu(previous => previous && previous.request === menuRequest ? { ...previous, loading: false, metadataFailed: true } : previous)
+    })
+    return () => { current = false }
+  }, [root.id, menuPath, menuRequest])
+
+  useEffect(() => {
+    if (!fileMenu || !status) return
+    const files = fileMenu.group === 'conflicts' ? status.conflicts : fileMenu.group === 'staged'
+      ? status.staged : [...status.changes, ...status.untracked]
+    if (!files.some(file => file.path === fileMenu.file.path && file.status === fileMenu.file.status)) setFileMenu(null)
+  }, [status, fileMenu])
 
   const operation = status?.operation ?? null
   const opKey = operation ? `${operation.kind}\u0000${status?.pendingMessage ?? ''}` : ''
@@ -479,7 +540,7 @@ const RepoSection = memo(function RepoSection({
   )
 
   const renderGroup = (
-    key: string,
+    key: FileGroup,
     title: string,
     files: GitFile[],
     actions: { label: string; icon: IconName; run: () => void; disabled?: boolean }[],
@@ -525,6 +586,8 @@ const RepoSection = memo(function RepoSection({
             conflictGroup={conflictGroup}
             rowActions={rowActions}
             onClickFile={onClickFile}
+            group={key}
+            onFileMenu={onFileMenu}
           />
         ) : null}
       </div>
@@ -541,6 +604,52 @@ const RepoSection = memo(function RepoSection({
   }
 
   const changes = [...status.changes, ...status.untracked]
+
+  const fileItems: MenuItem[] = []
+  if (fileMenu) {
+    const { file, group, entry, loading } = fileMenu
+    const regularFile = entry && !entry.isDir && !entry.isSymlink
+    const gitFile = !file.path.endsWith('/') && !entry?.isDir
+    const mutationDisabled = busy !== null || loading || fileMenu.metadataFailed
+    if (group !== 'conflicts' && gitFile && !entry?.isSymlink) fileItems.push({
+      label: t('git.openChanges'), disabled: loading || fileMenu.metadataFailed,
+      onClick: () => void openDiff(root.id, file.path, group === 'staged'),
+    })
+    if (regularFile) fileItems.push({ label: t('diff.openFile'), onClick: () => void openFile(root.id, file.path) })
+    if (gitFile) {
+      if (fileItems.length) fileItems.push({ type: 'separator' })
+      if (group === 'conflicts') {
+        fileItems.push({ label: t('git.markResolved'), disabled: mutationDisabled, onClick: () => void stage(root.id, [file.path]) })
+        if (regularFile) fileItems.push({ label: t('git.regenerateMarkers'), disabled: mutationDisabled, onClick: () => void resetConflict(root.id, file.path) })
+      } else if (group === 'staged') {
+        fileItems.push({ label: t('git.unstage'), disabled: mutationDisabled, onClick: () => void unstage(root.id, [file.path]) })
+      } else {
+        fileItems.push({ label: t('git.stage'), disabled: mutationDisabled, onClick: () => void stage(root.id, [file.path]) })
+        if (!entry?.isSymlink) fileItems.push({
+          label: file.status === '?' ? t('git.deleteFile') : t('git.discardChanges'), danger: true,
+          disabled: mutationDisabled, onClick: () => void discard(root.id, [file.path]),
+        })
+      }
+    }
+    if (entry && !entry.isDir) {
+      if (fileItems.length) fileItems.push({ type: 'separator' })
+      if (agentEnabled && regularFile) fileItems.push({
+        label: t('titlebar.agentTip', { shortcut: `${modKey()}A` }),
+        onClick: () => { useAgent.getState().newChat(root.id, [{ rel: file.path, isDir: false }]) },
+      })
+      fileItems.push(
+        { label: t('explorer.rename'), disabled: mutationDisabled, onClick: () => void renameEntryFlow(root.id, file.path) },
+        { label: t('explorer.delete'), danger: true, disabled: mutationDisabled, onClick: () => void deleteEntryFlow(root.id, file.path) },
+        { label: t('explorer.revealInFinder'), onClick: () => void revealEntry(root.id, file.path) },
+      )
+    }
+    if (fileItems.length) fileItems.push({ type: 'separator' })
+    fileItems.push(
+      { label: t('explorer.copyRelativePath'), onClick: () => void copyText(file.path, t('explorer.copyRelativePath')) },
+      { label: t('explorer.copyAbsolutePath'), onClick: () => void copyText(`${root.id}/${file.path}`, t('explorer.copyAbsolutePath')) },
+      { label: t('explorer.copyName'), onClick: () => void copyText(basename(file.path.replace(/\/+$/, '')), t('explorer.copyName')) },
+    )
+  }
 
   const moreItems: MenuItem[] = [
     {
@@ -603,6 +712,7 @@ const RepoSection = memo(function RepoSection({
             tip={t('git.moreActions')}
             onClick={(e) => {
               const rect = e.currentTarget.getBoundingClientRect()
+              setFileMenu(null)
               setMenu({ x: rect.right - 190, y: rect.bottom + 4 })
             }}
           />
@@ -616,6 +726,11 @@ const RepoSection = memo(function RepoSection({
           items={moreItems}
           onClose={() => setMenu(null)}
         />
+      ) : null}
+
+      {fileMenu ? (
+        <ContextMenu x={fileMenu.x} y={fileMenu.y} items={fileItems}
+          maxHeight={Math.max(0, Math.min(420, window.innerHeight - 16))} onClose={() => setFileMenu(null)} />
       ) : null}
 
       {operation && status.conflicts.length > 0 ? (

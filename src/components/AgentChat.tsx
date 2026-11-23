@@ -86,6 +86,7 @@ export function AgentChat({ chatId }: { chatId: string }) {
   }, [historyEnabled])
 
   const scrollRef = useRef<HTMLDivElement>(null)
+  const popupBoundaryRef = useRef<HTMLDivElement>(null)
   const [atBottom, setAtBottom] = useState(true)
   // Follow intent survives content growth; layout-generated scroll events must not disable it.
   const following = useRef(true)
@@ -334,7 +335,7 @@ export function AgentChat({ chatId }: { chatId: string }) {
         </div>
       ) : null}
 
-      <div className={`flex min-h-0 flex-1 flex-col ${initialConversation ? 'overflow-y-auto' : ''}`}>
+      <div ref={popupBoundaryRef} data-agent-content className={`flex min-h-0 flex-1 flex-col ${initialConversation ? 'overflow-y-auto' : ''}`}>
         <div className={initialConversation ? 'hidden' : 'relative min-h-0 flex-1'}>
           <div
             ref={scrollRef}
@@ -546,6 +547,7 @@ export function AgentChat({ chatId }: { chatId: string }) {
               </div>
             ) : null}
             <AgentComposer
+              popupBoundaryRef={popupBoundaryRef}
               outlined={initialConversation}
               contextUsage={<AgentContextUsage chatId={chatId} />}
               root={chat.root}

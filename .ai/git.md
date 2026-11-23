@@ -7,7 +7,7 @@ scope:
   - src/components/DiffView.test.tsx
   - src/components/diffScroll.ts
   - src/components/diffScroll.test.ts
-  - src/components/GitPanel.tsx
+  - src/components/GitPanel*.tsx
   - src/components/BranchMenu.tsx
   - src/components/BranchMenu.test.ts
   - src/components/DiffRuler.tsx
@@ -45,6 +45,14 @@ and subprocess policy. DiffView/diffScroll own positioning; editor/conflicts own
   skip unchanged setState and respect branch-cache TTL. Fetch only refreshes branches/status; pure Git
   watcher batches must not rebuild tree or reload files/diffs. Mixed batches follow [file-tree.md](./file-tree.md).
 - Refresh diffs via root and tab diffEpoch, only matching tabs for scoped paths; never close/recreate.
+- Git rows single-click into their existing diff/worktree view; ignore the second click, then double-click
+  or context-click opens the same repo-owned file menu. Inline buttons and completed drags cannot open it.
+  Menu metadata is read lazily from the target parent, with obsolete responses discarded. Actual worktree
+  existence/type controls file/Agent actions (including staged deletions with a replacement); respect
+  agentEnabled and symlink restrictions. Directory placeholders get no file mutations. Reuse existing
+  rename/delete/reveal flows and group-specific Git actions; wait for metadata before opening diffs,
+  disable mutations while busy/loading or metadata is unreadable, keep
+  path copies available, and close obsolete targets after status changes. Menus scroll within the viewport.
 
 ## Bulk discard transaction
 

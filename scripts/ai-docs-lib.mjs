@@ -22,6 +22,21 @@ export const ROUTING_FIXTURES = Object.freeze([
     expected: ['agent-composer.md'],
   },
   {
+    name: 'Agent mention candidates',
+    paths: ['src/lib/agentMentions.ts', 'src/lib/agentMentions.test.ts'],
+    expected: ['agent-composer.md'],
+  },
+  {
+    name: 'Workspace entry metadata',
+    paths: ['src/lib/workspaceEntries.ts', 'src/lib/workspaceEntries.test.ts'],
+    expected: ['file-tree.md'],
+  },
+  {
+    name: 'Git file menu tests',
+    paths: ['src/components/GitPanel.test.tsx'],
+    expected: ['git.md'],
+  },
+  {
     name: 'Agent composer settings migration',
     paths: [
       'src/components/AgentComposer.tsx',

@@ -1,5 +1,5 @@
-import { type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import type { AgentMention, AgentPermissionMode } from '../lib/ipc'
+import { type ReactNode, type RefObject, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { errorText, type AgentMention, type AgentPermissionMode, type DirEntryInfo } from '../lib/ipc'
 import type { AgentCommandId, AgentPromptCommandId, AgentSkillRef, ComposerTrigger } from '../lib/agentCommand'
 import {
   isAgentPromptCommandId,
@@ -9,9 +9,12 @@ import {
   triggerAt,
 } from '../lib/agentCommand'
 import { basename } from '../lib/paths'
-import { fuzzyMatch } from '../lib/fuzzy'
+import { mentionDirectory, rankMentionCandidates, type MentionCandidate } from '../lib/agentMentions'
+import { readDirectoryEntries, readWorkspaceEntry } from '../lib/workspaceEntries'
 import { useFileIndex } from '../store/fileIndex'
 import { useAgent } from '../store/agent'
+import { useWorkspace } from '../store/workspace'
+import { useUi } from '../store/ui'
 import {
   AGENT_COMPOSER_MAX_HEIGHT,
   AGENT_COMPOSER_MIN_HEIGHT,
@@ -28,6 +31,8 @@ type Props = {
   /** Frame the complete composer in the initial conversation layout. */
   outlined?: boolean
   contextUsage?: ReactNode
+  /** Content below the conversation header; suggestions stay inside this area. */
+  popupBoundaryRef?: RefObject<HTMLDivElement | null>
   draft: string
   mentions: AgentMention[]
   command?: AgentPromptCommandId
@@ -91,6 +96,7 @@ function MentionChip({
 const clamp = (value: number, min: number, max: number) =>
   Math.min(max, Math.max(min, value))
 
+const POPUP_MAX_HEIGHT = 260
 const COMMAND_PICKER_LIMIT = 8
 
 function composerMaxHeight() {
@@ -108,6 +114,7 @@ export function AgentComposer({
   root,
   outlined = false,
   contextUsage,
+  popupBoundaryRef,
   draft,
   mentions,
   command,
@@ -138,12 +145,19 @@ export function AgentComposer({
   const composingRef = useRef(false)
   const compositionEndedAt = useRef(-Infinity)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const commandListRef = useRef<HTMLDivElement>(null)
+  const composerRef = useRef<HTMLDivElement>(null)
+  const popupRef = useRef<HTMLDivElement>(null)
+  const [popupMaxHeight, setPopupMaxHeight] = useState(POPUP_MAX_HEIGHT)
   const [trigger, setTrigger] = useState<ComposerTrigger | null>(null)
+  const selectionRef = useRef({ root, draft, trigger })
+  selectionRef.current = { root, draft, trigger }
+  const pickingMentionRef = useRef(false)
+  const [directoryEntries, setDirectoryEntries] = useState<{ root: string; rel: string; entries: DirEntryInfo[] } | null>(null)
   const [highlight, setHighlight] = useState(0)
   const agentComposerHeight = useSettings((s) => s.agentComposerHeight)
   const [maxComposerHeight, setMaxComposerHeight] = useState(composerMaxHeight)
   const index = useFileIndex((s) => (root ? s.byRoot[root] : undefined))
+  const tree = useWorkspace(s => s.roots.find(node => node.id === root)?.tree)
   const skillCatalog = useAgent((s) => (root ? s.skillsByRoot[root] : undefined))
   const skillsLoading = useAgent((s) => (root ? s.skillsLoading[root] : false))
 
@@ -184,19 +198,24 @@ export function AgentComposer({
     if (trigger?.kind === 'skill' && root) void useAgent.getState().loadSkills(root)
   }, [trigger?.kind, root])
 
+  const directory = trigger?.kind === 'mention' ? mentionDirectory(trigger.text) : null
+  useEffect(() => {
+    if (!root || directory === null) return
+    let current = true
+    void readDirectoryEntries(root, directory, () => current).then(entries => {
+      if (current) setDirectoryEntries({ root, rel: directory, entries })
+    }).catch(() => {
+      if (current) setDirectoryEntries(null)
+    })
+    return () => { current = false }
+  }, [root, directory])
+
   const mentionHits = useMemo(() => {
-    if (!trigger || trigger.kind !== 'mention' || !index) return []
-    const seen = new Set<string>()
-    const out: { path: string; name: string }[] = []
-    for (const path of index.files) {
-      if (!fuzzyMatch(trigger.text, { path, name: basename(path) })) continue
-      if (seen.has(path)) continue
-      seen.add(path)
-      out.push({ path, name: basename(path) })
-      if (out.length >= 8) break
-    }
-    return out
-  }, [trigger, index])
+    if (trigger?.kind !== 'mention' || directory === null) return []
+    const entries = Object.values(tree ?? {}).flatMap(state => state.entries)
+    if (directoryEntries?.root === root && directoryEntries.rel === directory) entries.push(...directoryEntries.entries)
+    return rankMentionCandidates(trigger.text, index?.files ?? [], entries)
+  }, [trigger, directory, index, tree, directoryEntries, root])
 
   const commandHits = useMemo(
     () => (trigger?.kind === 'command' ? matchCommands(trigger.text) : []),
@@ -209,25 +228,17 @@ export function AgentComposer({
     [trigger, skillCatalog],
   )
 
-  const commandWindowStart = Math.min(
-    Math.max(0, highlight - COMMAND_PICKER_LIMIT + 1),
-    Math.max(0, commandHits.length - COMMAND_PICKER_LIMIT),
-  )
-  const visibleCommandHits = commandHits.slice(
-    commandWindowStart,
-    commandWindowStart + COMMAND_PICKER_LIMIT,
-  )
-
   useEffect(() => {
-    if (trigger?.kind !== 'command') return
-    const active = commandListRef.current
-      ?.querySelector<HTMLElement>(`[data-command-index="${highlight}"]`)
+    const active = popupRef.current
+      ?.querySelector<HTMLElement>(`[data-candidate-index="${highlight}"]`)
     active?.scrollIntoView?.({ block: 'nearest' })
-  }, [trigger?.kind, highlight])
+  }, [trigger, highlight, mentionHits, skillHits, popupMaxHeight])
 
   useEffect(() => {
     setHighlight(0)
   }, [trigger?.kind, trigger?.text])
+
+  useEffect(() => () => { selectionRef.current = { root: '', draft: '', trigger: null } }, [])
 
   const focusAt = (position: number) => {
     requestAnimationFrame(() => {
@@ -241,14 +252,33 @@ export function AgentComposer({
   const removeToken = (token: ComposerTrigger) =>
     draft.slice(0, token.start) + draft.slice(token.end)
 
-  const pickMention = (path: string) => {
-    if (!trigger || trigger.kind !== 'mention') return
-    onDraft(removeToken(trigger))
-    if (!mentions.some((mention) => mention.rel === path)) {
-      onMentions([...mentions, { rel: path, isDir: false }])
+  const pickMention = async (hit: MentionCandidate) => {
+    if (!trigger || trigger.kind !== 'mention' || pickingMentionRef.current) return
+    const selection = selectionRef.current
+    const current = () => selectionRef.current.root === selection.root &&
+      selectionRef.current.draft === selection.draft && selectionRef.current.trigger === selection.trigger
+    pickingMentionRef.current = true
+    try {
+      if (hit.isDir) {
+        const entry = await readWorkspaceEntry(root, hit.path, current)
+        if (!current()) return
+        if (!entry?.isDir || entry.isSymlink) {
+          useUi.getState().toast(t('error.io.notFound', { path: hit.path }), 'error')
+          return
+        }
+      }
+      if (!current()) return
+      onDraft(removeToken(trigger))
+      if (!mentions.some(mention => mention.rel === hit.path)) {
+        onMentions([...mentions, { rel: hit.path, isDir: hit.isDir }])
+      }
+      focusAt(trigger.start)
+      setTrigger(null)
+    } catch (error) {
+      if (current()) useUi.getState().toast(errorText(error), 'error')
+    } finally {
+      pickingMentionRef.current = false
     }
-    focusAt(trigger.start)
-    setTrigger(null)
   }
 
   const pickCommand = (id: AgentCommandId) => {
@@ -256,11 +286,12 @@ export function AgentComposer({
     if (isAgentPromptCommandId(id)) {
       onCommand(id)
       onDraft(removeToken(trigger))
+      focusAt(trigger.start)
     } else {
       onCommand(undefined)
       onDraft('/' + id + ' ' + removeToken(trigger).trim())
+      focusAt(id.length + 2)
     }
-    focusAt(trigger.start)
     setTrigger(null)
   }
 
@@ -288,6 +319,29 @@ export function AgentComposer({
         ? commandHits.length
         : skillHits.length
 
+  useLayoutEffect(() => {
+    if (!showPopup) return
+    const composer = composerRef.current
+    const boundary = popupBoundaryRef?.current
+    if (!composer) return
+    const measure = () => {
+      const top = Math.max(0, boundary?.getBoundingClientRect().top ?? 0)
+      // The overlay ends 4px above the composer and keeps another 4px below the header.
+      setPopupMaxHeight(Math.max(0, Math.min(POPUP_MAX_HEIGHT, composer.getBoundingClientRect().top - top - 8)))
+    }
+    measure()
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure)
+    observer?.observe(composer)
+    if (boundary) observer?.observe(boundary)
+    window.addEventListener('resize', measure)
+    window.addEventListener('scroll', measure, true)
+    return () => {
+      observer?.disconnect()
+      window.removeEventListener('resize', measure)
+      window.removeEventListener('scroll', measure, true)
+    }
+  }, [showPopup, popupBoundaryRef, outlined, draft, mentions, skills, command, effectiveComposerHeight, maxComposerHeight])
+
   // `/plan` typed without committing the chip still counts as a command, not as text
   const pending = normalizeAgentDraft({ text: draft, mentions, command, skills })
   const canSend =
@@ -308,7 +362,7 @@ export function AgentComposer({
         : t('agent.send')
 
   return (
-    <div className={`relative flex min-w-0 flex-col gap-1.5 ${outlined ? 'rounded-[var(--r-popup)] border border-accent bg-panel p-3' : ''}`}>
+    <div ref={composerRef} className={`relative flex min-w-0 flex-col gap-1.5 ${outlined ? 'rounded-[var(--r-popup)] border border-accent bg-panel p-3' : ''}`}>
       {command || skills.length > 0 || mentions.length > 0 ? (
         <div className="flex flex-wrap gap-1">
           {command ? <CommandChip id={command} onRemove={() => onCommand(undefined)} /> : null}
@@ -332,8 +386,9 @@ export function AgentComposer({
 
       {showPopup && trigger ? (
         // Keep suggestions out of the composer flow so opening a picker cannot resize the chat footer.
-        <div ref={commandListRef} className="absolute bottom-full left-0 z-20 mb-1 max-h-[260px] w-full overflow-auto rounded-[var(--r-popup)] border border-line-soft bg-panel py-1 shadow-popup">
-          <div className="px-2.5 pb-1 pt-0.5 text-2xs text-muted">
+        <div ref={popupRef} data-agent-suggestions className="absolute bottom-full left-0 z-20 mb-1 flex w-full flex-col overflow-hidden rounded-[var(--r-popup)] border border-line-soft bg-panel py-1 shadow-popup"
+          style={{ maxHeight: popupMaxHeight, visibility: popupMaxHeight > 0 ? undefined : 'hidden' }}>
+          <div className="shrink-0 px-2.5 pb-1 pt-0.5 text-2xs text-muted">
             {trigger.kind === 'mention'
               ? t('agent.mentionPick')
               : trigger.kind === 'command'
@@ -341,88 +396,89 @@ export function AgentComposer({
                 : t('agent.skill.pick')}
           </div>
 
-          {trigger.kind === 'mention'
-            ? mentionHits.map((hit, i) => (
-                <button
-                  key={hit.path}
-                  type="button"
-                  onMouseDown={(e) => {
-                    e.preventDefault()
-                    pickMention(hit.path)
-                  }}
-                  className={`flex h-6 w-full items-center gap-1.5 px-2 text-left text-xs ${
-                    i === highlight ? 'bg-row-selected text-fg' : 'text-fg/80 hover:bg-hover'
-                  }`}
-                >
-                  <FileIcon name={hit.name} isDir={false} size={13} />
-                  <span className="truncate font-mono text-[11px]">{hit.path}</span>
-                </button>
-              ))
-            : null}
+          <div className="min-h-0 overflow-y-auto" style={{ maxHeight: trigger.kind === 'command' ? COMMAND_PICKER_LIMIT * 28 : undefined }}>
+            {trigger.kind === 'mention'
+              ? mentionHits.map((hit, i) => (
+                  <button
+                    key={hit.path}
+                    type="button"
+                    data-candidate-index={i}
+                    onMouseDown={(e) => {
+                      e.preventDefault()
+                      void pickMention(hit)
+                    }}
+                    className={`flex h-6 w-full items-center gap-1.5 px-2 text-left text-xs ${
+                      i === highlight ? 'bg-row-selected text-fg' : 'text-fg/80 hover:bg-hover'
+                    }`}
+                  >
+                    <FileIcon name={hit.name} isDir={hit.isDir} size={13} />
+                    <span className="truncate font-mono text-[11px]">{hit.path}{hit.isDir ? '/' : ''}</span>
+                  </button>
+                ))
+              : null}
 
-          {trigger.kind === 'command'
-            ? visibleCommandHits.map((id, offset) => {
-                const i = commandWindowStart + offset
-                return (
-                <button
-                  key={id}
-                  type="button"
-                  data-command-index={i}
-                  onMouseDown={(e) => {
-                    e.preventDefault()
-                    pickCommand(id)
-                  }}
-                  className={`flex h-7 w-full items-center gap-2 px-2 text-left text-xs ${
-                    i === highlight ? 'bg-row-selected text-fg' : 'text-fg/80 hover:bg-hover'
-                  }`}
-                >
-                  <Icon name="command" size={12} className="shrink-0 text-accent" />
-                  <span className="shrink-0 font-mono text-[11px]">/{id}</span>
-                  <span className="min-w-0 flex-1 truncate text-2xs text-muted">
-                    {commandLabel(id)}
-                    {' · '}
-                    {t(COMMAND_DESCRIPTIONS[id])}
-                  </span>
-                </button>
-                )
-              })
-            : null}
+            {trigger.kind === 'command'
+              ? commandHits.map((id, i) => (
+                  <button
+                    key={id}
+                    type="button"
+                    data-candidate-index={i}
+                    onMouseDown={(e) => {
+                      e.preventDefault()
+                      pickCommand(id)
+                    }}
+                    className={`flex h-7 w-full items-center gap-2 px-2 text-left text-xs ${
+                      i === highlight ? 'bg-row-selected text-fg' : 'text-fg/80 hover:bg-hover'
+                    }`}
+                  >
+                    <Icon name="command" size={12} className="shrink-0 text-accent" />
+                    <span className="shrink-0 font-mono text-[11px]">/{id}</span>
+                    <span className="min-w-0 flex-1 truncate text-2xs text-muted">
+                      {commandLabel(id)}
+                      {' · '}
+                      {t(COMMAND_DESCRIPTIONS[id])}
+                    </span>
+                  </button>
+                ))
+              : null}
 
-          {trigger.kind === 'skill' ? (
-            skillsLoading ? (
-              <div className="flex items-center gap-1.5 px-2.5 py-2 text-2xs text-muted">
-                <Icon name="spinner" size={11} className="animate-spin" />
-                {t('agent.skill.loading')}
-              </div>
-            ) : skillHits.length === 0 ? (
-              <div className="px-2.5 py-2 text-2xs text-muted">{t('agent.skill.empty')}</div>
-            ) : (
-              skillHits.map((skill, i) => (
-                <button
-                  key={skill.path}
-                  type="button"
-                  onMouseDown={(e) => {
-                    e.preventDefault()
-                    pickSkill(skill)
-                  }}
-                  className={`flex w-full items-center gap-2 px-2 py-1 text-left ${
-                    i === highlight ? 'bg-row-selected text-fg' : 'text-fg/80 hover:bg-hover'
-                  }`}
-                >
-                  <Icon name="sparkle" size={12} className="shrink-0 text-accent" />
-                  <span className="flex min-w-0 flex-1 flex-col">
-                    <span className="truncate font-mono text-[11px] text-fg/90">{skill.name}</span>
-                    <span className="truncate text-2xs text-muted">{skill.description}</span>
-                  </span>
-                  <span className="shrink-0 rounded-[var(--r-row)] border border-line-soft px-1 text-2xs text-muted">
-                    {skill.source === 'project'
-                      ? t('agent.skill.project')
-                      : t('agent.skill.user')}
-                  </span>
-                </button>
-              ))
-            )
-          ) : null}
+            {trigger.kind === 'skill' ? (
+              skillsLoading ? (
+                <div className="flex items-center gap-1.5 px-2.5 py-2 text-2xs text-muted">
+                  <Icon name="spinner" size={11} className="animate-spin" />
+                  {t('agent.skill.loading')}
+                </div>
+              ) : skillHits.length === 0 ? (
+                <div className="px-2.5 py-2 text-2xs text-muted">{t('agent.skill.empty')}</div>
+              ) : (
+                skillHits.map((skill, i) => (
+                  <button
+                    key={skill.path}
+                    type="button"
+                    data-candidate-index={i}
+                    onMouseDown={(e) => {
+                      e.preventDefault()
+                      pickSkill(skill)
+                    }}
+                    className={`flex w-full items-center gap-2 px-2 py-1 text-left ${
+                      i === highlight ? 'bg-row-selected text-fg' : 'text-fg/80 hover:bg-hover'
+                    }`}
+                  >
+                    <Icon name="sparkle" size={12} className="shrink-0 text-accent" />
+                    <span className="flex min-w-0 flex-1 flex-col">
+                      <span className="truncate font-mono text-[11px] text-fg/90">{skill.name}</span>
+                      <span className="truncate text-2xs text-muted">{skill.description}</span>
+                    </span>
+                    <span className="shrink-0 rounded-[var(--r-row)] border border-line-soft px-1 text-2xs text-muted">
+                      {skill.source === 'project'
+                        ? t('agent.skill.project')
+                        : t('agent.skill.user')}
+                    </span>
+                  </button>
+                ))
+              )
+            ) : null}
+          </div>
         </div>
       ) : null}
 
@@ -502,7 +558,7 @@ export function AgentComposer({
                 if (hit) pickSkill(hit)
               } else {
                 const hit = mentionHits[Math.min(highlight, mentionHits.length - 1)]
-                if (hit) pickMention(hit.path)
+                if (hit) void pickMention(hit)
               }
               return
             }

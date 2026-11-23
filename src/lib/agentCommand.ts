@@ -170,7 +170,7 @@ export type ComposerTrigger = {
 }
 
 const MENTION_RE = /(?:^|\s)@([^\s@]*)$/
-const COMMAND_RE = /(?:^|\s)\/([a-z][a-z-]*)$/
+const COMMAND_RE = /(?:^|\s)\/([a-z][a-z-]*|)$/
 /** `$` must survive Chinese input: only a preceding word character suppresses the trigger */
 const SKILL_RE = /(?:^|[^A-Za-z0-9_$])\$([^\s$]*)$/
 

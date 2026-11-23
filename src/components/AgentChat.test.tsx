@@ -25,6 +25,7 @@ const { ui, tabs, frames, observers, platform } = vi.hoisted(() => ({
   ui: { overlay: false }, tabs: { activeId: 'chat:chat' }, platform: { mac: false },
   frames: new Map<number, FrameRequestCallback>(), observers: [] as Array<{ callback: () => void; targets: Element[] }>,
 }))
+const { composerBoundary } = vi.hoisted(() => ({ composerBoundary: { value: undefined as React.RefObject<HTMLDivElement | null> | undefined } }))
 vi.mock('../store/agent', () => ({
   useAgent: Object.assign((select: (state: unknown) => unknown) => select(state), { getState: () => ({ ...state, ...actions }) }),
   chatTabId: (id: string) => `chat:${id}`, findPendingQuestion: () => null, findPendingPlanAction: () => null,
@@ -35,8 +36,12 @@ vi.mock('../store/ui', () => ({ useUi: { getState: () => ui } }))
 vi.mock('../lib/paths', () => ({ isMac: () => platform.mac }))
 vi.mock('../lib/actions', () => ({ openSettings: vi.fn() }))
 vi.mock('../i18n', () => ({ useT: () => (key: string) => key }))
-vi.mock('./AgentComposer', () => ({ AgentComposer: ({ outlined, onSend }: { outlined: boolean; onSend: () => void }) =>
-  <input aria-label="composer" data-outlined={outlined} onKeyDown={event => { if (event.key === 'Enter') onSend() }} /> }))
+vi.mock('./AgentComposer', () => ({ AgentComposer: ({ outlined, onSend, popupBoundaryRef }: {
+  outlined: boolean; onSend: () => void; popupBoundaryRef: React.RefObject<HTMLDivElement | null>
+}) => {
+  composerBoundary.value = popupBoundaryRef
+  return <input aria-label="composer" data-outlined={outlined} onKeyDown={event => { if (event.key === 'Enter') onSend() }} />
+} }))
 vi.mock('./AgentMessage', () => ({ AssistantMessage: ({ root }: { root: string }) => <div data-root={root}>Latest output</div>, UserMessage: () => null }))
 vi.mock('./AgentContextUsage', () => ({ AgentContextUsage: () => null }))
 vi.mock('./AgentPickers', () => ({ ModelPicker: () => null }))
@@ -94,6 +99,14 @@ it('keeps the transcript before the composer without a separate running strip', 
   expect(output.compareDocumentPosition(screen.getByRole('textbox')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   expect(container.querySelector('.overflow-y-auto')?.contains(output)).toBe(true)
   expect(output.getAttribute('data-root')).toBe('/repo')
+})
+
+it('bounds composer suggestions to the content below the conversation header', () => {
+  const { container } = render(<AgentChat chatId="chat" />)
+  const content = container.querySelector('[data-agent-content]')!
+  expect(composerBoundary.value?.current).toBe(content)
+  expect(content.contains(screen.getByText('Example'))).toBe(false)
+  expect(content.contains(screen.getByRole('textbox'))).toBe(true)
 })
 
 it('keeps the growing live reply visible and restores skipped-content rendering after completion', () => {

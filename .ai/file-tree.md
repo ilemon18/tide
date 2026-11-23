@@ -5,6 +5,7 @@ scope:
   - src/components/FileTree.tsx
   - src/store/workspace.ts
   - src/store/fileIndex.ts
+  - src/lib/workspaceEntries*.ts
   - src/store/folderChain.ts
   - src/store/watcher.ts
   - src-tauri/src/commands/fs.rs
@@ -24,6 +25,9 @@ keywords:
 
 FileTree renders rows; workspace/fileIndex own directory data; folderChain owns compact chains. Rust
 watcher emits fs:changed; the frontend watcher coordinates directory, Git and open-file refresh.
+workspaceEntries supplies paged root-contained directory/entry reads for mention completion and Git menus;
+it preserves symlink metadata, treats missing parents as absent entries, stops obsolete requests between
+pages and leaves scan caps to Rust read_dir. Permission/other failures stay distinct from absence.
 
 ## Expansion and rows
 

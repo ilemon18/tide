@@ -30,10 +30,10 @@ export function ContextMenu({ x, y, items, onClose, maxHeight }: Props) {
     if (!el) return
     const rect = el.getBoundingClientRect()
     setPos({
-      x: Math.min(x, window.innerWidth - rect.width - 8),
-      y: Math.min(y, window.innerHeight - rect.height - 8),
+      x: Math.max(8, Math.min(x, window.innerWidth - rect.width - 8)),
+      y: Math.max(8, Math.min(y, window.innerHeight - rect.height - 8)),
     })
-  }, [x, y])
+  }, [x, y, items, maxHeight])
 
   useEffect(() => {
     const onDown = (e: MouseEvent) => {

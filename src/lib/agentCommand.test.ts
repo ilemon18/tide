@@ -1,5 +1,17 @@
 import { describe, expect, it } from 'vitest'
-import { normalizeAgentDraft, parseAgentLocalCommand, buildAgentPrompt, matchCommands } from './agentCommand'
+import { normalizeAgentDraft, parseAgentLocalCommand, buildAgentPrompt, matchCommands, triggerAt } from './agentCommand'
+
+it.each(['/', 'text /', '\n/'])('opens slash commands immediately at a boundary: %j', text => {
+  expect(triggerAt(text, text.length)).toEqual({ kind: 'command', start: text.length - 1, end: text.length, text: '' })
+})
+it.each(['src/', '/src/file', 'https://example.com/', 'word/'])('keeps ordinary paths and URLs out of slash completion: %s', text => {
+  expect(triggerAt(text, text.length)).toBeNull()
+})
+it('keeps partial commands and nearest mention/skill precedence', () => {
+  expect(triggerAt('/mod', 4)?.text).toBe('mod')
+  expect(triggerAt('/ @src', 6)?.kind).toBe('mention')
+  expect(triggerAt('/ $audit', 8)?.kind).toBe('skill')
+})
 
 describe('command boundaries', () => {
   it('keeps the slash picker in the common command order', () => {

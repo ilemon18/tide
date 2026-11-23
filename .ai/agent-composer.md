@@ -5,6 +5,7 @@ scope:
   - src/store/agent.ts
   - src/store/agent.test.ts
   - src/lib/agentCommand*.ts
+  - src/lib/agentMentions*.ts
   - src/components/AgentComposer*.tsx
   - src/components/AgentPickers*.tsx
   - src/components/AgentTags*.tsx
@@ -46,10 +47,14 @@ actions and queue gates. Rust parses questions/scans skills. Provider/model/perm
 - Composer starts at 90px, grows to min(480px, half-window); clamping preserves larger saved minima.
   Height owners: `src/store/settings.ts` and `src-tauri/src/commands/theme.rs`; older smaller minima normalize up.
   Nearest /, $ or @ wins. Slash/mention need a boundary; skills reject preceding word/$; $5 stays prose.
-  Mentions show eight fuzzy matches, preserve {rel,isDir} chips and queued references. Slash commands use a
-  stable frequency order, show at most eight candidates at once, and keep the full result set available to
-  Arrow Up/Arrow Down navigation. Candidate menus are positioned overlays and must not change composer or
-  chat-footer layout. Scan project/user skills lazily, cache results, keep plan tags single.
+  Mentions show eight ranked file/folder matches from indexed ancestors, cached tree entries and lazy
+  paged directory reads (including empty folders). Real metadata overrides inferred ancestors; confirm
+  directories before selection, reject obsolete reads/selections and preserve {rel,isDir} chips/queues.
+  A bare / opens commands at a boundary. Keep the stable frequency order, at most eight visible command
+  rows and the full list available to scrolling/Arrow Up/Down. Local picks place the caret after the command.
+  Candidate overlays share a height cap measured below the chat header, remeasure on resize/scroll/content
+  changes and scroll the active item into view without resizing the composer/footer. Popup/row limits live
+  in `src/components/AgentComposer.tsx`. Scan project/user skills lazily, cache results, keep plan tags single.
 - A new conversation centers its workspace heading above one complete accent-bordered composer. Messages,
   persisted history/pages, loading, running, existing sessions or queued sends keep the transcript/footer layout.
   First send changes layout without remounting the composer; provider/error guidance remains visible.
