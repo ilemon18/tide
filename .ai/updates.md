@@ -12,6 +12,7 @@ scope:
   - src-tauri/src/update.rs
   - src/App.tsx
   - src/components/SettingsView.tsx
+  - src/components/SettingsView.test.tsx
   - src/components/TitleBar.tsx
 keywords:
   - update
@@ -32,7 +33,7 @@ share one action model. Packaging and release preflight remain in [checks.md](./
 
 - Debug builds never report updates, run quiet checks or show the update badge, in frontend or backend.
 - Check/download/install is a Rust state machine driven by the webview. Release builds run the quiet check
-  and background download only when Settings → General → Automatic updates is enabled. Downloads always
+  and background download only when Settings → About → Automatic updates is enabled. Downloads always
   stop at a ready package and ask for confirmation before installation; install and restart require that
   explicit consent. Only HTTPS GitHub URLs are
   accepted, and artifact byte count plus `latest.json` SHA-256 must match before use; never commit generated

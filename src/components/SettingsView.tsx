@@ -227,14 +227,6 @@ export function SettingsView() {
   const content: Record<SettingsSectionId, React.ReactNode> = {
     general: (
       <>
-        <Card title={t('settings.general.autoUpdate')}>
-          <Row
-            label={t('settings.general.autoUpdate')}
-            hint={t('settings.general.autoUpdateHint')}
-          >
-            <Toggle value={settings.autoUpdate} onChange={(v) => set('autoUpdate', v)} />
-          </Row>
-        </Card>
         <Card title={t('settings.memory.card')}>
           <Row label={t('settings.memory.lightweight')} hint={t('settings.memory.lightweightHint')}>
             <Toggle
@@ -548,20 +540,11 @@ export function SettingsView() {
               disabled={!settings.agentDefaultProvider}
             />
           </Row>
-          <Row label={t('settings.agent.defaultPermissions')}>
-            <Picker
-              label=""
-              value={settings.agentDefaultPermissionMode}
-              options={(['read-only', 'workspace-write', 'full-access'] as const).map((mode) => ({
-                id: mode,
-                label: t(`agent.permission.${mode}`),
-                description: t(`agent.permission.${(settings.agentDefaultProvider || usableAgents[0]?.id) === 'claude' ? 'claude' : 'codex'}.${mode}`),
-              }))}
-              onPick={(mode) => {
-                if (mode === 'read-only' || mode === 'workspace-write' || mode === 'full-access') {
-                  set('agentDefaultPermissionMode', mode)
-                }
-              }}
+          <Row label={t('settings.agent.history')} hint={t('settings.agent.historyHint')}>
+            <Toggle
+              ariaLabel={t('settings.agent.history')}
+              value={settings.agentHistoryEnabled}
+              onChange={(value) => set('agentHistoryEnabled', value)}
             />
           </Row>
         </Card>
@@ -650,12 +633,6 @@ export function SettingsView() {
             </>
           )}
         </Card>
-
-        <Card title={t('settings.agent.permissions')}>
-          <div className="px-4 py-3 text-xs leading-relaxed text-muted">
-            {t('settings.agent.permissionsHint')}
-          </div>
-        </Card>
       </>
     ),
 
@@ -677,11 +654,6 @@ export function SettingsView() {
 
     about: (
       <>
-        <Card title={t('settings.about.agentHistory')}>
-          <Row label={t('settings.about.agentHistory')} hint={t('settings.about.agentHistoryHint')}>
-            <Toggle ariaLabel={t('settings.about.agentHistory')} value={settings.agentHistoryEnabled} onChange={(value) => set('agentHistoryEnabled', value)} />
-          </Row>
-        </Card>
         <Card>
           <div className="flex min-h-[88px] items-center justify-between gap-6 border-b border-line/60 px-5 py-4">
             <TideMark size={52} />
@@ -714,6 +686,16 @@ export function SettingsView() {
         </Card>
 
         <Card title={t('settings.about.updates')}>
+          <Row
+            label={t('settings.about.autoUpdate')}
+            hint={t('settings.about.autoUpdateHint')}
+          >
+            <Toggle
+              ariaLabel={t('settings.about.autoUpdate')}
+              value={settings.autoUpdate}
+              onChange={(v) => set('autoUpdate', v)}
+            />
+          </Row>
           <div className="px-4 py-3">
             <button
               type="button"

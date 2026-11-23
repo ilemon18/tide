@@ -155,8 +155,8 @@ export const en = {
 
   // ---------------------------------------------------------------- Settings: general
   'settings.language.card': 'Language',
-  'settings.general.autoUpdate': 'Automatic updates',
-  'settings.general.autoUpdateHint': 'Downloads updates in the background and asks before installing.',
+  'settings.about.autoUpdate': 'Automatic updates',
+  'settings.about.autoUpdateHint': 'Downloads updates in the background and asks before installing.',
 
   // ---------------------------------------------------------------- Settings: appearance
   'settings.appearance.theme': 'Theme',
@@ -236,8 +236,8 @@ export const en = {
 
   // ---------------------------------------------------------------- Settings: about
   'settings.about.version': 'Version',
-  'settings.about.agentHistory': 'Project chat history',
-  'settings.about.agentHistoryHint': 'Show saved chats for the current project. History loads only when opened.',
+  'settings.agent.history': 'Project chat history',
+  'settings.agent.historyHint': 'Show saved chats for the current project. History loads only when opened.',
   'settings.about.settingsFile': 'Settings file',
   'settings.about.repository': 'Repository',
   'settings.about.updates': 'Updates',
@@ -936,7 +936,6 @@ export const en = {
   'settings.agent.defaultModel': 'Default model',
   'settings.agent.defaultModelHint': 'Choose “Default” to use the model configured in Codex or Claude, including custom providers.',
   'settings.agent.defaultComplexity': 'Default complexity',
-  'settings.agent.defaultPermissions': 'Default permissions',
   'settings.agent.detected': 'Detected on this machine',
   'settings.agent.detectedHint': 'Found on PATH or in a common install directory.',
   'settings.agent.more': 'More',
@@ -948,8 +947,6 @@ export const en = {
   'settings.agent.notInstalled': 'Not installed',
   'settings.agent.ready': 'Installed',
   'settings.agent.unsupported': 'Not supported yet',
-  'settings.agent.permissions': 'Permissions',
-  'settings.agent.permissionsHint': "Choose permissions per chat. Codex uses sandbox policies; Claude Code uses native permission modes. Extra access requests appear in the conversation. Native and organization restrictions still apply.",
   'commands.group.agent': 'Agent',
   'commands.agent.ask': 'Ask the agent…',
   'error.agent.disabled': 'The agent is turned off in Settings',

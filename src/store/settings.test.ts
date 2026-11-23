@@ -133,6 +133,30 @@ describe('Automatic update preference', () => {
   })
 })
 
+describe('Automatic save preference', () => {
+  it('defaults to disabled', () => {
+    expect(useSettings.getState().autoSave).toBe(false)
+  })
+
+  it('adds the disabled default when loading an older settings schema', async () => {
+    const { autoSave: _omitted, ...legacy } = DEFAULT_SETTINGS
+    vi.mocked(api.loadSettings).mockResolvedValue({ ...legacy, schemaVersion: 12 } as Settings)
+    await useSettings.getState().load()
+    expect(useSettings.getState().autoSave).toBe(false)
+  })
+
+  it('preserves an explicit enabled value across reloads', async () => {
+    let disk: Settings = { ...DEFAULT_SETTINGS, autoSave: true }
+    vi.mocked(api.saveSettings).mockImplementation(async (next) => { disk = structuredClone(next) })
+    vi.mocked(api.loadSettings).mockImplementation(async () => structuredClone(disk))
+    useSettings.getState().patch({ autoSave: true })
+    await vi.advanceTimersByTimeAsync(400)
+    useSettings.setState({ ...DEFAULT_SETTINGS, loaded: false })
+    await useSettings.getState().load()
+    expect(useSettings.getState().autoSave).toBe(true)
+  })
+})
+
 describe('Agent history preference', () => {
   it('defaults to enabled and adds the enabled default for older settings', async () => {
     expect(useSettings.getState().agentHistoryEnabled).toBe(true)

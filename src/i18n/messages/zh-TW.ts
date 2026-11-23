@@ -141,8 +141,8 @@ export const zhTW: Messages = {
   'settings.section.about.label': '關於',
 
   'settings.language.card': '語言',
-  'settings.general.autoUpdate': '自動更新',
-  'settings.general.autoUpdateHint': '在背景下載更新，並在安裝前詢問確認。',
+  'settings.about.autoUpdate': '自動更新',
+  'settings.about.autoUpdateHint': '在背景下載更新，並在安裝前詢問確認。',
 
   'settings.appearance.theme': '主題',
   'settings.appearance.fonts': '字型與字級',
@@ -212,8 +212,8 @@ export const zhTW: Messages = {
   'settings.keys.toggleTheme': '切換主題',
 
   'settings.about.version': '版本',
-  'settings.about.agentHistory': '專案歷史對話',
-  'settings.about.agentHistoryHint': '顯示目前專案的已儲存對話。僅在開啟歷史記錄時載入。',
+  'settings.agent.history': '專案歷史對話',
+  'settings.agent.historyHint': '顯示目前專案的已儲存對話。僅在開啟歷史記錄時載入。',
   'settings.about.settingsFile': '設定檔',
   'settings.about.repository': '程式碼倉庫',
   'settings.about.updates': '更新',
@@ -853,7 +853,6 @@ export const zhTW: Messages = {
   'settings.agent.defaultModel': '預設模型',
   'settings.agent.defaultModelHint': '選擇「預設」即可沿用 Codex / Claude 自己設定的模型，包括第三方或自訂模型。',
   'settings.agent.defaultComplexity': '預設複雜度',
-  'settings.agent.defaultPermissions': '預設權限',
   'settings.agent.detected': '本機偵測結果',
   'settings.agent.detectedHint': '來自 PATH 或常見安裝目錄。',
   'settings.agent.more': '更多',
@@ -865,8 +864,6 @@ export const zhTW: Messages = {
   'settings.agent.notInstalled': '未安裝',
   'settings.agent.ready': '已安裝',
   'settings.agent.unsupported': '暫不支援',
-  'settings.agent.permissions': '權限',
-  'settings.agent.permissionsHint': "依對話選擇權限。Codex 使用沙箱策略，Claude Code 使用原生權限模式；額外存取請求會顯示於對話中。原生與組織限制仍有效。",
   'commands.group.agent': '智慧代理',
   'commands.agent.ask': '詢問智慧代理…',
   'error.agent.disabled': '智慧代理已在設定中關閉',

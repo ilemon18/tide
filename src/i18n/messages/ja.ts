@@ -141,8 +141,8 @@ export const ja: Messages = {
   'settings.section.about.label': 'このアプリについて',
 
   'settings.language.card': '言語',
-  'settings.general.autoUpdate': '自動更新',
-  'settings.general.autoUpdateHint': 'バックグラウンドで更新をダウンロードし、インストール前に確認します。',
+  'settings.about.autoUpdate': '自動更新',
+  'settings.about.autoUpdateHint': 'バックグラウンドで更新をダウンロードし、インストール前に確認します。',
 
   'settings.appearance.theme': 'テーマ',
   'settings.appearance.fonts': 'フォントとサイズ',
@@ -215,8 +215,8 @@ export const ja: Messages = {
   'settings.keys.toggleTheme': 'テーマを切り替え',
 
   'settings.about.version': 'バージョン',
-  'settings.about.agentHistory': 'プロジェクトのチャット履歴',
-  'settings.about.agentHistoryHint': '現在のプロジェクトの保存済みチャットを表示します。履歴を開いたときだけ読み込みます。',
+  'settings.agent.history': 'プロジェクトのチャット履歴',
+  'settings.agent.historyHint': '現在のプロジェクトの保存済みチャットを表示します。履歴を開いたときだけ読み込みます。',
   'settings.about.settingsFile': '設定ファイル',
   'settings.about.repository': 'リポジトリ',
   'settings.about.updates': 'アップデート',
@@ -875,7 +875,6 @@ export const ja: Messages = {
   'settings.agent.defaultModel': '既定のモデル',
   'settings.agent.defaultModelHint': '「デフォルト」を選択すると、Codex / Claude 側で設定したモデル（カスタムプロバイダーを含む）を使用します。',
   'settings.agent.defaultComplexity': '既定の複雑さ',
-  'settings.agent.defaultPermissions': '既定の権限',
   'settings.agent.detected': 'このマシンでの検出結果',
   'settings.agent.detectedHint': 'PATH または一般的なインストール先から検出します。',
   'settings.agent.more': 'その他',
@@ -887,8 +886,6 @@ export const ja: Messages = {
   'settings.agent.notInstalled': '未インストール',
   'settings.agent.ready': 'インストール済み',
   'settings.agent.unsupported': '未対応',
-  'settings.agent.permissions': '権限',
-  'settings.agent.permissionsHint': "会話ごとに権限を選択します。Codex はサンドボックス、Claude Code はネイティブの権限モードを使用します。追加アクセスの要求は会話に表示されます。ネイティブと組織の制限は引き続き適用されます。",
   'commands.group.agent': 'エージェント',
   'commands.agent.ask': 'エージェントに質問…',
   'error.agent.disabled': 'エージェントは設定でオフになっています',

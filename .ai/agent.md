@@ -101,7 +101,9 @@ CLIs own auth/models/tools; Rust owns processes; the agent store owns queues/UI.
 
 - The composer no longer repeats a plan/read-only permission line above its footer; the permission picker
   and permission request cards remain authoritative. Settings → Agent keeps all installed providers visible,
-  shows the first five uninstalled providers by default, and reveals the rest through a More control.
+  shows the first five uninstalled providers by default, and reveals the rest through a More control. The
+  project history toggle is in Settings → Agent; permission defaults and the explanatory permission card
+  are not exposed there, while chat-level permission controls remain available.
 
 ## Change map and verification
 

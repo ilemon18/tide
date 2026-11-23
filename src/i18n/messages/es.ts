@@ -141,8 +141,8 @@ export const es: Messages = {
   'settings.section.about.label': 'Acerca de',
 
   'settings.language.card': 'Idioma',
-  'settings.general.autoUpdate': 'Actualizaciones automáticas',
-  'settings.general.autoUpdateHint': 'Descarga actualizaciones en segundo plano y pide confirmación antes de instalarlas.',
+  'settings.about.autoUpdate': 'Actualizaciones automáticas',
+  'settings.about.autoUpdateHint': 'Descarga actualizaciones en segundo plano y pide confirmación antes de instalarlas.',
 
   'settings.appearance.theme': 'Tema',
   'settings.appearance.fonts': 'Fuente y tamaño',
@@ -217,8 +217,8 @@ export const es: Messages = {
   'settings.keys.toggleTheme': 'Cambiar de tema',
 
   'settings.about.version': 'Versión',
-  'settings.about.agentHistory': 'Historial de chats del proyecto',
-  'settings.about.agentHistoryHint': 'Muestra los chats guardados del proyecto actual. El historial solo se carga al abrirlo.',
+  'settings.agent.history': 'Historial de chats del proyecto',
+  'settings.agent.historyHint': 'Muestra los chats guardados del proyecto actual. El historial solo se carga al abrirlo.',
   'settings.about.settingsFile': 'Archivo de ajustes',
   'settings.about.repository': 'Repositorio',
   'settings.about.updates': 'Actualizaciones',
@@ -899,7 +899,6 @@ export const es: Messages = {
   'settings.agent.defaultModel': 'Modelo predeterminado',
   'settings.agent.defaultModelHint': 'Elige «Predeterminado» para usar el modelo configurado en Codex o Claude, incluidos proveedores personalizados.',
   'settings.agent.defaultComplexity': 'Complejidad predeterminada',
-  'settings.agent.defaultPermissions': 'Permisos predeterminados',
   'settings.agent.detected': 'Detectados en este equipo',
   'settings.agent.detectedHint': 'Encontrados en PATH o en un directorio de instalación habitual.',
   'settings.agent.more': 'Más',
@@ -911,8 +910,6 @@ export const es: Messages = {
   'settings.agent.notInstalled': 'No instalado',
   'settings.agent.ready': 'Instalado',
   'settings.agent.unsupported': 'Aún no compatible',
-  'settings.agent.permissions': 'Permisos',
-  'settings.agent.permissionsHint': "Elige los permisos por conversación. Codex usa políticas de sandbox; Claude Code usa modos de permisos nativos. Las solicitudes de acceso adicional aparecen en la conversación. Las restricciones nativas y de la organización siguen vigentes.",
   'commands.group.agent': 'Agente',
   'commands.agent.ask': 'Preguntar al agente…',
   'error.agent.disabled': 'El agente está desactivado en Ajustes',

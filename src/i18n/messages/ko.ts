@@ -141,8 +141,8 @@ export const ko: Messages = {
   'settings.section.about.label': '정보',
 
   'settings.language.card': '언어',
-  'settings.general.autoUpdate': '자동 업데이트',
-  'settings.general.autoUpdateHint': '백그라운드에서 업데이트를 다운로드하고 설치 전에 확인합니다.',
+  'settings.about.autoUpdate': '자동 업데이트',
+  'settings.about.autoUpdateHint': '백그라운드에서 업데이트를 다운로드하고 설치 전에 확인합니다.',
 
   'settings.appearance.theme': '테마',
   'settings.appearance.fonts': '글꼴 및 크기',
@@ -215,8 +215,8 @@ export const ko: Messages = {
   'settings.keys.toggleTheme': '테마 변경',
 
   'settings.about.version': '버전',
-  'settings.about.agentHistory': '프로젝트 채팅 기록',
-  'settings.about.agentHistoryHint': '현재 프로젝트의 저장된 채팅을 표시합니다. 기록을 열 때만 불러옵니다.',
+  'settings.agent.history': '프로젝트 채팅 기록',
+  'settings.agent.historyHint': '현재 프로젝트의 저장된 채팅을 표시합니다. 기록을 열 때만 불러옵니다.',
   'settings.about.settingsFile': '설정 파일',
   'settings.about.repository': '저장소',
   'settings.about.updates': '업데이트',
@@ -875,7 +875,6 @@ export const ko: Messages = {
   'settings.agent.defaultModel': '기본 모델',
   'settings.agent.defaultModelHint': '기본값을 선택하면 Codex / Claude에 설정된 모델(사용자 지정 공급자 포함)을 사용합니다.',
   'settings.agent.defaultComplexity': '기본 복잡도',
-  'settings.agent.defaultPermissions': '기본 권한',
   'settings.agent.detected': '이 컴퓨터에서 감지됨',
   'settings.agent.detectedHint': 'PATH 또는 일반적인 설치 폴더에서 찾습니다.',
   'settings.agent.more': '더 보기',
@@ -887,8 +886,6 @@ export const ko: Messages = {
   'settings.agent.notInstalled': '설치되지 않음',
   'settings.agent.ready': '설치됨',
   'settings.agent.unsupported': '아직 지원되지 않음',
-  'settings.agent.permissions': '권한',
-  'settings.agent.permissionsHint': "대화별로 권한을 선택합니다. Codex는 샌드박스 정책을, Claude Code는 기본 권한 모드를 사용합니다. 추가 접근 요청은 대화에 표시됩니다. 기본 및 조직 제한은 계속 적용됩니다.",
   'commands.group.agent': '에이전트',
   'commands.agent.ask': '에이전트에게 묻기…',
   'error.agent.disabled': '에이전트가 설정에서 꺼져 있습니다',

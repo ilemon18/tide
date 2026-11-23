@@ -7,6 +7,7 @@ scope:
   - src/main.tsx
   - src/components/TitleBar.tsx
   - src/components/SettingsView.tsx
+  - src/components/SettingsView.test.tsx
   - src/components/ThemeMenu.tsx
   - src/lib/memoryBudget.ts
   - src/lib/displayScale.ts
@@ -67,10 +68,14 @@ App owns hydration/window coordination; the settings store and Rust theme comman
 - `DEFAULT_SETTINGS` in `src/store/settings.ts` and `Settings::default` in
   `src-tauri/src/commands/theme.rs` stay identical. Fresh install uses Rust schema-0 defaults, frontend
   migration and writeback; afterward settings.json wins. Preserve unknown fields from newer versions.
+  Automatic save defaults to off; an explicit saved value remains authoritative. The project chat history
+  toggle belongs under Settings → Agent, while update preferences belong under Settings → About.
   Composer defaults follow [input contracts](./agent-composer.md): normalize old smaller heights upward,
   preserve larger saved heights, and only clamp for the current window in the composer.
 - Add settings in both types/defaults, migration, UI and SHARED_KEYS when shared across windows. Retirement
   removes both defaults and adds RETIRED_KEYS or the old key is written back forever.
+- Settings → Agent no longer exposes permission defaults or a permission explanation card. Chat composer
+  permission controls and the persisted permission field remain runtime contracts for existing and new chats.
 - Schema v11 adds agentDefaultPermissionMode=workspace-write, schema v12 adds autoUpdate=false, and schema
   v13 adds agentHistoryEnabled=true. Invalid
   values fall back without resetting other settings. Provider/model/effort/permission and update preferences

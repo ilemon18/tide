@@ -114,7 +114,7 @@ impl Default for Settings {
             terminal_scrollback: 2000,
             terminal_shell: String::new(),
             tab_size: 2,
-            auto_save: true,
+            auto_save: false,
             word_wrap: false,
             trim_trailing_whitespace: false,
             insert_final_newline: false,
@@ -394,7 +394,7 @@ mod compat {
         assert_eq!(settings.agent_composer_height, 90);
         assert_eq!(settings.agent_default_permission_mode, "workspace-write");
         assert!(settings.agent_history_enabled);
-        assert!(settings.auto_save);
+        assert!(!settings.auto_save);
     }
 
     #[test]

@@ -141,8 +141,8 @@ export const zhCN: Messages = {
   'settings.section.about.label': '关于',
 
   'settings.language.card': '语言',
-  'settings.general.autoUpdate': '自动更新',
-  'settings.general.autoUpdateHint': '在后台下载更新，并在安装前询问确认。',
+  'settings.about.autoUpdate': '自动更新',
+  'settings.about.autoUpdateHint': '在后台下载更新，并在安装前询问确认。',
 
   'settings.appearance.theme': '主题',
   'settings.appearance.fonts': '字体与字号',
@@ -212,8 +212,8 @@ export const zhCN: Messages = {
   'settings.keys.toggleTheme': '切换主题',
 
   'settings.about.version': '版本',
-  'settings.about.agentHistory': '项目历史对话',
-  'settings.about.agentHistoryHint': '显示当前项目的已保存对话。仅在打开历史记录时加载。',
+  'settings.agent.history': '项目历史对话',
+  'settings.agent.historyHint': '显示当前项目的已保存对话。仅在打开历史记录时加载。',
   'settings.about.settingsFile': '设置文件',
   'settings.about.repository': '代码仓库',
   'settings.about.updates': '更新',
@@ -867,7 +867,6 @@ export const zhCN: Messages = {
   'settings.agent.defaultModel': '默认模型',
   'settings.agent.defaultModelHint': '选择「默认」即可沿用 Codex / Claude 自己配置的模型，包括第三方或自定义模型。',
   'settings.agent.defaultComplexity': '默认复杂度',
-  'settings.agent.defaultPermissions': '默认权限',
   'settings.agent.detected': '本机检测结果',
   'settings.agent.detectedHint': '来自 PATH 或常见安装目录。',
   'settings.agent.more': '更多',
@@ -879,8 +878,6 @@ export const zhCN: Messages = {
   'settings.agent.notInstalled': '未安装',
   'settings.agent.ready': '已安装',
   'settings.agent.unsupported': '暂不支持',
-  'settings.agent.permissions': '权限',
-  'settings.agent.permissionsHint': "按会话选择权限。Codex 使用沙箱策略，Claude Code 使用原生权限模式；额外访问请求会在对话中显示。原生及组织限制仍有效。",
   'commands.group.agent': '智能体',
   'commands.agent.ask': '询问智能体…',
   'error.agent.disabled': '智能体已在设置中关闭',

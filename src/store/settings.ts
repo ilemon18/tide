@@ -36,7 +36,7 @@ export const DEFAULT_SETTINGS: Settings = {
   terminalFontSize: 12,
   terminalScrollback: 2000,
   tabSize: 2,
-  autoSave: true,
+  autoSave: false,
   wordWrap: false,
   trimTrailingWhitespace: false,
   insertFinalNewline: false,
