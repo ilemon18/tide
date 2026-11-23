@@ -72,7 +72,7 @@ it('selects a command candidate on Enter before sending', () => {
 })
 
 it('renders command candidates as a floating layer without changing the composer structure', () => {
-  const { input, container } = composer({ draft: '/pla' })
+  const { input, container } = composer({ draft: '/pl' })
   fireEvent.change(input, { target: { value: '/pla', selectionStart: 4 } })
   const candidate = screen.getByText('/plan')
   const popup = candidate.closest('div')

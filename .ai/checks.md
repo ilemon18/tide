@@ -44,7 +44,7 @@ canonical gate procedures live in .ai/skills. Local execution remains explicitly
 | `pnpm check:rust` | Rust types/borrows without linking |
 | `pnpm docs:route` | All matching scopes; --explain reasons; --query metadata-only candidate search |
 | `pnpm docs:sync` | Deterministic context route table; only its marked region is written |
-| `pnpm check:docs` | Doc tests, metadata, path/query fixtures, budgets, index, wrappers, links and script names |
+| `pnpm check:docs` | Local verification gate: doc tests, metadata, path/query fixtures, budgets, index, wrappers, links and script names |
 
 `pnpm check` runs frontend guards; `pnpm verify` adds Rust/doc checks. Outside CI follow
 [verify](./skills/release-verify/SKILL.md). Agent command tests protect prompt/read-only/question guidance.
@@ -79,5 +79,5 @@ Keep tests beside owners. Run targeted tests through the requested gate when tes
 settings/Git/provider behavior changes; installer work belongs to [release-check](./skills/release-check/SKILL.md).
 Never weaken/delete a guard or test to pass.
 
-CI runs independent doc checks plus existing frontend guards/build and Rust tests on supported platforms.
+CI runs frontend guards/tests/build and Rust tests on supported platforms.
 The tag-driven release workflow remains separate and does not replace release-check.
