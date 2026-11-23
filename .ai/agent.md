@@ -14,6 +14,7 @@ scope:
   - src/components/AgentMarkdown*.tsx
   - src/components/AgentStreamText*.tsx
   - src/components/AgentTurnStatus*.tsx
+  - src/components/AgentSpinner*.tsx
   - src/components/AgentTabStatus*.tsx
   - src/components/AgentProviderIcon*.tsx
   - src/components/AgentContextUsage*.tsx
@@ -87,6 +88,8 @@ CLIs own auth/models/tools; Rust owns processes; the agent store owns queues/UI.
   reopened turns show local HH:mm, live ones omit it. History expansion pauses following.
 - The live tail status is isolated from streamed assistant content and receives primitive status fields, so
   markdown/tool updates do not remount or flash the elapsed line. Its own one-second clock remains local.
+  AgentSpinner rotates a fixed HTML box on the compositor, keeping SVG painting separate. The live reply
+  uses visible content rendering; only inactive messages use automatic skipped-content rendering.
 - Cmd+Down/Ctrl+Down jumps only in the active chat, respecting overlays and IME. Jumping loads the latest
   history page first. Sends and successful interjections resume following after transcript commits, through
   deferred content/viewport resizing and final completion layout. Upward reading gestures pause following;

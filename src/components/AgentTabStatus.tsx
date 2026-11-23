@@ -1,6 +1,7 @@
 import { useAgent } from '../store/agent'
 import { useT } from '../i18n'
 import { Icon } from './Icon'
+import { AgentSpinner } from './AgentSpinner'
 
 /** Derive the current result, never a successful tool or a completion from an older page. */
 export function AgentTabStatus({ chatId }: { chatId: string }) {
@@ -18,8 +19,8 @@ export function AgentTabStatus({ chatId }: { chatId: string }) {
   if (!status) return null
   const label = t(status === 'running' ? 'agent.working' : `agent.completion.${status}`)
   return <span role="img" aria-label={label} title={label} className="flex shrink-0 items-center">
-    <Icon size={12}
-      name={status === 'running' ? 'spinner' : status === 'completed' ? 'check' : status === 'failed' ? 'alert-circle' : 'stop'}
-      className={status === 'running' ? 'agent-spinner text-accent' : status === 'completed' ? 'text-success' : status === 'failed' ? 'text-danger' : 'text-muted'} />
+    {status === 'running' ? <AgentSpinner /> : <Icon size={12}
+      name={status === 'completed' ? 'check' : status === 'failed' ? 'alert-circle' : 'stop'}
+      className={status === 'completed' ? 'text-success' : status === 'failed' ? 'text-danger' : 'text-muted'} />}
   </span>
 }

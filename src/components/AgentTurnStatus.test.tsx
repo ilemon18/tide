@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from 'react'
-import { cleanup, render, screen } from '@testing-library/react'
+import { act, cleanup, render, screen } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import type { AgentMessage } from '../store/agent'
 
@@ -50,5 +50,22 @@ it.each([undefined, NaN])('omits unavailable completion timestamps (%s) in older
 it('does not show a completion time while the turn is running', () => {
   render(<AgentTurnStatus {...statusProps} completedAt={new Date(2026, 10, 20, 9, 5).getTime()} running />)
   expect(screen.getByRole('status').textContent).toBe('agent.working · Duration 0s')
-  expect(screen.getByTestId('status-icon').getAttribute('class')).toContain('agent-spinner')
+  expect(screen.getByTestId('status-icon').parentElement?.classList.contains('agent-spinner')).toBe(true)
+})
+
+it('preserves the animated box across clock ticks and permission status changes', () => {
+  vi.useFakeTimers()
+  const startedAt = Date.now()
+  const props = { running: true, waiting: false, startedAt }
+  const { container, rerender } = render(<AgentTurnStatus {...props} />)
+  const spinner = container.querySelector('.agent-spinner')!
+  act(() => { vi.advanceTimersByTime(2000) })
+  expect(screen.getByRole('status').textContent).toBe('agent.working · Duration 2s')
+  expect(container.querySelector('.agent-spinner')).toBe(spinner)
+  rerender(<AgentTurnStatus {...props} waiting />)
+  expect(screen.getByRole('status').textContent).toBe('agent.permission.waiting · Duration 2s')
+  expect(container.querySelector('.agent-spinner')).toBe(spinner)
+  rerender(<AgentTurnStatus {...props} running={false} completion="completed" durationMs={2000} />)
+  expect(container.querySelector('.agent-spinner')).toBeNull()
+  expect(vi.getTimerCount()).toBe(0)
 })

@@ -33,6 +33,26 @@ beforeEach(() => {
 })
 afterEach(cleanup)
 
+it('preserves the live status and spinner when streaming updates or inserts content blocks', () => {
+  const message: AgentMessage = { id: 'reply', role: 'assistant', at: 1, items: [
+    { id: 'text', type: 'text', text: 'Starting' },
+  ] }
+  const { rerender } = render(view(message, true))
+  const status = screen.getByRole('status')
+  const spinner = status.querySelector('.agent-spinner')!
+  expect(spinner).toBeTruthy()
+  const streamed: AgentMessage = { ...message, items: [
+    { id: 'text', type: 'text', text: 'Starting to inspect' },
+    { id: 'tool', type: 'tool', text: '', title: 'Read', detail: 'src/main.ts', status: 'running' },
+    { id: 'after', type: 'text', text: 'Continuing' },
+  ] }
+  rerender(view(streamed, true))
+  expect(screen.getByRole('status')).toBe(status)
+  expect(status.querySelector('.agent-spinner')).toBe(spinner)
+  rerender(view({ ...streamed, completion: 'completed' }, false))
+  expect(status.querySelector('.agent-spinner')).toBeNull()
+})
+
 it('passes the conversation workspace to text, reasoning and plan Markdown', () => {
   const message: AgentMessage = { id: 'reply', role: 'assistant', at: 1, items: [
     { id: 'text', type: 'text', text: 'Reply' },

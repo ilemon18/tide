@@ -6,7 +6,8 @@ description: Run Tide's release preflight only when the user explicitly asks for
 # Tide release preflight
 
 Use only when the user explicitly asks for a release check, and never commit, tag, push, publish or create a
-GitHub release — a release-check request is not permission for those. Run commands one at a time.
+GitHub release — a release-check request is not permission for those. Pushing is not a prerequisite for this
+local preflight. Run commands one at a time.
 
 ## Before you start
 
@@ -14,8 +15,11 @@ GitHub release — a release-check request is not permission for those. Run comm
   did not name one, derive it from the highest local semver `v*` tag by incrementing the patch (`v1.2.3` →
   `1.2.4`); use `0.0.1` when no local semver tag exists. Announce the derived version and never infer it from
   package metadata.
-- Start from a clean working tree, otherwise ask the user to commit or stash first. The static check uses no
-  network, so if tags may be stale ask the user to run `git fetch --tags`.
+- Start from a clean working tree, otherwise ask the user to commit or stash first. Identify the highest
+  local semver `v*` tag as the previous release and review its complete commit range through `HEAD` with
+  `git log <previous-tag>..HEAD`. This local range is the release change set; `HEAD` does not have to match
+  `origin/main`. If there is no local semver tag, review the available local commit history. The static check
+  uses no network, so if tags may be stale ask the user to run `git fetch --tags`.
 
 ## Gate
 
@@ -37,18 +41,17 @@ check built with the version in `tauri.conf.json`, never as a release file.
 ## Fix, stop or report
 
 Fix local code, config, scripts and docs directly, and stop when the issue is outside the working tree: the
-tag already exists or the version is not newer than the latest local tag; the tree is dirty or HEAD is not on
-`origin/main` (except a post-fix `--allow-dirty` run); signing secrets, runner capacity or remote tag state
-are unavailable. Never delete tags, rewrite history or publish; if the version is already tagged, ask for a
-new one.
+tag already exists or the version is not newer than the latest local tag; the tree is dirty (except a
+post-fix `--allow-dirty` run); signing secrets, runner capacity or remote tag state are unavailable. Never
+delete tags, rewrite history or publish; if the version is already tagged, ask for a new one. Do not require
+the user to push commits or force-push a branch to complete this local preflight.
 
-Report each check, what was fixed, remaining blockers and residual risks, plus the commands the user still
-has to run, without executing them:
+Report each check, what was fixed, remaining blockers and residual risks, plus the local commands the user
+still has to run, without executing them:
 
     git add ...
     git commit ...
     git tag v<version>
-    git push origin main
-    git push origin v<version>
 
-Remote tags, releases and CI runs were not queried by design.
+Pushing the commit or tag is a separate release decision and is not required by this check. Remote tags,
+releases and CI runs were not queried by design.

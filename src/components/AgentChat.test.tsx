@@ -96,6 +96,26 @@ it('keeps the transcript before the composer without a separate running strip', 
   expect(output.getAttribute('data-root')).toBe('/repo')
 })
 
+it('keeps the growing live reply visible and restores skipped-content rendering after completion', () => {
+  state.chats.chat.messages.unshift({ id: 'previous', role: 'assistant', at: 0, completion: 'completed' })
+  const { container, rerender } = render(<AgentChat chatId="chat" />)
+  const previous = container.querySelector<HTMLElement>('[data-agent-message="previous"]')!
+  const live = container.querySelector<HTMLElement>('[data-agent-message="reply"]')!
+  expect(previous.style.contentVisibility).toBe('auto')
+  expect(live.style.contentVisibility).toBe('visible')
+  expect(live.style.containIntrinsicSize).toBe('')
+  state.chats.chat.messages = state.chats.chat.messages.map<Chat['messages'][number]>(message => message.id === 'reply'
+    ? { ...message, items: [...message.items!, { id: 'tool', type: 'tool', text: '', status: 'running' }] }
+    : message)
+  rerender(<AgentChat chatId="chat" />)
+  expect(container.querySelector('[data-agent-message="reply"]')).toBe(live)
+  expect(live.style.contentVisibility).toBe('visible')
+  state.chats.chat.status = 'idle'
+  rerender(<AgentChat chatId="chat" />)
+  expect(live.style.contentVisibility).toBe('auto')
+  expect(live.style.containIntrinsicSize).toBe('auto 120px')
+})
+
 it('keeps the conversation title and provider without a duplicate result label', () => {
   state.chats.chat.status = 'error'
   render(<AgentChat chatId="chat" />)

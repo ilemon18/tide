@@ -2,7 +2,7 @@ import { memo, useEffect, useState } from 'react'
 import type { AgentMessage } from '../store/agent'
 import { useT } from '../i18n'
 import { elapsedSeconds, formatAgentDuration } from '../lib/agentDuration'
-import { Icon } from './Icon'
+import { AgentSpinner } from './AgentSpinner'
 
 type Props = {
   completion?: AgentMessage['completion']
@@ -42,7 +42,7 @@ export const AgentTurnStatus = memo(function AgentTurnStatus({
     ? `${String(completedAt.getHours()).padStart(2, '0')}:${String(completedAt.getMinutes()).padStart(2, '0')}`
     : null
   return <div role="status" className="flex min-h-5 items-center gap-1.5 text-2xs text-muted">
-    {running ? <Icon name="spinner" size={12} className="agent-spinner shrink-0 text-accent" /> : null}
+    {running ? <AgentSpinner /> : null}
     <span>{running ? t(waiting ? 'agent.permission.waiting' : 'agent.working')
       : t(`agent.completion.${completion!}`)}{duration ? ` · ${t('agent.completion.duration', { duration })}` : ''}{completionTime ? ` · ${completionTime}` : ''}</span>
   </div>

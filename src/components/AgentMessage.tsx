@@ -8,6 +8,7 @@ import { basename } from '../lib/paths'
 import { useT } from '../i18n'
 import { AgentStreamText } from './AgentStreamText'
 import { AgentTurnStatus } from './AgentTurnStatus'
+import { AgentSpinner } from './AgentSpinner'
 import { CommandChip, SkillChip } from './AgentTags'
 import { CopyButton } from './CopyButton'
 import { FileIcon } from './FileIcon'
@@ -79,7 +80,7 @@ export function serializeAssistantMessage(message: Message): string {
 
 function ToolStatus({ status }: { status?: AgentItem['status'] }) {
   if (status === 'running') {
-    return <Icon name="spinner" size={12} className="agent-spinner shrink-0 text-accent" />
+    return <AgentSpinner />
   }
   if (status === 'error') {
     return <Icon name="alert-circle" size={12} className="shrink-0 text-danger" />

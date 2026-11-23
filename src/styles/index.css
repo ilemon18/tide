@@ -1,17 +1,20 @@
 @import 'tailwindcss';
 @import '@xterm/xterm/css/xterm.css';
 
-/* Agent indicators rotate on their own compositor layer. SVGs need an explicit transform box;
-   otherwise streamed-chat rerenders can make the generic utility animation appear to jump. */
+/* Rotate the HTML wrapper, not the SVG: WebKit can keep this transform on the compositor
+   while streamed Markdown and tool output repaint on the main thread. */
 .agent-spinner {
-  transform-box: fill-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   transform-origin: center;
   animation: agent-spinner-rotate 800ms linear infinite;
   will-change: transform;
 }
 
 @keyframes agent-spinner-rotate {
-  to { transform: rotate(360deg); }
+  from { transform: translateZ(0) rotate(0deg); }
+  to { transform: translateZ(0) rotate(360deg); }
 }
 
 /* Bundled mono font: one variable file covers 100–800 so system fonts don't look different across machines */

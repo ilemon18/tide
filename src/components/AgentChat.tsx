@@ -10,6 +10,7 @@ import { isMac } from '../lib/paths'
 import { shortcutKey } from '../lib/keys'
 import { AgentComposer } from './AgentComposer'
 import { AssistantMessage, UserMessage } from './AgentMessage'
+import { AgentSpinner } from './AgentSpinner'
 import { Icon } from './Icon'
 import { ModelPicker } from './AgentPickers'
 import { AgentContextUsage } from './AgentContextUsage'
@@ -235,7 +236,7 @@ export function AgentChat({ chatId }: { chatId: string }) {
       <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-bg text-xs text-muted">
         {loading ? (
           <>
-            <Icon name="spinner" size={18} className="agent-spinner shrink-0 text-accent" />
+            <AgentSpinner size={18} />
             {t('agent.loading')}
           </>
         ) : (
@@ -378,7 +379,11 @@ export function AgentChat({ chatId }: { chatId: string }) {
                 </button>
               ) : null}
               {chat.messages.map((message) => (
-                <div key={message.id} data-agent-message={message.id} style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 120px' }}>
+                <div key={message.id} data-agent-message={message.id}
+                  // Keep live indicators out of skipped-content rendering while the reply grows.
+                  style={running && message.id === last?.id
+                    ? { contentVisibility: 'visible' }
+                    : { contentVisibility: 'auto', containIntrinsicSize: 'auto 120px' }}>
                   {message.role === 'user' ? (
                     <UserMessage key={message.id} root={chat.root} message={message} />
                   ) : (
