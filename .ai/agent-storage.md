@@ -33,6 +33,11 @@ restores primary-window tabs. Keep transcript v:1 compatible.
   summaries per page in updated-time order (`AGENT_HISTORY_PAGE_SIZE` in `src/store/agent.ts`). Transcript
   pages remain independently lazy-loaded on selection; project-root restore validates the saved root again.
   Flush open chats before listing so a new turn is visible immediately, but discard the list when its panel closes.
+- History deletion requires explicit confirmation. Frontend and Rust reject running chats; Rust authorizes
+  the project and validates transcript ownership under the document lock before removal. The frontend blocks
+  new operations, drains accepted writes and invalidates old reads/save callbacks, then clears transcript,
+  draft/queue/page/retry state and closes any open tab without another save. Flush tab references immediately.
+  Failed removal retains the record and tab for retry; successful removal restarts history paging at offset zero.
 - Initial page: 80 records/512 KiB, then 40/load. Loaded window: 160 records/1 MiB; oversized record alone.
   Persist before eviction/navigation; retain cursors/anchor, scan pending cards across full history, flush
   agent/tabs.json on hide/unload. Only completed questions establish a persisted question gate; streamed

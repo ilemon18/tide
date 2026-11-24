@@ -7,4 +7,6 @@ export const agentBridge = {
   onTabClosed: (_chatId: string) => {},
   /** Close requests use this callback to protect a chat while its current turn is running. */
   isChatRunning: (_chatId: string) => false,
+  /** Persist the tab list immediately after a transcript has been deleted. */
+  onChatDeleted: () => {},
 }

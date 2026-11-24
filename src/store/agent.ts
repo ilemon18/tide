@@ -32,6 +32,7 @@ import { useTabs } from './tabs'
 import { useUi } from './ui'
 import { activeRoot } from './workspace'
 import { normalizeAgentUsage, replaceTurnUsage } from '../lib/agentUsage'
+import { agentBridge } from '../lib/agentBridge'
 
 /**
  * One chat tab = one local CLI conversation.
@@ -237,6 +238,8 @@ type AgentStore = {
   loadHistory: (root: string, reset?: boolean) => Promise<void>
   clearHistory: () => void
   resumeChat: (id: string, root: string) => Promise<boolean>
+  deletingChats: Record<string, boolean>
+  deleteChat: (id: string, root: string) => Promise<boolean>
 
   loadProviders: (force?: boolean) => Promise<void>
   loadCatalog: (provider: string, force?: boolean) => Promise<void>
@@ -286,8 +289,16 @@ let providerTicket = 0
 let historyTicket = 0
 /** Retain failed closing-tab writes for explicit flush/reopen retries. */
 const unsavedClosedChats = new Map<string, AgentChat>()
+/** Invalidate reads and save callbacks when a chat is deleted or leaves memory. */
+const chatEpochs = new Map<string, { deleted: boolean }>()
+function chatEpoch(id: string) {
+  let epoch = chatEpochs.get(id)
+  if (!epoch) { epoch = { deleted: false }; chatEpochs.set(id, epoch) }
+  return epoch
+}
 
 function queueChatSave(chatId: string, chat: AgentChat): Promise<void> {
+  if (useAgent.getState().deletingChats[chatId]) return Promise.resolve()
   const { messages, ...header } = chat
   // Undefined is omitted by JSON IPC; use null to clear known fields in Rust's merge store.
   const persistedHeader = { ...header, currentContext: header.currentContext ?? null,
@@ -315,7 +326,8 @@ function messageBytes(messages: AgentMessage[]) {
 /** Only evict a prefix after its complete records have reached the atomic Rust merge store. */
 function boundWorkingSet(chatId: string) {
   const chat = useAgent.getState().chats[chatId]
-  if (!chat || evictions.has(chatId)) return
+  if (!chat || evictions.has(chatId) || useAgent.getState().deletingChats[chatId]) return
+  const epoch = chatEpoch(chatId)
   const sizes = chat.messages.map(message => messageBytes([message]))
   let count = 0
   let bytes = 0
@@ -328,6 +340,7 @@ function boundWorkingSet(chatId: string) {
   if (!removed.length) return
   const ids = new Set(removed.map(message => message.id))
   const work = queueChatSave(chatId, chat).then(() => {
+    if (chatEpochs.get(chatId) !== epoch) return
     const state = useAgent.getState()
     const current = state.chats[chatId]
     if (!current || state.pages[chatId]?.hasLater) return
@@ -351,6 +364,7 @@ function boundWorkingSet(chatId: string) {
 }
 
 function schedulePersist(chatId: string) {
+  if (!useAgent.getState().chats[chatId] || useAgent.getState().deletingChats[chatId]) return
   dirty.add(chatId)
   boundWorkingSet(chatId)
   const existing = timers.get(chatId)
@@ -366,13 +380,15 @@ function schedulePersist(chatId: string) {
 
 async function persistChat(chatId: string) {
   const chat = useAgent.getState().chats[chatId]
-  if (!chat || !dirty.has(chatId)) return
+  if (!chat || !dirty.has(chatId) || useAgent.getState().deletingChats[chatId]) return
+  const epoch = chatEpoch(chatId)
   dirty.delete(chatId)
   try {
     await queueChatSave(chatId, chat)
+    if (chatEpochs.get(chatId) !== epoch) return
     if (useAgent.getState().chats[chatId] === chat && chat.status !== 'running') {
       const page = await api.agentChatOpen(chatId, 80)
-      if (page && useAgent.getState().chats[chatId] === chat) {
+      if (page && chatEpochs.get(chatId) === epoch && useAgent.getState().chats[chatId] === chat) {
         const state = useAgent.getState()
         const visible = state.pages[chatId]
         useAgent.setState({
@@ -382,6 +398,7 @@ async function persistChat(chatId: string) {
       }
     }
   } catch (error) {
+    if (epoch.deleted || useAgent.getState().deletingChats[chatId]) return
     dirty.add(chatId)
     const current = useAgent.getState().chats[chatId]
     if (current) useAgent.setState({ chats: { ...useAgent.getState().chats,
@@ -391,12 +408,15 @@ async function persistChat(chatId: string) {
 
 /** Write a chat that is leaving memory; `persistChat` reads the store, which no longer has it. */
 function persistLeavingChat(chatId: string, chat: AgentChat) {
-  if (!dirty.has(chatId)) return
+  if (!dirty.has(chatId) || useAgent.getState().deletingChats[chatId]) return
+  const epoch = chatEpoch(chatId)
   dirty.delete(chatId)
   unsavedClosedChats.set(chatId, chat)
   void queueChatSave(chatId, chat).then(() => {
     if (unsavedClosedChats.get(chatId) === chat) unsavedClosedChats.delete(chatId)
+    if (chatEpochs.get(chatId) === epoch && !useAgent.getState().chats[chatId]) chatEpochs.delete(chatId)
   }).catch(error => {
+    if (epoch.deleted || useAgent.getState().deletingChats[chatId]) return
     dirty.add(chatId)
     useUi.getState().toast(errorText(error), 'error')
   })
@@ -505,7 +525,7 @@ export const useAgent = create<AgentStore>((set, get) => {
     if (get().pages[chatId]?.hasLater) await get().loadPage(chatId, 'latest')
     const chat = get().chats[chatId]
     if (get().pages[chatId]?.hasLater) return false
-    if (!chat || chat.status === 'running' || resetLocks.has(chatId) || !useSettings.getState().agentEnabled) return false
+    if (!chat || chat.status === 'running' || resetLocks.has(chatId) || get().deletingChats[chatId] || !useSettings.getState().agentEnabled) return false
     // The backend re-checks the toggle: make sure its 400ms debounced write has landed first
     useSettings.getState().flush()
     const sentDraft = get().chatDrafts[chatId]
@@ -655,7 +675,7 @@ export const useAgent = create<AgentStore>((set, get) => {
 
   /** Start the oldest queued message after a successful turn. Stop retains the queue. */
   const drainQueue = (chatId: string) => {
-    if (!useSettings.getState().agentEnabled || get().interjecting[chatId]) return
+    if (!useSettings.getState().agentEnabled || get().interjecting[chatId] || get().deletingChats[chatId]) return
     const chat = get().chats[chatId]
     if (!chat || findPendingQuestion(chat.messages) || findPendingPlanAction(chat.messages) || get().pages[chatId]?.hasPendingQuestion || get().pages[chatId]?.hasUnhandledPlanAction) return
     const queue = get().queues[chatId] ?? []
@@ -719,7 +739,7 @@ export const useAgent = create<AgentStore>((set, get) => {
     focusRequests: {},
     restartSession: (chatId) => {
       const chat = get().chats[chatId]
-      if (!chat || chat.status === 'running') return
+      if (!chat || get().deletingChats[chatId] || chat.status === 'running') return
       set({ chats: { ...get().chats, [chatId]: { ...chat, sessionId: null, sessionAction: null,
         sessionUsage: undefined, sessionCost: undefined, currentContext: undefined, compactSummary: undefined, error: null, status: 'idle' } } })
       schedulePersist(chatId)
@@ -766,11 +786,60 @@ export const useAgent = create<AgentStore>((set, get) => {
       }
     },
     resumeChat: async (id, root) => {
+      if (get().deletingChats[id]) return false
       await get().loadChat(id, root)
       const chat = get().chats[id]
-      if (!chat || chat.root !== root) return false
+      if (!chat || chat.root !== root || get().deletingChats[id]) return false
       get().openChatTab(id)
       return true
+    },
+    deletingChats: {},
+    deleteChat: async (id, root) => {
+      if (get().deletingChats[id]) return false
+      const chat = get().chats[id] ?? unsavedClosedChats.get(id)
+      if (chat && chat.root !== root) return false
+      if (chat?.status === 'running' || get().running[id] !== undefined || get().interjecting[id] || resetLocks.has(id) ||
+        [...planActionLocks].some(key => key.startsWith(`${id}:`))) {
+        useUi.getState().toast(t('agent.history.deleteRunning'), 'error')
+        return false
+      }
+      set({ deletingChats: { ...get().deletingChats, [id]: true } })
+      const epoch = chatEpochs.get(id)
+      if (epoch) epoch.deleted = true
+      chatEpochs.delete(id)
+      const timer = timers.get(id)
+      if (timer) clearTimeout(timer)
+      timers.delete(id)
+      set({ loadingChats: { ...get().loadingChats, [id]: false }, pageLoading: { ...get().pageLoading, [id]: false } })
+      let deleted = false
+      try {
+        // Previously accepted writes must settle before removal; new saves are blocked above.
+        await Promise.allSettled([writeQueues.get(id), evictions.get(id)])
+        await api.agentChatDelete(id, root)
+        deleted = true
+        dirty.delete(id)
+        unsavedClosedChats.delete(id)
+        get().forgetChat(id)
+        await useTabs.getState().close(chatTabId(id), true)
+        agentBridge.onChatDeleted()
+        if (get().historyByRoot[root]) {
+          historyTicket++
+          const history = get().historyByRoot[root]
+          set({ historyByRoot: { ...get().historyByRoot, [root]: { ...history,
+            chats: history.chats.filter(item => item.id !== id), loading: false, nextOffset: null } } })
+          await get().loadHistory(root, true)
+        }
+        return true
+      } catch (error) {
+        useUi.getState().toast(errorText(error), 'error')
+        return false
+      } finally {
+        const deletingChats = { ...get().deletingChats }
+        delete deletingChats[id]
+        set({ deletingChats })
+        // Keep the original record retryable after any failed removal, including failed prior saves.
+        if (!deleted && get().chats[id]) schedulePersist(id)
+      }
     },
     providers: null,
     providersLoading: false,
@@ -794,7 +863,8 @@ export const useAgent = create<AgentStore>((set, get) => {
       if (initialError) return fail(initialError)
       if (!attachments.length) return false
       const tabs = useTabs.getState()
-      const open = (tabs.tabs ?? []).filter(tab => tab.kind === 'chat' && tab.root === root && get().chats[tab.id.slice(5)])
+      const open = (tabs.tabs ?? []).filter(tab => tab.kind === 'chat' && tab.root === root &&
+        get().chats[tab.id.slice(5)] && !get().deletingChats[tab.id.slice(5)])
       const visible = new Set((tabs.groups ?? []).map(group => group.activeId))
       const ranked = [...open].sort((a, b) => Number(visible.has(b.id)) - Number(visible.has(a.id)) ||
         (get().chatFocusOrder[b.id.slice(5)] ?? 0) - (get().chatFocusOrder[a.id.slice(5)] ?? 0))
@@ -900,6 +970,7 @@ export const useAgent = create<AgentStore>((set, get) => {
     },
 
     loadChat: async (id, expectedRoot) => {
+      if (get().deletingChats[id]) return
       const unsaved = unsavedClosedChats.get(id)
       if (unsaved) {
         if (expectedRoot && unsaved.root !== expectedRoot) return
@@ -909,9 +980,11 @@ export const useAgent = create<AgentStore>((set, get) => {
         return
       }
       if (get().chats[id] || get().loadingChats[id]) return
+      const epoch = chatEpoch(id)
       set({ loadingChats: { ...get().loadingChats, [id]: true } })
       try {
         const page = expectedRoot ? await api.agentChatOpen(id, 80, expectedRoot) : await api.agentChatOpen(id, 80)
+        if (chatEpochs.get(id) !== epoch) return
         const chat = page ? normalizeChat({ ...page.header, messages: page.messages }, true) : null
         if (chat && chat.id === id && (!expectedRoot || chat.root === expectedRoot)) {
           set({
@@ -923,6 +996,7 @@ export const useAgent = create<AgentStore>((set, get) => {
           return
         }
       } catch (error) {
+        if (chatEpochs.get(id) !== epoch) return
         useUi.getState().toast(errorText(error), 'error')
       }
       set({ loadingChats: { ...get().loadingChats, [id]: false } })
@@ -930,12 +1004,13 @@ export const useAgent = create<AgentStore>((set, get) => {
 
     loadPage: async (id, direction) => {
       const chat = get().chats[id]
-      if (!chat || chat.status === 'running' || get().pageLoading[id]) return
+      if (!chat || chat.status === 'running' || get().pageLoading[id] || get().deletingChats[id]) return
+      const epoch = chatEpoch(id)
       set({ pageLoading: { ...get().pageLoading, [id]: true } })
       try {
         await persistChat(id)
         await writeQueues.get(id)
-        if (dirty.has(id)) return
+        if (dirty.has(id) || chatEpochs.get(id) !== epoch) return
         let page: AgentChatPage | null
         if (direction === 'latest') page = await api.agentChatOpen(id, 80)
         else if (direction === 'pending') {
@@ -959,7 +1034,7 @@ export const useAgent = create<AgentStore>((set, get) => {
             ...(direction === 'earlier' ? { beforeId: cursor } : { afterId: cursor }), limit: 40,
           })
         }
-        if (!page || !get().chats[id]) return
+        if (!page || !get().chats[id] || chatEpochs.get(id) !== epoch) return
         const normalized = normalizeChat({ ...page.header, messages: page.messages }, true)
         if (!normalized) return
         if (direction === 'earlier' || direction === 'later') {
@@ -980,14 +1055,16 @@ export const useAgent = create<AgentStore>((set, get) => {
         }
         set({ chats: { ...get().chats, [id]: normalized }, pages: { ...get().pages, [id]: page } })
       } catch (error) {
+        if (chatEpochs.get(id) !== epoch) return
         const current = get().chats[id]
         if (current) set({ chats: { ...get().chats, [id]: { ...current, error: errorText(error) } } })
       } finally {
-        set({ pageLoading: { ...get().pageLoading, [id]: false } })
+        if (chatEpochs.get(id) === epoch) set({ pageLoading: { ...get().pageLoading, [id]: false } })
       }
     },
 
     forgetChat: (id) => {
+      chatEpochs.delete(id)
       const leaving = get().chats[id]
       const chats = { ...get().chats }
       delete chats[id]
@@ -1010,12 +1087,17 @@ export const useAgent = create<AgentStore>((set, get) => {
       delete pages[id]
       const pageLoading = { ...get().pageLoading }
       delete pageLoading[id]
-      set({ chats, running, chatDrafts, chatFocusOrder, queues, interjecting, pages, pageLoading })
+      const loadingChats = { ...get().loadingChats }
+      delete loadingChats[id]
+      const focusRequests = { ...get().focusRequests }
+      delete focusRequests[id]
+      set({ chats, running, chatDrafts, chatFocusOrder, queues, interjecting, pages, pageLoading, loadingChats, focusRequests,
+        ...(get().localPicker?.chatId === id ? { localPicker: null } : {}) })
     },
 
     openChatTab: (id) => {
       const chat = get().chats[id]
-      if (!chat) return
+      if (!chat || get().deletingChats[id]) return
       useTabs.getState().openChat(id, chat.root, chat.title || '')
     },
 
@@ -1065,7 +1147,7 @@ export const useAgent = create<AgentStore>((set, get) => {
 
     sendMessage: async (chatId, draft) => {
       const chat = get().chats[chatId]
-      if (!chat) return
+      if (!chat || get().deletingChats[chatId]) return
       if (!useSettings.getState().agentEnabled) return
       if (resetLocks.has(chatId)) return
       if (get().interjecting[chatId]) return
@@ -1178,7 +1260,7 @@ export const useAgent = create<AgentStore>((set, get) => {
 
     answerQuestion: async (chatId, itemId, answer) => {
       const chat = get().chats[chatId]
-      if (!chat || chat.status === 'running' || get().pageLoading[chatId] || resetLocks.has(chatId) || !useSettings.getState().agentEnabled) return false
+      if (!chat || get().deletingChats[chatId] || chat.status === 'running' || get().pageLoading[chatId] || resetLocks.has(chatId) || !useSettings.getState().agentEnabled) return false
       const pending = findPendingQuestion(chat.messages)
       if (!pending || pending.item.id !== itemId) return false
       const trimmed = answer.trim()
@@ -1235,7 +1317,7 @@ export const useAgent = create<AgentStore>((set, get) => {
     resolvePlanAction: async (chatId, itemId, action, instructions = '') => {
       if (!['implement-current', 'implement-fresh', 'continue-planning'].includes(action)) return false
       const chat = get().chats[chatId]
-      if (!chat || chat.status === 'running' || get().pageLoading[chatId] || !useSettings.getState().agentEnabled) return false
+      if (!chat || get().deletingChats[chatId] || chat.status === 'running' || get().pageLoading[chatId] || !useSettings.getState().agentEnabled) return false
       const pending = findPendingPlanAction(chat.messages)
       const lockKey = `${chatId}:${itemId}`
       if (planActionLocks.has(lockKey)) return false
@@ -1317,7 +1399,7 @@ export const useAgent = create<AgentStore>((set, get) => {
     },
 
     removeQueued: (chatId, id) => {
-      if (get().interjecting[chatId] === id) return
+      if (get().deletingChats[chatId] || get().interjecting[chatId] === id) return
       const queue = (get().queues[chatId] ?? []).filter((item) => item.id !== id)
       const queues = { ...get().queues }
       if (queue.length > 0) queues[chatId] = queue
@@ -1328,7 +1410,7 @@ export const useAgent = create<AgentStore>((set, get) => {
     interjectQueued: async (chatId, id) => {
       const blocked = () => {
         const chat = get().chats[chatId]
-        return !chat || !useSettings.getState().agentEnabled || get().pageLoading[chatId] ||
+        return !chat || get().deletingChats[chatId] || !useSettings.getState().agentEnabled || get().pageLoading[chatId] ||
           !!findPendingQuestion(chat.messages) || !!findPendingPlanAction(chat.messages) ||
           get().pages[chatId]?.hasPendingQuestion || get().pages[chatId]?.hasUnhandledPlanAction ||
           [...planActionLocks].some(key => key.startsWith(`${chatId}:`))
@@ -1666,7 +1748,7 @@ export const useAgent = create<AgentStore>((set, get) => {
 
     setChatProvider: (chatId, provider, { remember = true } = {}) => {
       const chat = get().chats[chatId]
-      if (!chat || !provider || chat.provider === provider || chat.status === 'running') return
+      if (!chat || get().deletingChats[chatId] || !provider || chat.provider === provider || chat.status === 'running') return
       const settings = useSettings.getState()
       const model = provider === settings.agentDefaultProvider ? settings.agentDefaultModel : ''
       const effort = provider === settings.agentDefaultProvider ? settings.agentDefaultEffort : ''
@@ -1725,7 +1807,7 @@ export const useAgent = create<AgentStore>((set, get) => {
 
     setPermissionMode: (chatId, mode) => {
       const chat = get().chats[chatId]
-      if (!chat || chat.status === 'running' || get().queues[chatId]?.length ||
+      if (!chat || get().deletingChats[chatId] || chat.status === 'running' || get().queues[chatId]?.length ||
         findPendingQuestion(chat.messages) || findPendingPlanAction(chat.messages) ||
         get().pages[chatId]?.hasPendingQuestion || get().pages[chatId]?.hasUnhandledPlanAction) return
       set({ chats: { ...get().chats, [chatId]: { ...chat, permissionMode: mode, planning: false } } })
@@ -1758,7 +1840,7 @@ export const useAgent = create<AgentStore>((set, get) => {
 
     setChatOptions: (chatId, patch) => {
       const chat = get().chats[chatId]
-      if (!chat || chat.status === 'running') return
+      if (!chat || get().deletingChats[chatId] || chat.status === 'running') return
       const catalog = get().catalogs[chat.provider]
       let effort = patch.effort ?? chat.effort
       if (patch.model !== undefined) {
@@ -1808,6 +1890,7 @@ export const useAgent = create<AgentStore>((set, get) => {
     },
 
     setChatDraft: (chatId, patch) => {
+      if (get().deletingChats[chatId]) return
       const current: AgentDraft = get().chatDrafts[chatId] ?? { text: '', mentions: [] }
       set({
         chatDrafts: { ...get().chatDrafts, [chatId]: { ...current, ...patch } },
@@ -1815,6 +1898,7 @@ export const useAgent = create<AgentStore>((set, get) => {
     },
 
     resetChat: (chatId) => {
+      if (get().deletingChats[chatId]) return Promise.resolve(false)
       const existing = resetLocks.get(chatId)
       if (existing) return existing
       const work = (async () => {
@@ -1861,7 +1945,7 @@ export const useAgent = create<AgentStore>((set, get) => {
       }
 
       chat = get().chats[chatId]
-      if (!chat || chat.status === 'running') return false
+      if (!chat || get().deletingChats[chatId] || chat.status === 'running') return false
 
       const timer = timers.get(chatId)
       if (timer) clearTimeout(timer)

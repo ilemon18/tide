@@ -102,8 +102,10 @@ export async function restoreAgentChats() {
 
 /** Closing a chat tab stops its process and lets its transcript settle before it leaves memory */
 export function installAgentBridge() {
-  agentBridge.isChatRunning = (chatId) => useAgent.getState().chats[chatId]?.status === 'running'
+  agentBridge.onChatDeleted = flushAgentTabs
+  agentBridge.isChatRunning = (chatId) => useAgent.getState().chats[chatId]?.status === 'running' || !!useAgent.getState().deletingChats[chatId]
   agentBridge.onTabClosed = (chatId) => {
+    if (useAgent.getState().deletingChats[chatId]) return
     void useAgent.getState().stop(chatId)
     setTimeout(() => {
       if (!useTabs.getState().tabs.some((tab) => tab.id === chatTabId(chatId))) {

@@ -10,6 +10,7 @@ export const en = {
   "shortcuts.resetAll": "Restore all defaults",
   "shortcuts.help": "Record a single key combination. Saving an occupied shortcut removes it from the previous action. Basic editing shortcuts are reserved. Escape cancels recording.",
   "shortcuts.recordTitle": "Record shortcut",
+  "shortcuts.currentBinding": "Current shortcut: {keys}",
   "shortcuts.recordHint": "Press the key combination you want to use.",
   "shortcuts.invalid": "Use a modifier with a key, or a function key. Basic editing shortcuts are reserved.",
   "shortcuts.conflict": "Currently used by {commands}. Saving removes the previous binding.",
@@ -119,6 +120,10 @@ export const en = {
   'agent.history.earlier': "Earlier messages",
   'agent.history.later': "Later messages",
   'agent.history.pending': "Open pending request",
+  "agent.history.delete": "Delete chat “{title}”",
+  "agent.history.deleteTitle": "Delete chat",
+  "agent.history.deleteMessage": "Delete “{title}” and all of its history messages? This cannot be undone.",
+  "agent.history.deleteRunning": "Stop the chat before deleting it.",
   'agent.history.title': 'Chat history',
   'agent.history.loading': 'Loading history…',
   'agent.history.empty': 'No saved chats for this project yet.',
@@ -299,6 +304,7 @@ export const en = {
   'settings.about.install': 'Install update',
   'settings.about.installUpdate': 'Install update',
   'settings.about.installPrompt': 'Version {version} is ready to install. Install it now?',
+  "settings.about.restartAfterInstall": "The app will restart when installation finishes.",
   'settings.about.installing': 'Installing…',
   'settings.about.retry': 'Retry',
   'settings.about.updateFailed': 'Update failed',
@@ -308,7 +314,7 @@ export const en = {
   'settings.about.noInstaller':
     'Version {version} is out, but that release lists no installer: open the release page to download it',
   'settings.about.downloaded': 'Update downloaded. Click Install update when you are ready.',
-  'settings.about.downloadedInto': 'Update downloaded. It will be installed in {path}.',
+  "settings.about.downloadedInto": "Install location: {path}",
 
   // ---------------------------------------------------------------- In-app update (title bar / toasts)
   'update.downloading': 'Downloading {percent}%',

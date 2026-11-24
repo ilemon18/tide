@@ -674,7 +674,7 @@ export const api = {
     invoke<AgentChatListPage>('agent_chat_list', { root, offset, limit }),
   agentChatClone: (fromId: string, header: AgentChatRecord) =>
     invoke<AgentChatPage>('agent_chat_clone', { fromId, header }),
-  agentChatDelete: (id: string) => invoke<void>('agent_chat_delete', { id }),
+  agentChatDelete: (id: string, root: string) => invoke<void>('agent_chat_delete', { id, root }),
   agentTabsSave: (tabs: AgentTabRef[], active: string | null) =>
     invoke<void>('agent_tabs_save', { tabs, active }),
   agentTabsLoad: () => invoke<AgentTabs>('agent_tabs_load'),

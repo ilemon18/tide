@@ -52,6 +52,9 @@ share one action model. Packaging and release preflight remain in [checks.md](./
   action as text; downloads use a fixed 16px SVG circle beside the localized percentage, with 8px gap and
   horizontal padding. It never measures text for progress geometry. Missing installers open the release page.
   The About page shows the logo and a `v`-prefixed installed version and no longer exposes update logs.
+- The About action owns checking/downloading progress text. Captions only add information: installation
+  restart behavior, an actual destination path, version/package details, current-version results or errors.
+  Omit duplicate busy/downloaded instructions in the shared presentation model, without comparing translations.
 
 ## Change map and verification
 

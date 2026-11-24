@@ -535,8 +535,14 @@ pub fn agent_chat_clone(
 }
 
 #[tauri::command(async)]
-pub fn agent_chat_delete(app: AppHandle, id: String) -> AppResult<()> {
-    store::delete_chat(&app, &id)
+pub fn agent_chat_delete(app: AppHandle, state: State<'_, AppState>, id: String, root: String) -> AppResult<()> {
+    let root = state.authorize(&root)?;
+    // Hold the turn registry through deletion so a turn cannot register between the check and removal.
+    let turns = state.agent_turns.lock();
+    if turns.contains_key(&id) {
+        return Err(AppError::c("agent.busy"));
+    }
+    store::delete_chat(&app, &id, &root.to_string_lossy())
 }
 
 #[tauri::command(async)]

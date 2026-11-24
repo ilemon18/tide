@@ -51,11 +51,13 @@ import { SettingsView } from './SettingsView'
 import { applyLocale, t } from '../i18n'
 import { useUi } from '../store/ui'
 import { useSettings } from '../store/settings'
+import { useUpdate } from '../store/update'
 
 const originalScrollTo = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollTo')
 beforeEach(() => {
   applyLocale('en')
   useUi.setState({ settingsSection: 'general' })
+  useUpdate.setState({ status: 'idle', info: null, percent: 0, error: null, installedTo: '' })
   vi.clearAllMocks()
   Object.defineProperty(HTMLElement.prototype, 'scrollTo', { configurable: true, value: vi.fn() })
 })
@@ -103,6 +105,26 @@ it('places automatic updates in the About update card and removes them from Gene
 
   selectSection('general')
   expect(screen.queryByText(t('settings.about.autoUpdate'))).toBeNull()
+})
+
+it.each(['checking', 'downloading', 'installing'] as const)('shows the %s state once in the update card', status => {
+  useUpdate.setState({ status, percent: 42 })
+  render(<SettingsView />)
+  selectSection('about')
+  const card = screen.getByRole('heading', { name: t('settings.about.updates') }).closest('section')!
+  const label = status === 'downloading' ? t('update.downloading', { percent: 42 })
+    : t(status === 'checking' ? 'settings.about.checking' : 'settings.about.installing')
+  expect(within(card).getAllByText(label)).toHaveLength(1)
+  expect(within(card).getByRole('button', { name: label }).getAttribute('aria-busy')).toBe('true')
+  if (status === 'installing') expect(within(card).getByText(t('settings.about.restartAfterInstall'))).toBeTruthy()
+})
+
+it('omits the downloaded instruction when the install button already expresses it', () => {
+  useUpdate.setState({ status: 'ready' })
+  render(<SettingsView />)
+  selectSection('about')
+  expect(screen.getByRole('button', { name: t('settings.about.install') })).toBeTruthy()
+  expect(screen.queryByText(t('settings.about.downloaded'))).toBeNull()
 })
 
 it('removes the default permission picker and explanation from Agent settings', () => {

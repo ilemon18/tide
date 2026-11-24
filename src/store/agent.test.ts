@@ -1,7 +1,7 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
 import { api, type AgentContextAttachment, type AgentPlanAction, type AgentPermissionMode } from '../lib/ipc'
 vi.mock('../lib/ipc', () => ({ api: { agentChatOpen: vi.fn(), agentChatApply: vi.fn(), agentSend: vi.fn(),
-  agentChatPage: vi.fn(), agentChatList: vi.fn(), agentChatClone: vi.fn(), agentChatReset: vi.fn(), agentCancel: vi.fn(), agentPermissionRespond: vi.fn(), agentModels: vi.fn() }, errorText: (error: unknown) => error instanceof Error ? error.message : String(error) }))
+  agentChatPage: vi.fn(), agentChatList: vi.fn(), agentChatDelete: vi.fn(), agentChatClone: vi.fn(), agentChatReset: vi.fn(), agentCancel: vi.fn(), agentPermissionRespond: vi.fn(), agentModels: vi.fn() }, errorText: (error: unknown) => error instanceof Error ? error.message : String(error) }))
 vi.mock('../i18n', () => ({ t: (key: string) => key }))
 const { settings, patchSettings } = vi.hoisted(() => {
   const settings = { agentEnabled: true, agentHistoryEnabled: true, agentDefaultProvider: '', agentDefaultModel: '', agentDefaultEffort: '',
@@ -10,11 +10,13 @@ const { settings, patchSettings } = vi.hoisted(() => {
   return { settings, patchSettings }
 })
 vi.mock('./settings', () => ({ useSettings: { getState: () => ({ ...settings, patch: patchSettings }) } }))
-const { setTabName, openChatInRight, contextTabs } = vi.hoisted(() => ({ setTabName: vi.fn(), openChatInRight: vi.fn(), contextTabs: { tabs: [] as Array<{ id: string; kind: string; root: string }>, groups: [] as Array<{ activeId: string }> } }))
-vi.mock('./tabs', () => ({ useTabs: { getState: () => ({ ...contextTabs, setTabName, openChat: vi.fn(), openChatInRight }) } }))
+const { setTabName, openChatInRight, closeTab, contextTabs } = vi.hoisted(() => ({ setTabName: vi.fn(), openChatInRight: vi.fn(), closeTab: vi.fn(), contextTabs: { tabs: [] as Array<{ id: string; kind: string; root: string }>, groups: [] as Array<{ activeId: string }> } }))
+vi.mock('./tabs', () => ({ useTabs: { getState: () => ({ ...contextTabs, setTabName, openChat: vi.fn(), openChatInRight, close: closeTab }) } }))
+vi.mock('../lib/agentBridge', () => ({ agentBridge: { onChatDeleted: vi.fn() } }))
 vi.mock('./ui', () => ({ useUi: { getState: () => ({ toast: vi.fn() }) } }))
 vi.mock('./workspace', () => ({ activeRoot: () => null }))
 import { findPendingPlanAction, findPendingQuestion, useAgent, type AgentChat } from './agent'
+import { agentBridge } from '../lib/agentBridge'
 import { en } from '../i18n/messages/en'
 import { es } from '../i18n/messages/es'
 import { ja } from '../i18n/messages/ja'
@@ -125,7 +127,7 @@ beforeEach(() => {
   contextTabs.groups = []
   Object.assign(settings, { agentEnabled: true, agentHistoryEnabled: true, agentDefaultProvider: '', agentDefaultModel: '', agentDefaultEffort: '',
     agentDefaultPermissionMode: 'workspace-write' })
-  useAgent.setState({ chatFocusOrder: {}, chats: { 'chat-test': chat() }, pages: {}, pageLoading: {}, historyByRoot: {}, queues: {}, interjecting: {}, running: {}, chatDrafts: {}, focusRequests: {}, localPicker: null,
+  useAgent.setState({ chatFocusOrder: {}, chats: { 'chat-test': chat() }, pages: {}, pageLoading: {}, loadingChats: {}, deletingChats: {}, historyByRoot: {}, queues: {}, interjecting: {}, running: {}, chatDrafts: {}, focusRequests: {}, localPicker: null,
     catalogs: {}, catalogLoading: {}, chatDefaults: { provider: '', model: '', effort: '' },
     providers: [{ id: 'codex', name: 'Codex', installed: true, supported: true, command: 'codex', version: '1', supportsFork: true }] })
   vi.mocked(api.agentModels).mockResolvedValue({ provider: 'codex', models: [], efforts: ['low', 'medium', 'high'], defaultModel: '' })
@@ -133,8 +135,133 @@ beforeEach(() => {
   vi.mocked(api.agentChatReset).mockResolvedValue({ ...page(), header: { ...chat(), title: '', sessionId: null, messages: [] }, messages: [], total: 0 })
   vi.mocked(api.agentChatOpen).mockResolvedValue(page())
   vi.mocked(api.agentChatList).mockResolvedValue({ chats: [], nextOffset: null })
+  vi.mocked(api.agentChatDelete).mockResolvedValue(undefined)
   vi.mocked(api.agentSend).mockResolvedValue(undefined)
   vi.mocked(api.agentCancel).mockResolvedValue(undefined)
+})
+
+describe('deleting project chat history', () => {
+  const summary = (id: string) => ({ id, root: '/tmp/project', title: id, provider: 'codex', model: '', updatedAt: 1, messageCount: 2 })
+
+  it('clears local state, closes the tab and restarts history pagination at the first page', async () => {
+    const remaining = summary('remaining')
+    useAgent.setState({
+      historyByRoot: { '/tmp/project': { chats: [summary('chat-test'), remaining], nextOffset: 5, loading: false, loaded: true, error: false } },
+      chatDrafts: { 'chat-test': { text: 'unsent', mentions: [] } }, queues: { 'chat-test': [{ id: 'queued', text: 'queued', mentions: [] }] },
+      pages: { 'chat-test': page() }, focusRequests: { 'chat-test': 1 }, chatFocusOrder: { 'chat-test': 1 },
+    })
+    useAgent.getState().setChatOptions('chat-test', { effort: 'high' })
+    vi.mocked(api.agentChatList).mockResolvedValueOnce({ chats: [remaining], nextOffset: null })
+    expect(await useAgent.getState().deleteChat('chat-test', '/tmp/project')).toBe(true)
+    expect(api.agentChatDelete).toHaveBeenCalledExactlyOnceWith('chat-test', '/tmp/project')
+    expect(closeTab).toHaveBeenCalledWith('chat:chat-test', true)
+    expect(agentBridge.onChatDeleted).toHaveBeenCalledOnce()
+    for (const entries of [useAgent.getState().chats, useAgent.getState().chatDrafts, useAgent.getState().queues,
+      useAgent.getState().pages, useAgent.getState().focusRequests, useAgent.getState().chatFocusOrder,
+      useAgent.getState().loadingChats, useAgent.getState().pageLoading, useAgent.getState().deletingChats]) {
+      expect(entries['chat-test']).toBeUndefined()
+    }
+    expect(api.agentChatList).toHaveBeenLastCalledWith('/tmp/project', 0, 5)
+    expect(useAgent.getState().historyByRoot['/tmp/project'].chats).toEqual([remaining])
+    useAgent.getState().forgetChat('chat-test') // The delayed tab cleanup must not write the record back.
+    await vi.runAllTimersAsync()
+    expect(api.agentChatApply).not.toHaveBeenCalled()
+  })
+
+  it('preserves the record and tab after a failed deletion and allows retry', async () => {
+    const original = useAgent.getState().chats['chat-test']
+    vi.mocked(api.agentChatDelete).mockRejectedValueOnce(new Error('disk unavailable'))
+    expect(await useAgent.getState().deleteChat('chat-test', '/tmp/project')).toBe(false)
+    expect(useAgent.getState().chats['chat-test']).toBe(original)
+    expect(useAgent.getState().deletingChats).toEqual({})
+    expect(closeTab).not.toHaveBeenCalled()
+    expect(await useAgent.getState().deleteChat('chat-test', '/tmp/project')).toBe(true)
+  })
+
+  it('rejects running chats and mismatched project roots before deleting', async () => {
+    useAgent.setState({ chats: { 'chat-test': { ...chat(), status: 'running' } } })
+    expect(await useAgent.getState().deleteChat('chat-test', '/tmp/project')).toBe(false)
+    useAgent.setState({ chats: { 'chat-test': chat() } })
+    expect(await useAgent.getState().deleteChat('chat-test', '/other')).toBe(false)
+    expect(api.agentChatDelete).not.toHaveBeenCalled()
+    expect(closeTab).not.toHaveBeenCalled()
+  })
+
+  it('waits for an accepted save and blocks duplicate delete, send, reset and resume during removal', async () => {
+    let finishSave!: (value: ReturnType<typeof page>) => void
+    vi.mocked(api.agentChatApply).mockImplementationOnce(() => new Promise(resolve => { finishSave = resolve }))
+    useAgent.getState().setChatOptions('chat-test', { effort: 'high' })
+    await vi.advanceTimersByTimeAsync(700)
+    const deleting = useAgent.getState().deleteChat('chat-test', '/tmp/project')
+    expect(useAgent.getState().deletingChats['chat-test']).toBe(true)
+    expect(api.agentChatDelete).not.toHaveBeenCalled()
+    expect(await useAgent.getState().deleteChat('chat-test', '/tmp/project')).toBe(false)
+    expect(await useAgent.getState().resumeChat('chat-test', '/tmp/project')).toBe(false)
+    expect(await useAgent.getState().resetChat('chat-test')).toBe(false)
+    await useAgent.getState().sendMessage('chat-test', { text: 'do not launch', mentions: [] })
+    expect(api.agentSend).not.toHaveBeenCalled()
+    finishSave(page())
+    expect(await deleting).toBe(true)
+    await vi.runAllTimersAsync()
+    expect(api.agentChatApply).toHaveBeenCalledOnce()
+    expect(useAgent.getState().chats['chat-test']).toBeUndefined()
+  })
+
+  it('discards a transcript read that finishes after deletion', async () => {
+    useAgent.setState({ chats: {} })
+    let finishRead!: (value: ReturnType<typeof page>) => void
+    vi.mocked(api.agentChatOpen).mockImplementationOnce(() => new Promise(resolve => { finishRead = resolve }))
+    const reading = useAgent.getState().loadChat('chat-test', '/tmp/project')
+    expect(await useAgent.getState().deleteChat('chat-test', '/tmp/project')).toBe(true)
+    finishRead(page())
+    await reading
+    expect(useAgent.getState().chats['chat-test']).toBeUndefined()
+    expect(useAgent.getState().loadingChats['chat-test']).toBeUndefined()
+  })
+
+  it('discards a page that finishes after deletion', async () => {
+    let finishPage!: (value: ReturnType<typeof page>) => void
+    let pageRequested!: () => void
+    const started = new Promise<void>(resolve => { pageRequested = resolve })
+    vi.mocked(api.agentChatPage).mockImplementationOnce(() => new Promise(resolve => { finishPage = resolve; pageRequested() }))
+    const reading = useAgent.getState().loadPage('chat-test', 'earlier')
+    await started
+    expect(api.agentChatPage).toHaveBeenCalled()
+    expect(await useAgent.getState().deleteChat('chat-test', '/tmp/project')).toBe(true)
+    finishPage(page())
+    await reading
+    expect(useAgent.getState().chats['chat-test']).toBeUndefined()
+    expect(useAgent.getState().pages['chat-test']).toBeUndefined()
+  })
+
+  it('removes failed closing-save snapshots so reopening cannot restore a deleted chat', async () => {
+    useAgent.getState().setChatOptions('chat-test', { effort: 'high' })
+    vi.mocked(api.agentChatApply).mockRejectedValueOnce(new Error('save failed'))
+    useAgent.getState().forgetChat('chat-test')
+    await vi.advanceTimersByTimeAsync(0)
+    expect(await useAgent.getState().deleteChat('chat-test', '/tmp/project')).toBe(true)
+    vi.mocked(api.agentChatOpen).mockResolvedValueOnce(null)
+    await useAgent.getState().loadChat('chat-test', '/tmp/project')
+    expect(api.agentChatOpen).toHaveBeenCalledWith('chat-test', 80, '/tmp/project')
+    expect(useAgent.getState().chats['chat-test']).toBeUndefined()
+    await vi.runAllTimersAsync()
+    expect(api.agentChatApply).toHaveBeenCalledOnce()
+  })
+
+  it('rejects an old history list that returns after the deletion refresh', async () => {
+    let finishList!: (value: { chats: ReturnType<typeof summary>[]; nextOffset: number | null }) => void
+    let listRequested!: () => void
+    const started = new Promise<void>(resolve => { listRequested = resolve })
+    vi.mocked(api.agentChatList).mockImplementationOnce(() => new Promise(resolve => { finishList = resolve; listRequested() }))
+    const reading = useAgent.getState().loadHistory('/tmp/project', true)
+    await started
+    expect(await useAgent.getState().deleteChat('chat-test', '/tmp/project')).toBe(true)
+    finishList({ chats: [summary('chat-test')], nextOffset: 5 })
+    await reading
+    expect(api.agentChatList).toHaveBeenCalledTimes(2)
+    expect(api.agentChatList).toHaveBeenLastCalledWith('/tmp/project', 0, 5)
+    expect(useAgent.getState().historyByRoot['/tmp/project'].chats).toEqual([])
+  })
 })
 
 describe('project chat history', () => {

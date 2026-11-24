@@ -108,3 +108,18 @@ it('shows restart timeout errors while keeping installation available', () => {
   expect(updateTip(failedRestart)).toBe(failedRestart.error)
   expect(updateDetail(failedRestart)).toBe(failedRestart.error)
 })
+
+it.each(['checking', 'downloading'] as const)('shows %s only on the action, without a duplicate caption', status => {
+  const current = { ...view(status), percent: 42 }
+  expect(updateAction(current).kind).toBe('wait')
+  expect(updateDetail(current)).toBeNull()
+})
+
+it('keeps only additional restart, destination and error information beneath the action', () => {
+  expect(updateDetail(view('installing'))).toBe('settings.about.restartAfterInstall')
+  expect(updateDetail(view('ready'))).toBeNull()
+  expect(updateDetail({ ...view('ready'), installedTo: '/Applications/Tide.app' })).toBe('settings.about.downloadedInto')
+  expect(updateDetail({ ...view('error'), error: 'Download failed' })).toBe('Download failed')
+  expect(updateDetail(view('available', availableInfo))).toBe('settings.about.available')
+  expect(updateDetail(view('uptodate'))).toBe('settings.about.upToDate')
+})

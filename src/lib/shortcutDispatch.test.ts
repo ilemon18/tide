@@ -51,6 +51,18 @@ it('records before dispatch and prevents other key handlers, including Escape', 
   } finally { stop(); window.removeEventListener('keydown', dispatchShortcut, true); window.removeEventListener('keydown', bubble) }
 })
 
+it('blocks app actions throughout the shortcut dialog while leaving its buttons keyboard accessible', () => {
+  const dialog = document.createElement('div')
+  dialog.setAttribute('data-shortcut-dialog', '')
+  const button = document.createElement('button')
+  dialog.append(button)
+  document.body.append(dialog)
+  button.focus()
+  expect(press('A', { shiftKey: true }).defaultPrevented).toBe(false)
+  expect(press('Enter', { metaKey: false }).defaultPrevented).toBe(false)
+  expect(run).not.toHaveBeenCalled()
+})
+
 it('respects modal state, tree focus and terminal-owned font input', () => {
   ui.overlay = 'commands' as never
   expect(press('A', { shiftKey: true }).defaultPrevented).toBe(false)

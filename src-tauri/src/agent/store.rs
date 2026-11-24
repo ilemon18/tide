@@ -136,6 +136,10 @@ fn count_messages<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<u
 fn read_summary(path: &Path) -> AppResult<Option<AgentChatSummary>> {
     let lock = document_lock(path);
     let _guard = lock.lock();
+    read_summary_unlocked(path)
+}
+
+fn read_summary_unlocked(path: &Path) -> AppResult<Option<AgentChatSummary>> {
     let file = match std::fs::File::open(path) {
         Ok(file) => file,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
@@ -557,10 +561,20 @@ fn list_chats_in_dir(dir: &Path, root: &str, offset: usize, limit: usize) -> App
     Ok(chat_list_page(out, offset, limit))
 }
 
-pub fn delete_chat(app: &AppHandle, id: &str) -> AppResult<()> {
+pub fn delete_chat(app: &AppHandle, id: &str, root: &str) -> AppResult<()> {
     let path = chat_path(app, id)?;
-    let lock = document_lock(&path);
+    delete_project_chat(&path, root)
+}
+
+fn delete_project_chat(path: &Path, root: &str) -> AppResult<()> {
+    let lock = document_lock(path);
     let _guard = lock.lock();
+    // Validate and remove under the same document lock. Preserve corrupt/unverifiable records.
+    match read_summary_unlocked(path)? {
+        Some(summary) if summary.root == root => {},
+        None if !path.exists() => return Ok(()),
+        _ => return Err(AppError::c("agent.invalidId")),
+    }
     match std::fs::remove_file(path) {
         Ok(()) => Ok(()),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
@@ -656,6 +670,28 @@ mod tests {
         assert!(!valid_id("a/b"));
         assert!(!valid_id(".hidden"));
         assert!(!valid_id(&"x".repeat(65)));
+    }
+
+    #[test]
+    fn deletion_checks_the_project_and_preserves_unverifiable_files() {
+        let dir = std::env::temp_dir().join(format!(
+            "tide-chat-delete-{}-{}", std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("clock").as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let path = dir.join("chat-1.json");
+        write_document(&path, &document()).expect("seed");
+        let original = std::fs::read(&path).expect("original");
+        assert!(delete_project_chat(&path, "/other/project").is_err());
+        assert_eq!(std::fs::read(&path).expect("preserved"), original);
+        delete_project_chat(&path, "/tmp/project").expect("delete owned chat");
+        assert!(!path.exists());
+        delete_project_chat(&path, "/tmp/project").expect("already deleted");
+
+        std::fs::write(&path, b"invalid json").expect("corrupt record");
+        assert!(delete_project_chat(&path, "/tmp/project").is_err());
+        assert_eq!(std::fs::read(&path).expect("preserved corrupt record"), b"invalid json");
+        std::fs::remove_dir_all(dir).expect("cleanup");
     }
 
     #[test]

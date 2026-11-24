@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from 'react'
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { AgentChat as Chat, AgentQueuedMessage } from '../store/agent'
 import type { AgentDraft } from '../lib/agentCommand'
@@ -10,19 +10,19 @@ const { state, initialChat, actions, settings } = vi.hoisted(() => {
     status: 'running', sessionId: null, error: null, createdAt: 0, updatedAt: 0,
     messages: [{ id: 'reply', role: 'assistant', at: 0, items: [{ id: 'text', type: 'text', text: 'Latest output' }] }],
   }
-  const actions = { markChatFocused: vi.fn(), loadCatalog: vi.fn(), loadPage: vi.fn(), loadHistory: vi.fn(), clearHistory: vi.fn(), resumeChat: vi.fn().mockResolvedValue(true), loadChat: vi.fn().mockResolvedValue(undefined), openChatTab: vi.fn(), sendMessage: vi.fn(), interjectQueued: vi.fn(), removeQueued: vi.fn() }
+  const actions = { markChatFocused: vi.fn(), loadCatalog: vi.fn(), loadPage: vi.fn(), loadHistory: vi.fn(), clearHistory: vi.fn(), deleteChat: vi.fn().mockResolvedValue(true), resumeChat: vi.fn().mockResolvedValue(true), loadChat: vi.fn().mockResolvedValue(undefined), openChatTab: vi.fn(), sendMessage: vi.fn(), interjectQueued: vi.fn(), removeQueued: vi.fn() }
   const settings = { agentEnabled: true, agentHistoryEnabled: true, shortcutOverrides: {} }
   return { initialChat, actions, settings, state: {
     chats: { chat: initialChat }, pages: {} as Record<string, Partial<AgentChatPage>>,
-    pageLoading: {} as Record<string, boolean>, loadingChats: {} as Record<string, boolean>,
-    running: { chat: Date.now() }, chatDrafts: {} as Record<string, AgentDraft>,
+    pageLoading: {} as Record<string, boolean>, loadingChats: {} as Record<string, boolean>, deletingChats: {} as Record<string, boolean>,
+    running: { chat: Date.now() } as Record<string, number>, chatDrafts: {} as Record<string, AgentDraft>,
     queues: {} as Record<string, AgentQueuedMessage[]>, interjecting: {} as Record<string, string>,
     focusRequests: {}, localPicker: null, historyByRoot: {} as Record<string, import('../store/agent').AgentHistory>,
     providers: [{ id: 'codex', installed: true, supported: true }],
   } }
 })
 const { ui, tabs, frames, observers, platform } = vi.hoisted(() => ({
-  ui: { overlay: false }, tabs: { activeId: 'chat:chat' }, platform: { mac: false },
+  ui: { overlay: false, confirmReq: null as object | null, confirm: vi.fn<(options: unknown) => Promise<boolean>>(), toast: vi.fn() }, tabs: { activeId: 'chat:chat' }, platform: { mac: false },
   frames: new Map<number, FrameRequestCallback>(), observers: [] as Array<{ callback: () => void; targets: Element[] }>,
 }))
 const { composerBoundary } = vi.hoisted(() => ({ composerBoundary: { value: undefined as React.RefObject<HTMLDivElement | null> | undefined } }))
@@ -63,11 +63,15 @@ beforeEach(() => {
   })
   tabs.activeId = 'chat:chat'
   ui.overlay = false
+  ui.confirmReq = null
+  ui.confirm.mockReset().mockResolvedValue(false)
   platform.mac = false
   state.chats.chat = structuredClone(initialChat)
+  state.running = { chat: Date.now() }
   state.pages = {}
   state.pageLoading = {}
   state.loadingChats = {}
+  state.deletingChats = {}
   state.chatDrafts = {}
   state.queues = {}
   state.interjecting = {}
@@ -91,6 +95,64 @@ it('loads five history records only after opening the project history panel', as
   settings.agentHistoryEnabled = false
   rerender(<AgentChat chatId="chat" />)
   expect(screen.queryByRole('button', { name: 'agent.history.title' })).toBeNull()
+})
+
+function seedHistory(running = false) {
+  state.chats.chat.status = running ? 'running' : 'idle'
+  state.running = running ? { chat: 1 } : {}
+  state.historyByRoot = { '/repo': { chats: [{ id: 'chat', root: '/repo', title: 'Saved chat', provider: 'codex', model: '', updatedAt: 1, messageCount: 2 }],
+    nextOffset: null, loaded: true, loading: false, error: false } }
+}
+
+it.each([false, true])('requires confirmation before deleting history (confirmed=%s) without resuming it', async confirmed => {
+  seedHistory()
+  state.chats.chat.status = 'idle'
+  ui.confirm.mockResolvedValueOnce(confirmed)
+  render(<AgentChat chatId="chat" />)
+  fireEvent.click(screen.getByRole('button', { name: 'agent.history.title' }))
+  const trigger = screen.getByRole('button', { name: 'agent.history.delete' })
+  await act(async () => { fireEvent.click(trigger) })
+  expect(ui.confirm).toHaveBeenCalledWith({ title: 'agent.history.deleteTitle', message: 'agent.history.deleteMessage',
+    confirmText: 'agent.history.deleteTitle', danger: true })
+  if (confirmed) expect(actions.deleteChat).toHaveBeenCalledWith('chat', '/repo')
+  else expect(actions.deleteChat).not.toHaveBeenCalled()
+  expect(actions.resumeChat).not.toHaveBeenCalled()
+  expect(document.activeElement).toBe(trigger)
+  expect(screen.getByRole('dialog', { name: 'agent.history.title' })).toBeTruthy()
+})
+
+it('disables deletion of running and already deleting history entries', () => {
+  seedHistory(true)
+  const { rerender } = render(<AgentChat chatId="chat" />)
+  fireEvent.click(screen.getByRole('button', { name: 'agent.history.title' }))
+  const trigger = screen.getByRole('button', { name: 'agent.history.delete' }) as HTMLButtonElement
+  expect(trigger.disabled).toBe(true)
+  expect(trigger.getAttribute('data-tip')).toBe('agent.history.deleteRunning')
+  fireEvent.click(trigger)
+  expect(ui.confirm).not.toHaveBeenCalled()
+  state.chats.chat.status = 'idle'
+  state.running = {}
+  state.deletingChats.chat = true
+  rerender(<AgentChat chatId="chat" />)
+  expect((screen.getByRole('button', { name: 'agent.history.delete' }) as HTMLButtonElement).disabled).toBe(true)
+  expect((within(screen.getByRole('dialog')).getByRole('button', { name: /Saved chat/ }) as HTMLButtonElement).disabled).toBe(true)
+})
+
+it('keeps history open while its confirmation receives outside clicks or Escape', async () => {
+  seedHistory()
+  state.chats.chat.status = 'idle'
+  let answer!: (confirmed: boolean) => void
+  ui.confirm.mockImplementationOnce(() => new Promise(resolve => { answer = resolve }))
+  render(<AgentChat chatId="chat" />)
+  fireEvent.click(screen.getByRole('button', { name: 'agent.history.title' }))
+  fireEvent.click(screen.getByRole('button', { name: 'agent.history.delete' }))
+  fireEvent.pointerDown(document.body)
+  fireEvent.keyDown(window, { key: 'Escape' })
+  expect(screen.getByRole('dialog', { name: 'agent.history.title' })).toBeTruthy()
+  await act(async () => { answer(false) })
+  expect(actions.deleteChat).not.toHaveBeenCalled()
+  fireEvent.keyDown(window, { key: 'Escape' })
+  expect(screen.queryByRole('dialog', { name: 'agent.history.title' })).toBeNull()
 })
 it('keeps the transcript before the composer without a separate running strip', () => {
   const { container } = render(<AgentChat chatId="chat" />)

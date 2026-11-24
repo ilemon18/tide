@@ -10,7 +10,7 @@ export function dispatchShortcut(event: KeyboardEvent): boolean {
   if (captureShortcutRecording(event)) return true
   if (event.defaultPrevented || event.key === 'Escape') return false
   const ui = useUi.getState()
-  if (ui.confirmReq || ui.promptReq || ui.overlay) return false
+  if (ui.confirmReq || ui.promptReq || ui.overlay || document.querySelector('[data-shortcut-dialog]')) return false
   const mac = isMac()
   const key = shortcutFromEvent(event, mac)
   if (!key) return false

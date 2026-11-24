@@ -5,6 +5,7 @@ scope:
   - src/App.tsx
   - src/App.test.tsx
   - src/main.tsx
+  - src/lib/contextMenu*.ts
   - src/components/TitleBar.tsx
   - src/components/SettingsView.tsx
   - src/components/SettingsView.test.tsx
@@ -66,6 +67,8 @@ App owns hydration/window coordination; the settings store and Rust theme comman
   reaps PTYs/grants, so frontend cleanup cannot close them afterward.
 - Render the themed startup frame before restoration effects; render failure prevents the reveal timer.
   `src/App.test.tsx` covers initial render with real hooks, without native effects.
+- Startup suppresses the native webview context menu for every surface via `src/lib/contextMenu.ts`.
+  Only prevent the default action; keep propagation so explicitly defined component menus still open.
 - Right editor region owns terminal geometry. Maximize hides its wrapper without unmount/sidebar changes;
   follow [terminal.md](./terminal.md) for drag/restore.
 
@@ -85,6 +88,10 @@ App owns hydration/window coordination; the settings store and Rust theme comman
   global reset clears overrides. Recording captures before dispatch, Escape cancels, modifier-only/repeat/
   composition events never save. Plain/Shift-only typing and native select/copy/paste/cut/undo/redo keys
   cannot be assigned. Only explicit Save commits; no extra conflict confirmation.
+- Adding/editing a shortcut opens a centered portal dialog with action/scope, original binding and a focused
+  recording field. Capture candidate strokes only in that field; Escape cancels throughout the dialog.
+  Tab/Shift+Tab cycle through enabled dialog controls, buttons keep native activation, app actions remain
+  blocked and closing/unmounting releases listeners and restores focus to the connected trigger or edited binding.
 - v14 shortcutOverrides defaults to {}; absent id means defaults, [] explicitly unbinds. Normalize damaged
   entries without resetting other settings; retain unknown ids but never execute them. Compare key content,
   preserve override order for deterministic duplicate recovery, save immediately and share across windows.

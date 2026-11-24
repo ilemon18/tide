@@ -6,6 +6,7 @@ export const es: Messages = {
   "shortcuts.resetAll": "Restaurar todos los valores",
   "shortcuts.help": "Graba una combinación de teclas. Al guardar un atajo ocupado, se elimina su asignación anterior. Los atajos de edición básicos están reservados. Escape cancela la grabación.",
   "shortcuts.recordTitle": "Grabar atajo",
+  "shortcuts.currentBinding": "Atajo actual: {keys}",
   "shortcuts.recordHint": "Pulsa la combinación de teclas que quieras usar.",
   "shortcuts.invalid": "Usa una tecla con modificador o una tecla de función. Los atajos de edición básicos están reservados.",
   "shortcuts.conflict": "Usado por {commands}. Al guardar se elimina la asignación anterior.",
@@ -115,6 +116,10 @@ export const es: Messages = {
   'agent.history.earlier': "Mensajes anteriores",
   'agent.history.later': "Mensajes posteriores",
   'agent.history.pending': "Abrir solicitud pendiente",
+  "agent.history.delete": "Eliminar chat «{title}»",
+  "agent.history.deleteTitle": "Eliminar chat",
+  "agent.history.deleteMessage": "¿Eliminar «{title}» y todos sus mensajes? Esta acción no se puede deshacer.",
+  "agent.history.deleteRunning": "Detén el chat antes de eliminarlo.",
   'agent.history.title': 'Historial de chats',
   'agent.history.loading': 'Cargando historial…',
   'agent.history.empty': 'Este proyecto aún no tiene chats guardados.',
@@ -280,6 +285,7 @@ export const es: Messages = {
   'settings.about.install': 'Instalar actualización',
   'settings.about.installUpdate': 'Instalar actualización',
   'settings.about.installPrompt': 'La versión {version} está lista para instalarse. ¿Instalarla ahora?',
+  "settings.about.restartAfterInstall": "La aplicación se reiniciará al terminar la instalación.",
   'settings.about.installing': 'Instalando…',
   'settings.about.retry': 'Reintentar',
   'settings.about.updateFailed': 'La actualización falló',
@@ -289,7 +295,7 @@ export const es: Messages = {
   'settings.about.noInstaller':
     'La versión {version} ya salió, pero esa publicación no incluye instalador: ábrela para descargarlo',
   'settings.about.downloaded': 'Actualización descargada. Pulsa «Instalar actualización» cuando estés listo.',
-  'settings.about.downloadedInto': 'Actualización descargada. Se instalará en {path}.',
+  "settings.about.downloadedInto": "Ubicación de instalación: {path}",
 
   // ---------------------------------------------------------------- Actualización en la app (barra de título / avisos)
   'update.downloading': 'Descargando {percent}%',

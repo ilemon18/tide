@@ -7,6 +7,10 @@ import { awaitCatalog } from './i18n'
 import { setupPtyEvents } from './store/terminal'
 import { setupFsEvents } from './store/watcher'
 import { watchDisplayScale } from './lib/displayScale'
+import { suppressDefaultContextMenu } from './lib/contextMenu'
+
+// App menus handle the same event; only the webview's default menu is suppressed.
+suppressDefaultContextMenu(document)
 
 // Before the first paint: the editor and terminal pick their glyph weight from the display
 watchDisplayScale()

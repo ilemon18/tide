@@ -182,16 +182,15 @@ export function updateDetail(view: UpdateView): string | null {
 function detailText(view: UpdateView): string | null {
   switch (view.status) {
     case 'checking':
-      return t('settings.about.checking')
     case 'downloading':
-      return t('update.downloading', { percent: view.percent })
+      return null
     case 'installing':
-      return t('update.installing')
+      return t('settings.about.restartAfterInstall')
     case 'ready':
       return view.error ?? (
         view.installedTo
           ? t('settings.about.downloadedInto', { path: view.installedTo })
-          : t('settings.about.downloaded')
+          : null
       )
     case 'error':
       return view.error ?? t('settings.about.updateFailed')

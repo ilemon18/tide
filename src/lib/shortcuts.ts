@@ -125,15 +125,18 @@ export function formatBinding(value: string, mac: boolean): string {
   return [...parts.map(part => labels[part] ?? part), KEY_LABELS[key] ?? key.toUpperCase()].join(mac ? '' : '+')
 }
 
-let recorder: ((event: KeyboardEvent) => void) | null = null
-export function startShortcutRecording(handler: (event: KeyboardEvent) => void): () => void {
-  recorder = handler
-  return () => { if (recorder === handler) recorder = null }
+let recorder: { handler: (event: KeyboardEvent) => void; accepts: (event: KeyboardEvent) => boolean } | null = null
+export function startShortcutRecording(handler: (event: KeyboardEvent) => void,
+  accepts: (event: KeyboardEvent) => boolean = () => true): () => void {
+  const current = { handler, accepts }
+  recorder = current
+  return () => { if (recorder === current) recorder = null }
 }
 export function captureShortcutRecording(event: KeyboardEvent): boolean {
-  if (!recorder) return false
+  if (!recorder || !recorder.accepts(event)) return false
+  const { handler } = recorder
   event.preventDefault()
   event.stopImmediatePropagation()
-  recorder(event)
+  handler(event)
   return true
 }
