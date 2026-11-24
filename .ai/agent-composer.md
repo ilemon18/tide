@@ -81,12 +81,15 @@ actions and queue gates. Rust parses questions/scans skills. Provider/model/perm
   release local locks, preserving selections/custom text for retry. Follow-ups retain the source
   planning/read-only boundary; duplicate submits never start a second run.
 - Successful planning without questions creates plan-<message>; questions take precedence. Implement-current
-  resumes writable; implement-fresh isolates a same-root tab with plan/fixed preamble; continue-planning is
-  read-only. Persist action/result/target before launch, lock duplicates, retry same target, never run on hydration.
+  resumes writable; implement-fresh clears the current chat tab's transcript/session and launches the plan
+  with a fresh provider session in that same tab; continue-planning is read-only. Persist action/result/target
+  before launch, lock duplicates, restore the plan card after a reset/launch failure for retry, and never run
+  on hydration.
 - Plan options use Codex's official English copy/order, translated consistently across all catalogs:
   “Yes, implement this plan”; “Yes, clear context and implement”; “No, stay in Plan mode”.
   Source: [Codex plan_implementation.rs, commit 63a15005](https://github.com/openai/codex/blob/63a15005de43a3db68d451403593b202ed337d20/codex-rs/tui/src/chatwidget/plan_implementation.rs).
-  Copy maps to existing persisted action IDs; clear-context execution starts a fresh same-root chat carrying the plan.
+  Copy maps to existing persisted action IDs; clear-context execution reuses the current chat tab after clearing
+  its context and carries the plan into the new session.
   Optional instructions follow all three action buttons and accompany the selected action.
 - The complete command set is /new, /resume [chat ID], /fork, /compact, /status, /model [ID|default],
   /permissions, /plan, /goal, /review, /test, /explain and /help. Local /new resets the current chat tab

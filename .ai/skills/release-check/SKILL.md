@@ -23,7 +23,8 @@ local preflight. Run commands one at a time.
 
 ## Gate
 
-Run from the repository root: `pnpm release:check [version]` (static release checks including `install.sh`
+Run from the repository root: `node --test scripts/release-git-state.test.mjs`, then
+`pnpm release:check [version]` (static release checks including `install.sh`
 syntax, with `--allow-dirty` once fixes dirty the tree), `pnpm install --frozen-lockfile`, then follow
 [the verification gate](../release-verify/SKILL.md) — running any check `pnpm verify` skipped before it
 stopped — then `pnpm build`, then `cargo test --manifest-path src-tauri/Cargo.toml`.

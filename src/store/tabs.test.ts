@@ -21,9 +21,9 @@ vi.mock('./workspace', () => ({ useWorkspace: { getState: () => ({ setActiveRoot
 vi.mock('./git', () => ({ useGit: { getState: () => ({}) } }))
 vi.mock('./blame', () => ({ useBlame: { getState: () => ({ invalidate: vi.fn() }) } }))
 vi.mock('./fileIndex', () => ({ useFileIndex: { getState: () => ({}) } }))
-const { confirm, onTabClosed } = vi.hoisted(() => ({ confirm: vi.fn(), onTabClosed: vi.fn() }))
+const { confirm, onTabClosed, isChatRunning } = vi.hoisted(() => ({ confirm: vi.fn(), onTabClosed: vi.fn(), isChatRunning: vi.fn(() => false) }))
 vi.mock('./ui', () => ({ useUi: { getState: () => ({ confirm }) } }))
-vi.mock('../lib/agentBridge', () => ({ agentBridge: { onTabClosed } }))
+vi.mock('../lib/agentBridge', () => ({ agentBridge: { onTabClosed, isChatRunning } }))
 
 import { dropEditorState } from '../editor/stateCache'
 import { useTabs } from './tabs'
@@ -56,6 +56,7 @@ function expectSinglePane(order: string[], activeId = order.at(-1) ?? null) {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  isChatRunning.mockReset().mockReturnValue(false)
   confirm.mockResolvedValue(true)
   split()
 })
@@ -144,5 +145,29 @@ describe('collapse empty panes', () => {
     expect(useTabs.getState().tabs).toBe(before.tabs)
     expect(useTabs.getState().splitOrientation).toBe('row')
     expect(dropEditorState).not.toHaveBeenCalled()
+  })
+})
+
+describe('running Agent close protection', () => {
+  it('blocks single and bulk closes until the chat turn stops', async () => {
+    isChatRunning.mockImplementation((id: string) => id === 'one')
+    const before = useTabs.getState()
+    await useTabs.getState().closeIn(chat.id, 'secondary')
+    await useTabs.getState().closeAll()
+    await useTabs.getState().closeOthers(chat.id)
+    expect(useTabs.getState().tabs).toEqual(before.tabs)
+    expect(useTabs.getState().groups).toEqual(before.groups)
+    expect(onTabClosed).not.toHaveBeenCalled()
+
+    isChatRunning.mockImplementation(() => false)
+    await useTabs.getState().closeIn(chat.id, 'secondary')
+    expect(onTabClosed).toHaveBeenCalledExactlyOnceWith('one')
+  })
+
+  it('allows force cleanup to close a running chat during workspace teardown', async () => {
+    isChatRunning.mockImplementation((id: string) => id === 'one')
+    await useTabs.getState().closeTabs([chat.id], { force: true })
+    expect(useTabs.getState().tabs).toEqual([file])
+    expect(onTabClosed).toHaveBeenCalledExactlyOnceWith('one')
   })
 })

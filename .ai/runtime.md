@@ -77,7 +77,9 @@ App owns hydration/window coordination; the settings store and Rust theme comman
   use the same resolver. Palette selection closures retain captured context while key labels update live.
 - One physical stroke has one owner across managed actions; Mod expands before comparison. The shared
   Mod+Down action opens a focused tree row or jumps in the active chat. Other ordinary widget navigation,
-  native editing and terminal character input keep their local handlers.
+  native editing and terminal character input keep their local handlers. Close commands are dynamically
+  unavailable while their target set includes a running Agent chat, so Mod+W and related close strokes do not
+  dispatch until that turn stops or completes.
 - Saving a recording transfers the stroke and persists explicit removals for all previous owners in one
   patch, including hidden actions. Keep other aliases. Single reset transfers default strokes the same way;
   global reset clears overrides. Recording captures before dispatch, Escape cancels, modifier-only/repeat/

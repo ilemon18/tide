@@ -1242,14 +1242,23 @@ export const useAgent = create<AgentStore>((set, get) => {
       if (!pending || pending.item.id !== itemId || findPendingQuestion(chat.messages) || get().pages[chatId]?.hasPendingQuestion) return false
 
       planActionLocks.add(lockKey)
-      const targetId = action === 'implement-fresh' ? (pending.item.action === action ? pending.item.targetChatId : undefined) ?? newChatId() : chatId
+      // Clear-context execution intentionally reuses the current chat record and tab. The reset below
+      // removes the old transcript/session before the new run starts, so a second chat cannot appear.
+      const targetId = chatId
       let sourceMessage = pending.message
       const updateCard = async (resolved: boolean, state: 'launching' | 'completed' | 'failed') => {
         const current = get().chats[chatId]
         if (!current) return
         sourceMessage = { ...sourceMessage, items: sourceMessage.items?.map(item => item.id === itemId
           ? { ...item, resolved, action, actionState: state, targetChatId: targetId } : item) }
-        const messages = current.messages.map(message => message.id === sourceMessage.id ? sourceMessage : message)
+        const hasSource = current.messages.some(message => message.id === sourceMessage.id)
+        // A failed clear-context launch has already reset the transcript. Restore the source card so
+        // the user can retry; successful launches deliberately leave the old card out of the new context.
+        const messages = hasSource
+          ? current.messages.map(message => message.id === sourceMessage.id ? sourceMessage : message)
+          : resolved
+            ? current.messages
+            : [...current.messages, sourceMessage]
         const updated = { ...current, messages, ...(!resolved ? { permissionMode: chat.permissionMode, planning: chat.planning } : {}) }
         set({ chats: { ...get().chats, [chatId]: updated } })
         const page = get().pages[chatId]
@@ -1276,23 +1285,11 @@ export const useAgent = create<AgentStore>((set, get) => {
           return true
         }
         if (action === 'implement-fresh') {
-          if (!get().chats[targetId]) {
-            const existing = await api.agentChatOpen(targetId, 80)
-            const restored = existing ? normalizeChat({ ...existing.header, messages: existing.messages }) : null
-            const target: AgentChat = (restored?.id === targetId ? restored : null) ?? { v: 1, id: targetId, root: chat.root, title: chat.title,
-              provider: chat.provider, model: chat.model, effort: chat.effort, sessionId: null, messages: [],
-              permissionMode: 'workspace-write', planning: false, status: 'idle', error: null, createdAt: Date.now(), updatedAt: Date.now() }
-            set({ chats: { ...get().chats, [targetId]: target } })
+          const reset = await get().resetChat(chatId)
+          if (!reset) {
+            await updateCard(false, 'failed')
+            return false
           }
-          const target = get().chats[targetId]
-          if (target.messages.some(message => message.planActionId === itemId && message.launchAccepted)) {
-            await updateCard(true, 'completed')
-            await queueChatSave(chatId, get().chats[chatId])
-            get().openChatTab(targetId)
-            return true
-          }
-          await queueChatSave(targetId, target)
-          useTabs.getState().openChatInRight(targetId, chat.root, chat.title)
         }
         const destination = get().chats[targetId]
         if (destination?.messages.some(message => message.planActionId === itemId && message.launchAccepted)) {
@@ -1300,7 +1297,12 @@ export const useAgent = create<AgentStore>((set, get) => {
           return true
         }
         const accepted = await runTurn(targetId, { text: prompt, mentions: [] }, true, false, false, false, itemId)
-        if (accepted && targetId !== chatId) await queueChatSave(targetId, get().chats[targetId])
+        if (action === 'implement-fresh') {
+          if (!accepted) await updateCard(false, 'failed')
+          await queueChatSave(chatId, get().chats[chatId])
+          if (accepted && get().chats[targetId]?.status === 'idle') drainQueue(targetId)
+          return accepted
+        }
         await updateCard(accepted, accepted ? 'completed' : 'failed')
         await queueChatSave(chatId, get().chats[chatId])
         if (accepted && get().chats[targetId]?.status === 'idle') drainQueue(targetId)

@@ -24,6 +24,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { RELEASE_TARGETS } from './release-targets.mjs'
+import { checkTrackingState } from './release-git-state.mjs'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const WORKFLOW_CI = '.github/workflows/ci.yml'
@@ -254,20 +255,7 @@ function checkGit(version) {
     pass('working tree is clean')
   }
 
-  const head = run('git', ['rev-parse', 'HEAD'])
-  const origin = run('git', ['rev-parse', '--verify', 'origin/main'])
-  if (!origin.ok) {
-    warn('origin/main is not available', 'run git fetch origin yourself; this check does not use the network')
-  } else if (head.ok && head.out !== origin.out) {
-    const ahead = run('git', ['rev-list', '--count', 'origin/main..HEAD'])
-    const behind = run('git', ['rev-list', '--count', 'HEAD..origin/main'])
-    const message =
-      'HEAD is not origin/main (ahead ' + (ahead.out || '?') + ', behind ' + (behind.out || '?') + ')'
-    if (allowDirty) warn(message, 'commit and push, then rerun without --allow-dirty')
-    else fail(message, 'commit and push your changes, then rerun')
-  } else if (head.ok) {
-    pass('HEAD matches origin/main')
-  }
+  checkTrackingState(run, { pass, warn })
 
   const tag = 'v' + version
   const localTag = run('git', ['rev-parse', '--verify', '--quiet', 'refs/tags/' + tag])

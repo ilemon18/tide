@@ -156,6 +156,11 @@ export function TabBar({ groupId }: { groupId: TabGroupId }) {
   const splitTip = useShortcutTip('view.splitRight', 'tabs.splitTip')
   const t = useT()
   const allTabs = useTabs((s) => s.tabs)
+  const runningChatKey = useAgent((s) => Object.values(s.chats)
+    .filter((chat) => chat.status === 'running')
+    .map((chat) => chat.id)
+    .sort()
+    .join('\u0000'))
   const activeGroupId = useTabs((s) => s.activeGroupId)
   const splitOrientation = useTabs((s) => s.splitOrientation)
   const group = useTabs((s) => s.groups.find((g) => g.id === groupId))
@@ -332,30 +337,40 @@ export function TabBar({ groupId }: { groupId: TabGroupId }) {
 
   const index = menu ? tabs.findIndex((t) => t.id === menu.tabId) : -1
   const menuTab = index >= 0 ? tabs[index] : null
+  const isRunningTab = useCallback((tab: Tab | null) =>
+    Boolean(tab?.kind === 'chat' && runningChatKey.split('\u0000').includes(tab.id.slice('chat:'.length))), [runningChatKey])
+  const isRunningTabId = useCallback((id: string) => isRunningTab(allTabs.find((tab) => tab.id === id) ?? null), [allTabs, isRunningTab])
+  const hasRunning = useCallback((items: Tab[]) => items.some((tab) => isRunningTab(tab)), [isRunningTab])
+  const closeOthersTargets = menuTab ? tabs.filter((tab) => tab.id !== menuTab.id && !tab.pinned) : []
+  const closeLeftTargets = index > 0 ? tabs.slice(0, index).filter((tab) => !tab.pinned) : []
+  const closeRightTargets = index >= 0 ? tabs.slice(index + 1).filter((tab) => !tab.pinned) : []
+  const closeUnmodifiedTargets = tabs.filter((tab) => !tab.dirty && !tab.pinned)
   const menuItems: MenuItem[] = menu
     ? [
         {
           label: t('tabs.close'),
           shortcut: closeKeys,
+          disabled: isRunningTab(menuTab),
           onClick: () => void closeIn(menu.tabId, groupId),
         },
-        { label: t('tabs.closeOthers'), onClick: () => void closeOthers(menu.tabId) },
+        { label: t('tabs.closeOthers'), disabled: hasRunning(closeOthersTargets), onClick: () => void closeOthers(menu.tabId) },
         {
           label: t('tabs.closeLeft'),
-          disabled: index <= 0,
+          disabled: index <= 0 || hasRunning(closeLeftTargets),
           onClick: () => void closeLeft(menu.tabId),
         },
         {
           label: t('tabs.closeRight'),
-          disabled: index < 0 || index >= tabs.length - 1,
+          disabled: index < 0 || index >= tabs.length - 1 || hasRunning(closeRightTargets),
           onClick: () => void closeRight(menu.tabId),
         },
         {
           label: t('tabs.closeAll'),
           danger: true,
+          disabled: hasRunning(tabs),
           onClick: () => void closeAll(),
         },
-        { label: t('tabs.closeUnmodified'), onClick: () => void closeUnmodified() },
+        { label: t('tabs.closeUnmodified'), disabled: hasRunning(closeUnmodifiedTargets), onClick: () => void closeUnmodified() },
         { type: 'separator' as const },
         {
           label: menuTab?.pinned ? t('tabs.unpin') : t('tabs.pin'),
@@ -378,6 +393,7 @@ export function TabBar({ groupId }: { groupId: TabGroupId }) {
   const onPointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>, id: string) => {
     if (event.button === 1) {
       event.preventDefault()
+      if (isRunningTabId(id)) return
       void closeIn(id, groupId)
       return
     }
@@ -482,7 +498,7 @@ export function TabBar({ groupId }: { groupId: TabGroupId }) {
     window.addEventListener('pointermove', onMove)
     window.addEventListener('pointerup', onUp)
     window.addEventListener('pointercancel', onUp)
-  }, [activate, closeIn, groupId, moveTabToGroup, promoteTab])
+  }, [activate, closeIn, groupId, isRunningTabId, moveTabToGroup, promoteTab])
 
   const onContextMenu = useCallback((event: React.MouseEvent<HTMLDivElement>, id: string) => {
     event.preventDefault()
@@ -497,8 +513,9 @@ export function TabBar({ groupId }: { groupId: TabGroupId }) {
   }, [promoteTab])
 
   const onClose = useCallback((id: string) => {
+    if (isRunningTabId(id)) return
     void closeIn(id, groupId)
-  }, [closeIn, groupId])
+  }, [closeIn, groupId, isRunningTabId])
 
   // Keep the empty state after every hook so opening the first tab cannot change the hook count.
   if (tabs.length === 0) return null

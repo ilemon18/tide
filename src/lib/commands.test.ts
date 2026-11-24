@@ -2,24 +2,26 @@
 import { afterEach, expect, it, vi } from 'vitest'
 const { state, addContext } = vi.hoisted(() => ({
   state: { agentEnabled: true, activeGroupId: 'primary', activeId: 'terminal', visible: true,
-    tabs: [], shortcutOverrides: {} as Record<string, string[]> }, addContext: vi.fn(),
+    tabs: [] as Array<{ id: string; kind: string; pinned?: boolean; dirty?: boolean }>,
+    chats: {} as Record<string, { status: string }>, shortcutOverrides: {} as Record<string, string[]> }, addContext: vi.fn(),
 }))
 vi.mock('./actions', () => ({ closeWorkspaceDialog: vi.fn(), newEntry: vi.fn(), newWindow: vi.fn(),
   openFolderDialog: vi.fn(), openSettings: vi.fn(), openTerminalHere: vi.fn(), removeRoot: vi.fn(), toggleSidebar: vi.fn(), toggleTerminal: vi.fn() }))
-vi.mock('../store/tabs', () => ({ useTabs: { getState: () => state } }))
+vi.mock('../store/tabs', () => ({ useTabs: { getState: () => state }, groupTabs: (tabs: unknown[], group: { order?: string[] }) =>
+  (group?.order ?? []).map(id => tabs.find((tab: unknown) => (tab as { id: string }).id === id)).filter(Boolean) }))
 vi.mock('../store/ui', () => ({ useUi: { getState: () => ({}) } }))
 vi.mock('../store/settings', () => ({ useSettings: { getState: () => state } }))
 vi.mock('../store/git', () => ({ useGit: { getState: () => ({}) } }))
 vi.mock('../store/workspace', () => ({ activeRoot: () => ({ id: '/repo' }), useWorkspace: { getState: () => ({}) } }))
 vi.mock('../store/terminal', () => ({ terminalFocused: () => false, useTerminal: { getState: () => state } }))
 vi.mock('../store/search', () => ({ useSearch: { getState: () => ({}) } }))
-vi.mock('../store/agent', () => ({ useAgent: { getState: () => ({ addContext }) } }))
+vi.mock('../store/agent', () => ({ useAgent: { getState: () => ({ addContext, chats: state.chats }) } }))
 import { editorSelections } from '../editor/selectionRegistry'
 import { terminalSelections } from './terminalSelection'
-import { buildCommands } from './commands'
+import { buildCommands, commandAvailable } from './commands'
 import { registerCommandHandlers } from './commandRuntime'
 const disposers: Array<() => void> = []
-afterEach(() => { disposers.splice(0).forEach(dispose => dispose()); state.agentEnabled = true; vi.clearAllMocks() })
+afterEach(() => { disposers.splice(0).forEach(dispose => dispose()); state.agentEnabled = true; state.tabs = []; state.activeId = 'terminal'; state.chats = {}; vi.clearAllMocks() })
 
 it('retains editor and terminal source snapshots while the command palette takes focus', () => {
   let text = 'captured'
@@ -53,4 +55,25 @@ it('retains a runtime action captured before palette autofocus and reads current
   state.shortcutOverrides = { 'agent.ask': [] }
   expect(buildCommands(true).find(command => command.id === 'agent.ask')!.shortcut).toBe('')
   state.shortcutOverrides = {}
+})
+
+it('blocks close commands while the active chat is running', () => {
+  state.tabs = [{ id: 'chat:one', kind: 'chat', pinned: false, dirty: false }]
+  state.activeId = 'chat:one'
+  state.chats = { one: { status: 'running' } }
+  expect(commandAvailable('tab.close')).toBe(false)
+  expect(commandAvailable('tab.closeCurrent')).toBe(false)
+  expect(buildCommands().some(command => command.id === 'tab.close')).toBe(false)
+})
+
+it('blocks bulk close commands when their target set contains a running chat', () => {
+  state.tabs = [
+    { id: 'file', kind: 'file', pinned: false, dirty: false },
+    { id: 'chat:one', kind: 'chat', pinned: false, dirty: false },
+  ]
+  state.activeId = 'file'
+  state.chats = { one: { status: 'running' } }
+  expect(commandAvailable('tab.closeAll')).toBe(false)
+  expect(commandAvailable('tab.closeUnmodified')).toBe(false)
+  expect(commandAvailable('tab.closeRight')).toBe(false)
 })

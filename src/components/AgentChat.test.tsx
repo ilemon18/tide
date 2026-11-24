@@ -280,6 +280,37 @@ it('follows committed output, deferred content, viewport resizing and final outp
   expect(metrics.top).toBe(1900)
 })
 
+it('keeps the completed reply at the bottom after its final layout settles', () => {
+  const { container, rerender } = render(<AgentChat chatId="chat" />)
+  const { el, metrics } = scrollMetrics(container)
+  flushFrames()
+  metrics.height = 1400
+  state.chats.chat = { ...state.chats.chat, status: 'idle' }
+  rerender(<AgentChat chatId="chat" />)
+  expect(metrics.top).toBe(1200)
+  metrics.height = 1800
+  act(() => observers.find(entry => entry.targets.includes(el))!.callback())
+  flushFrames()
+  expect(metrics.top).toBe(1600)
+})
+
+it('resumes following when a paused turn completes', () => {
+  const { container, rerender } = render(<AgentChat chatId="chat" />)
+  const { el, metrics } = scrollMetrics(container)
+  flushFrames()
+  fireEvent.wheel(el, { deltaY: -100 })
+  metrics.top = 100
+  fireEvent.scroll(el)
+  metrics.height = 1400
+  state.chats.chat = { ...state.chats.chat, status: 'idle' }
+  rerender(<AgentChat chatId="chat" />)
+  expect(metrics.top).toBe(1200)
+  metrics.height = 1800
+  act(() => observers.find(entry => entry.targets.includes(el))!.callback())
+  flushFrames()
+  expect(metrics.top).toBe(1600)
+})
+
 it('pauses on upward scrolling, preserves history during output and resumes on the latest button', () => {
   const { container, rerender } = render(<AgentChat chatId="chat" />)
   const { el, metrics } = scrollMetrics(container)

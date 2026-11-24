@@ -46,6 +46,8 @@ events for released roots. Run/stop failures surface localized toasts. Disabling
 `tasksEnabled` defaults to true, migrates in settings schema 15 and is shared across windows. Keep frontend
 Settings/defaults, Rust defaults, locales and activity visibility synchronized; shared settings contracts
 belong to [runtime.md](./runtime.md).
+The task toggle has its localized setting label as its accessible name; task selection buttons name the
+label, command and source with explicit separators so completed runs can be selected independently of Run.
 
 Custom task configuration (`.tide/tasks.json`):
 

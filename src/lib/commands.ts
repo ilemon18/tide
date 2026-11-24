@@ -14,7 +14,7 @@ import {
   toggleSidebar,
   toggleTerminal,
 } from './actions'
-import { useTabs } from '../store/tabs'
+import { groupTabs, useTabs } from '../store/tabs'
 import { useUi } from '../store/ui'
 import { useSettings } from '../store/settings'
 import { useGit } from '../store/git'
@@ -44,6 +44,33 @@ export type Command = {
   run: () => unknown | Promise<unknown>
 }
 
+const closeCommandIds = new Set([
+  'tab.close', 'tab.closeCurrent', 'tab.closeOthers', 'tab.closeLeft', 'tab.closeRight',
+  'tab.closeAll', 'tab.closeUnmodified',
+])
+
+function isRunningChatTab(tab: { id: string; kind: string } | undefined): boolean {
+  return tab?.kind === 'chat' && useAgent.getState().chats[tab.id.slice('chat:'.length)]?.status === 'running'
+}
+
+/** Returns true when a close command would remove any chat whose turn is still running. */
+function closeCommandBlocked(id: string): boolean {
+  if (!closeCommandIds.has(id)) return false
+  if (id === 'tab.closeCurrent' && terminalFocused()) return false
+  const state = useTabs.getState()
+  const tabs = state.tabs ?? []
+  const activeGroup = state.groups?.find((group) => group.id === state.activeGroupId)
+  const current = tabs.find((tab) => tab.id === (activeGroup?.activeId ?? state.activeId))
+  if (id === 'tab.close' || id === 'tab.closeCurrent') return isRunningChatTab(current)
+  const list = activeGroup ? groupTabs(tabs, activeGroup) : tabs
+  const index = current ? list.findIndex((tab) => tab.id === current.id) : -1
+  if (id === 'tab.closeOthers') return list.some((tab) => tab.id !== current?.id && !tab.pinned && isRunningChatTab(tab))
+  if (id === 'tab.closeLeft') return index > 0 && list.slice(0, index).some((tab) => !tab.pinned && isRunningChatTab(tab))
+  if (id === 'tab.closeRight') return index >= 0 && list.slice(index + 1).some((tab) => !tab.pinned && isRunningChatTab(tab))
+  if (id === 'tab.closeUnmodified') return list.some((tab) => !tab.dirty && !tab.pinned && isRunningChatTab(tab))
+  return list.some(isRunningChatTab)
+}
+
 export function buildCommands(includeUnavailable = false, captureSources = true): Command[] {
   const tabs = useTabs.getState()
   const workspace = useWorkspace.getState()
@@ -67,7 +94,7 @@ export function buildCommands(includeUnavailable = false, captureSources = true)
     { id: 'file.save', run: () => tabs.saveActive() },
     { id: 'file.saveAll', run: () => tabs.saveAll() },
     { id: 'editor.format', run: () => void tabs.formatActive() },
-    { id: 'tab.close', run: () => tabs.closeActive() },
+    { id: 'tab.close', run: () => { if (!closeCommandBlocked('tab.close')) return tabs.closeActive() } },
     { id: 'tab.next', run: () => tabs.activateOffset(1) },
     { id: 'tab.prev', run: () => tabs.activateOffset(-1) },
     { id: 'tab.welcome', run: () => tabs.openWelcome() },
@@ -79,6 +106,7 @@ export function buildCommands(includeUnavailable = false, captureSources = true)
     {
       id: 'tab.closeOthers',
       run: () => {
+        if (closeCommandBlocked('tab.closeOthers')) return
         const id = useTabs.getState().activeId
         if (id) void tabs.closeOthers(id)
       },
@@ -86,6 +114,7 @@ export function buildCommands(includeUnavailable = false, captureSources = true)
     {
       id: 'tab.closeLeft',
       run: () => {
+        if (closeCommandBlocked('tab.closeLeft')) return
         const id = useTabs.getState().activeId
         if (id) void tabs.closeLeft(id)
       },
@@ -93,11 +122,12 @@ export function buildCommands(includeUnavailable = false, captureSources = true)
     {
       id: 'tab.closeRight',
       run: () => {
+        if (closeCommandBlocked('tab.closeRight')) return
         const id = useTabs.getState().activeId
         if (id) void tabs.closeRight(id)
       },
     },
-    { id: 'tab.closeAll', run: () => tabs.closeAll() },
+    { id: 'tab.closeAll', run: () => { if (!closeCommandBlocked('tab.closeAll')) return tabs.closeAll() } },
     {
       id: 'tab.reopenClosed',
       run: () => tabs.reopenClosed(),
@@ -105,7 +135,7 @@ export function buildCommands(includeUnavailable = false, captureSources = true)
     { id: 'view.gotoLine', run: () => ui.openQuickOpen(':') },
     {
       id: 'tab.closeUnmodified',
-      run: () => tabs.closeUnmodified(),
+      run: () => { if (!closeCommandBlocked('tab.closeUnmodified')) return tabs.closeUnmodified() },
     },
     {
       id: 'tab.pin',
@@ -179,6 +209,7 @@ export function buildCommands(includeUnavailable = false, captureSources = true)
     { id: 'view.commands', run: () => ui.setOverlay('commands') },
     { id: 'app.cycleWindow', run: () => api.cycleWindow() },
     { id: 'tab.closeCurrent', run: () => {
+      if (closeCommandBlocked('tab.closeCurrent')) return
       const current = useTerminal.getState()
       if (terminalWasFocused && terminal.activeId) return current.close(terminal.activeId)
       return useTabs.getState().closeActive()
@@ -226,6 +257,7 @@ export function buildCommands(includeUnavailable = false, captureSources = true)
 
 /** Availability is shared by the palette and dispatch. Focus-specific runtime actions retain their owners. */
 export function commandAvailable(id: string): boolean {
+  if (closeCommandBlocked(id)) return false
   if (id.startsWith('agent.context.')) {
     if (!useSettings.getState().agentEnabled) return false
     if (id === 'agent.context.terminal') {

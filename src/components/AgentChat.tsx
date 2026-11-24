@@ -101,6 +101,7 @@ export function AgentChat({ chatId }: { chatId: string }) {
   const touchY = useRef<number | null>(null)
   const scrollFrame = useRef<number | null>(null)
   const displayedChat = useRef(chatId)
+  const completionState = useRef<{ chatId: string; status: string | undefined }>({ chatId, status: chat?.status })
   const anchor = useRef<{ id: string; offset: number } | null>(null)
   const scrollToEnd = useCallback(() => {
     const el = scrollRef.current
@@ -222,6 +223,20 @@ export function AgentChat({ chatId }: { chatId: string }) {
       scrollFrame.current = null
     }
   }, [chatId, resumeFollowing])
+
+  // Completion can change the final reply layout after reading paused following.
+  useLayoutEffect(() => {
+    const previous = completionState.current
+    const status = chat?.status
+    const completed = previous.chatId === chatId && previous.status === 'running' && status !== 'running'
+    completionState.current = { chatId, status }
+    if (!completed) return
+    following.current = true
+    anchor.current = null
+    setAtBottom(true)
+    scrollToEnd()
+    scheduleScroll()
+  }, [chatId, chat?.status, scheduleScroll, scrollToEnd])
 
   // Run after the new transcript commits, then again after deferred content/layout settles.
   useLayoutEffect(() => {

@@ -1595,6 +1595,7 @@ export const useTabs = create<TabsStore>((set, get) => ({
   close: async (id, force = false) => {
     const tab = get().tabs.find((t) => t.id === id)
     if (!tab) return
+    if (!force && tab.kind === 'chat' && agentBridge.isChatRunning(tab.id.slice('chat:'.length))) return
     if (tab.dirty && !force) {
       const ok = await useUi.getState().confirm({
         title: t('dialog.unsaved.title'),
@@ -1636,7 +1637,9 @@ export const useTabs = create<TabsStore>((set, get) => ({
 
   closeIn: async (id, groupId) => {
     const state = get()
-    if (!state.tabs.some((t) => t.id === id)) return
+    const tab = state.tabs.find((t) => t.id === id)
+    if (!tab) return
+    if (tab.kind === 'chat' && agentBridge.isChatRunning(tab.id.slice('chat:'.length))) return
     const owners = groupsWith(state.groups, id)
     // Still open in the other pane: remove only from this one, unsaved content and the other pane untouched
     if (owners.length > 1 && owners.includes(groupId)) {
@@ -2455,6 +2458,7 @@ async function closeMany(ids: string[], force?: boolean, groupId?: TabGroupId): 
   const snapshotBefore = useTabs.getState()
   const targets = snapshotBefore.tabs.filter((t) => removed.has(t.id))
   if (targets.length === 0) return false
+  if (!force && targets.some((tab) => tab.kind === 'chat' && agentBridge.isChatRunning(tab.id.slice('chat:'.length)))) return false
 
   // Closed from one pane while still open in the other is not a real close: no confirm, no state loss
   const owners = (id: string) => groupsWith(snapshotBefore.groups, id)

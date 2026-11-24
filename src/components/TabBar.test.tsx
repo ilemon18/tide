@@ -25,7 +25,11 @@ vi.mock('../i18n', () => ({ t: (key: string) => key, useT: () => (key: string) =
 vi.mock('./EditorContextActions', () => ({ EditorContextActions: () => null }))
 vi.mock('./AgentProviderIcon', () => ({ AgentProviderIcon: () => <span data-provider-icon /> }))
 vi.mock('./FileIcon', () => ({ FileIcon: () => <span data-file-icon /> }))
-vi.mock('./ContextMenu', () => ({ ContextMenu: () => null }))
+const { contextMenu } = vi.hoisted(() => ({ contextMenu: { current: null as { items: Array<{ label: string; disabled?: boolean }> } | null } }))
+vi.mock('./ContextMenu', () => ({ ContextMenu: (props: { items: Array<{ label: string; disabled?: boolean }> }) => {
+  contextMenu.current = props
+  return null
+} }))
 vi.mock('../lib/groupDrop', () => ({ groupUnderPointer: vi.fn(), highlightPane: vi.fn(), insertionIndex: vi.fn() }))
 
 import { useTabs } from '../store/tabs'
@@ -43,6 +47,7 @@ const chat = (status: AgentChat['status']): AgentChat => ({
 
 beforeEach(() => {
   vi.clearAllMocks()
+  contextMenu.current = null
   vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
   useTabs.setState({
     tabs: [tab('chat:one'), tab('example', 'file'), tab('chat:pinned', 'chat', true)],
@@ -123,4 +128,24 @@ it('keeps inactive running agents protected and missing sessions closable until 
   act(() => useAgent.setState({ chats: { one: chat('running') } }))
   expect(within(item).queryByRole('button')).toBeNull()
   expect(screen.getByRole('img', { name: 'agent.working' })).toBeTruthy()
+})
+
+it('disables context-menu closes that would remove a running Agent tab', () => {
+  const { container } = render(<TabBar groupId="primary" />)
+  const item = container.querySelector<HTMLElement>('[data-tab-id="chat:one"]')!
+  fireEvent.contextMenu(item, { clientX: 20, clientY: 20 })
+  const items = contextMenu.current!.items
+  expect(items.find(entry => entry.label === 'tabs.close')?.disabled).toBe(true)
+  expect(items.find(entry => entry.label === 'tabs.closeAll')?.disabled).toBe(true)
+  expect(items.find(entry => entry.label === 'tabs.closeUnmodified')?.disabled).toBe(true)
+})
+
+it('blocks middle-click on a running Agent while keeping ordinary file closes available', () => {
+  const { container } = render(<TabBar groupId="primary" />)
+  const item = container.querySelector<HTMLElement>('[data-tab-id="chat:one"]')!
+  fireEvent.pointerDown(item, { button: 1 })
+  expect(useTabs.getState().closeIn).not.toHaveBeenCalledWith('chat:one', 'primary')
+  const file = container.querySelector<HTMLElement>('[data-tab-id="example"]')!
+  fireEvent.pointerDown(file, { button: 1 })
+  expect(useTabs.getState().closeIn).toHaveBeenCalledWith('example', 'primary')
 })

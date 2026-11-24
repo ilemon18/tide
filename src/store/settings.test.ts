@@ -245,7 +245,7 @@ describe('Shortcut settings', () => {
     const { shortcutOverrides: _missing, ...legacy } = DEFAULT_SETTINGS
     vi.mocked(api.loadSettings).mockResolvedValue({ ...legacy, schemaVersion: 13, fontSize: 19 } as Settings)
     await useSettings.getState().load()
-    expect(useSettings.getState()).toMatchObject({ schemaVersion: 14, shortcutOverrides: {}, fontSize: 19 })
+    expect(useSettings.getState()).toMatchObject({ schemaVersion: SETTINGS_SCHEMA_VERSION, shortcutOverrides: {}, fontSize: 19 })
   })
 
   it('writes transferred ownership immediately and restores explicit unbinding after reload', async () => {

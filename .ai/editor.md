@@ -64,8 +64,10 @@ EditorHost selects tab kinds; markdown helpers own contained links and images.
   an Agent. The survivor becomes primary with its selection/preview state; closing all tabs leaves one empty
   primary. Shared files retain the surviving buffer; cancelled unsaved closes leave layout intact. Empty panes
   have no Unsplit button. `src/store/tabs.test.ts` covers single/bulk closes, shared tabs, moves and cancellation.
-- Each tab selects its own chat-running flag. Running agents hide close buttons even on hover/focus;
-  idle/failed/cancelled restore them; pinned tabs keep pins. Other close commands retain their behavior.
+- Each tab selects its own chat-running flag. Running agents hide close buttons even on hover/focus and block
+  middle-click, context-menu close entries, bulk closes whose target set contains that chat, and close shortcuts;
+  idle/failed/cancelled restore them. The tab store keeps the same guard for non-UI callers, while force cleanup
+  remains available to project teardown.
 - Chat tabs/drag ghosts use live provider icon + conversation title + optional execution status, with generic
   loading icon fallback. tabTitle uses tab.name or the localized New chat fallback; tooltips/headers use the
   same conversation title. src/store/agent.ts's titleFromPrompt takes the trimmed first prompt's first line,

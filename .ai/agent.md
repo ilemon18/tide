@@ -63,6 +63,9 @@ CLIs own auth/models/tools; Rust owns processes; the agent store owns queues/UI.
   matching Done before launching the selected entry. Lock duplicate actions and automatic drain during the
   transaction; preserve other entries' relative order, metadata and newer composer drafts. Cancel/launch
   failure retains the selected entry and reports the error; pending question/plan gates still apply.
+- A chat tab with a running turn cannot be closed through the tab button, middle-click, context menu, bulk
+  close, or shortcut. The tab store rejects non-force close requests before stopping the run; task teardown
+  may use force cleanup. The guard lifts on Done, stop, error, or cancellation.
 
 ## Permissions and preferences
 
@@ -94,8 +97,10 @@ CLIs own auth/models/tools; Rust owns processes; the agent store owns queues/UI.
 - The configurable context.openOrLatest action (default Mod+Down) jumps only in the active chat, respecting
   overlays and IME; its other focus context opens a file-tree row. Jumping loads the latest
   history page first. Sends and successful interjections resume following after transcript commits, through
-  deferred content/viewport resizing and final completion layout. Upward reading gestures pause following;
-  content-growth scroll events alone never clear that intent. Queued cards use the lighter panel surface.
+  deferred content/viewport resizing and final completion layout. A running-to-finished transition also
+  re-enables following and anchors the completed reply at the latest bottom after deferred layout. Upward
+  reading gestures pause following; content-growth scroll events alone never clear that intent. Queued cards
+  use the lighter panel surface.
 - Context popup uses provider context/session usage, unaffected by loaded history/drafts. The context ring
   uses the current context snapshot, while token rows show only the current native session cumulative usage;
   latest-turn token details are not displayed. Zero is valid; invalid is unavailable. Keep persisted cost

@@ -222,7 +222,7 @@ export function SettingsView() {
 
         <Card title={t('settings.tasks.card')}>
           <Row label={t('settings.tasks.enable')} hint={t('settings.tasks.enableHint')}>
-            <Toggle value={settings.tasksEnabled} onChange={(value) => set('tasksEnabled', value)} />
+            <Toggle value={settings.tasksEnabled} onChange={(value) => set('tasksEnabled', value)} ariaLabel={t('settings.tasks.enable')} />
           </Row>
         </Card>
 

@@ -10,8 +10,8 @@ const { settings, patchSettings } = vi.hoisted(() => {
   return { settings, patchSettings }
 })
 vi.mock('./settings', () => ({ useSettings: { getState: () => ({ ...settings, patch: patchSettings }) } }))
-const { setTabName, contextTabs } = vi.hoisted(() => ({ setTabName: vi.fn(), contextTabs: { tabs: [] as Array<{ id: string; kind: string; root: string }>, groups: [] as Array<{ activeId: string }> } }))
-vi.mock('./tabs', () => ({ useTabs: { getState: () => ({ ...contextTabs, setTabName, openChat: vi.fn(), openChatInRight: vi.fn() }) } }))
+const { setTabName, openChatInRight, contextTabs } = vi.hoisted(() => ({ setTabName: vi.fn(), openChatInRight: vi.fn(), contextTabs: { tabs: [] as Array<{ id: string; kind: string; root: string }>, groups: [] as Array<{ activeId: string }> } }))
+vi.mock('./tabs', () => ({ useTabs: { getState: () => ({ ...contextTabs, setTabName, openChat: vi.fn(), openChatInRight }) } }))
 vi.mock('./ui', () => ({ useUi: { getState: () => ({ toast: vi.fn() }) } }))
 vi.mock('./workspace', () => ({ activeRoot: () => null }))
 import { findPendingPlanAction, findPendingQuestion, useAgent, type AgentChat } from './agent'
@@ -559,21 +559,19 @@ describe('plan completion and actions', () => {
       permissionMode === 'read-only' ? 'workspace-write' : permissionMode)
   })
 
-  it('hands only the approved plan to an isolated chat in the same project', async () => {
+  it('hands only the approved plan to a fresh session in the current chat tab', async () => {
     await startPlanning(); streamPlan(); finishTurn()
     const id = pendingPlan()!.item.id
     expect(await useAgent.getState().resolvePlanAction('chat-test', id, 'implement-fresh', 'Keep the public API')).toBe(true)
     const request = vi.mocked(api.agentSend).mock.calls.at(-1)![0]
-    expect(request).toMatchObject({ root: '/tmp/project', sessionAction: 'new', sessionId: null, readOnly: false })
-    expect(request.chatId).not.toBe('chat-test')
+    expect(request).toMatchObject({ chatId: 'chat-test', root: '/tmp/project', sessionAction: 'new', sessionId: null, readOnly: false })
     expect(request.prompt).toContain('Update the handler and cover retries.')
     expect(request.prompt).toContain('Keep the public API')
-    const target = useAgent.getState().chats[request.chatId]
+    const target = useAgent.getState().chats.chat-test
     expect(target.messages).toHaveLength(2)
     expect(target.messages[0].text).not.toContain('Plan a fix')
-    const card = useAgent.getState().chats['chat-test'].messages.flatMap(message => message.items ?? []).find(item => item.id === id)
-    expect(card).toMatchObject({ action: 'implement-fresh', targetChatId: request.chatId, actionState: 'completed', resolved: true })
-    expect(useAgent.getState().chats['chat-test'].sessionId).toBe('session-1')
+    expect(useAgent.getState().chats['chat-test'].messages.flatMap(message => message.items ?? []).find(item => item.id === id)).toBeUndefined()
+    expect(useAgent.getState().chats['chat-test'].sessionId).toBeNull()
   })
 
   it('continues planning by focusing a draft without launching another turn', async () => {
@@ -772,26 +770,39 @@ describe('bounded history windows', () => {
 })
 
 describe('action recovery and durable session resets', () => {
-  it('retries a failed fresh-context launch in the same target without inheriting parent history', async () => {
+  it('restores the plan card when clearing the current chat fails', async () => {
+    await startPlanning(); streamPlan(); finishTurn()
+    const id = pendingPlan()!.item.id
+    vi.mocked(api.agentChatReset).mockRejectedValueOnce(new Error('reset failed'))
+    expect(await useAgent.getState().resolvePlanAction('chat-test', id, 'implement-fresh')).toBe(false)
+    expect(pendingPlan()?.item).toMatchObject({ action: 'implement-fresh', targetChatId: 'chat-test', actionState: 'failed', resolved: false })
+    expect(api.agentSend).not.toHaveBeenCalled()
+  })
+
+  it('clears and retries fresh-context execution in the current chat tab', async () => {
     await startPlanning(); streamPlan(); finishTurn()
     const id = pendingPlan()!.item.id
     vi.mocked(api.agentSend).mockRejectedValueOnce(new Error('start failed'))
     expect(await useAgent.getState().resolvePlanAction('chat-test', id, 'implement-fresh')).toBe(false)
     const target = pendingPlan()!.item.targetChatId
-    expect(target).toBeTruthy()
+    expect(target).toBe('chat-test')
+    expect(api.agentChatReset).toHaveBeenCalledWith('chat-test', expect.anything())
+    expect(openChatInRight).not.toHaveBeenCalled()
     expect(await useAgent.getState().resolvePlanAction('chat-test', id, 'implement-fresh')).toBe(true)
     expect(vi.mocked(api.agentSend).mock.calls.at(-1)![0]).toMatchObject({ chatId: target, sessionId: null, sessionAction: 'new' })
-    expect(Object.keys(useAgent.getState().chats)).toHaveLength(2)
+    expect(Object.keys(useAgent.getState().chats)).toEqual(['chat-test'])
+    expect(findPendingPlanAction(useAgent.getState().chats['chat-test'].messages)).toBeNull()
   })
 
-  it('does not relaunch a recovered card when its accepted destination already exists', async () => {
+  it('ignores a legacy destination and reuses the current chat for fresh execution', async () => {
     const source = chat()
     source.messages = [{ id: 'plan', role: 'assistant', at: 0, items: [{ id: 'choice', type: 'plan', text: 'approved',
       resolved: false, action: 'implement-fresh', targetChatId: 'destination', actionState: 'failed' }] }]
     useAgent.setState({ chats: { 'chat-test': source, destination: { ...chat(), id: 'destination', sessionId: null,
       messages: [{ id: 'accepted', role: 'assistant', at: 1, planActionId: 'choice', launchAccepted: true, items: [] }] } } })
     expect(await useAgent.getState().resolvePlanAction('chat-test', 'choice', 'implement-fresh')).toBe(true)
-    expect(api.agentSend).not.toHaveBeenCalled()
+    expect(api.agentSend).toHaveBeenLastCalledWith(expect.objectContaining({ chatId: 'chat-test', sessionId: null, sessionAction: 'new' }))
+    expect(api.agentSend).not.toHaveBeenCalledWith(expect.objectContaining({ chatId: 'destination' }))
   })
 
   it('replaces unavailable streaming cost when the final priced snapshot arrives', async () => {
