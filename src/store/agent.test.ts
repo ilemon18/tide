@@ -567,7 +567,7 @@ describe('plan completion and actions', () => {
     expect(request).toMatchObject({ chatId: 'chat-test', root: '/tmp/project', sessionAction: 'new', sessionId: null, readOnly: false })
     expect(request.prompt).toContain('Update the handler and cover retries.')
     expect(request.prompt).toContain('Keep the public API')
-    const target = useAgent.getState().chats.chat-test
+    const target = useAgent.getState().chats['chat-test']
     expect(target.messages).toHaveLength(2)
     expect(target.messages[0].text).not.toContain('Plan a fix')
     expect(useAgent.getState().chats['chat-test'].messages.flatMap(message => message.items ?? []).find(item => item.id === id)).toBeUndefined()
@@ -773,6 +773,7 @@ describe('action recovery and durable session resets', () => {
   it('restores the plan card when clearing the current chat fails', async () => {
     await startPlanning(); streamPlan(); finishTurn()
     const id = pendingPlan()!.item.id
+    vi.mocked(api.agentSend).mockClear()
     vi.mocked(api.agentChatReset).mockRejectedValueOnce(new Error('reset failed'))
     expect(await useAgent.getState().resolvePlanAction('chat-test', id, 'implement-fresh')).toBe(false)
     expect(pendingPlan()?.item).toMatchObject({ action: 'implement-fresh', targetChatId: 'chat-test', actionState: 'failed', resolved: false })

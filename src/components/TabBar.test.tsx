@@ -10,7 +10,7 @@ vi.mock('../store/tabs', async () => {
   return {
     useTabs: create(() => ({
       tabs: [] as Tab[], groups: [] as TabGroup[], activeGroupId: 'primary', splitOrientation: null,
-      closeIn: vi.fn(), setActiveGroup: vi.fn(),
+      closeIn: vi.fn(), setActiveGroup: vi.fn(), activate: vi.fn(),
     })),
     groupTabs: (tabs: Tab[], group?: TabGroup) =>
       (group?.order ?? []).flatMap((id) => tabs.filter((tab) => tab.id === id)),

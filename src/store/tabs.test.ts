@@ -21,7 +21,7 @@ vi.mock('./workspace', () => ({ useWorkspace: { getState: () => ({ setActiveRoot
 vi.mock('./git', () => ({ useGit: { getState: () => ({}) } }))
 vi.mock('./blame', () => ({ useBlame: { getState: () => ({ invalidate: vi.fn() }) } }))
 vi.mock('./fileIndex', () => ({ useFileIndex: { getState: () => ({}) } }))
-const { confirm, onTabClosed, isChatRunning } = vi.hoisted(() => ({ confirm: vi.fn(), onTabClosed: vi.fn(), isChatRunning: vi.fn(() => false) }))
+const { confirm, onTabClosed, isChatRunning } = vi.hoisted(() => ({ confirm: vi.fn(), onTabClosed: vi.fn(), isChatRunning: vi.fn<(id: string) => boolean>(() => false) }))
 vi.mock('./ui', () => ({ useUi: { getState: () => ({ confirm }) } }))
 vi.mock('../lib/agentBridge', () => ({ agentBridge: { onTabClosed, isChatRunning } }))
 
