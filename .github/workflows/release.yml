@@ -134,6 +134,7 @@ jobs:
             echo "::error::src-tauri/icons/icon.ico is missing; the Windows installer requires it"
             exit 1
           fi
+          node --test scripts/dmg-contract.test.mjs
           for t in $(echo "${{ matrix.rust_targets }}" | tr ',' ' '); do
             rustup target list --installed | grep -qx "$t" \
               || { echo "::error::Rust target $t is not installed"; exit 1; }
@@ -293,6 +294,11 @@ jobs:
         run: |
           set -euo pipefail
           args=(--target "$TARGET" --bundles "$BUNDLES")
+          # Tauri otherwise skips Finder background/icon layout in CI.
+          # Let layout errors fail the build before collecting or signing a DMG.
+          if [ "${RUNNER_OS}" = "macOS" ]; then
+            export TAURI_BUNDLER_DMG_IGNORE_CI=true
+          fi
           if [ -n "${WINDOWS_CERT_THUMBPRINT:-}" ]; then
             args+=(--config "{\"bundle\":{\"windows\":{\"certificateThumbprint\":\"${WINDOWS_CERT_THUMBPRINT}\",\"digestAlgorithm\":\"sha256\",\"timestampUrl\":\"http://timestamp.digicert.com\"}}}")
           fi

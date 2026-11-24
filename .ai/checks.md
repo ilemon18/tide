@@ -11,6 +11,9 @@ scope:
   - AGENTS.md
   - CLAUDE.md
   - install.sh
+  - assets/dmg-background.png
+  - README.md
+  - README.zh-CN.md
 keywords:
   - docs
   - documentation
@@ -37,7 +40,8 @@ canonical gate procedures live in .ai/skills. Local execution remains explicitly
 | Command | Protects |
 |---|---|
 | `node --test scripts/release-git-state.test.mjs` | Release preflight treats local tracking-ref differences and missing refs as advisory without requiring a push/fetch |
-| `pnpm release:check` | Local Git/version, release workflows, bundle and update-manifest contracts; HEAD need not match origin/main |
+| `node --test scripts/dmg-contract.test.mjs` | Generated DMG artwork/layout agreement, missing or malformed PNGs, image/window dimensions and macOS-only Finder layout opt-in before the release build |
+| `pnpm release:check` | Local Git/version, release workflows, bundle (including DMG background dimensions/layout and CI Finder opt-in) and update-manifest contracts; HEAD need not match origin/main |
 | `pnpm i18n` | Six-locale keys/placeholders/plurals and emitted error coverage |
 | `pnpm i18n:scan` | CJK UI literals; only explicit non-UI/IME/Unicode fixture allowlists |
 | `pnpm check:workflows` | Non-ASCII text immediately after shell variable expansions |
@@ -80,6 +84,13 @@ Rust transcript deletion tests cover project ownership, idempotent removal and p
   names, trigger restrictions and release behavior when editing documentation.
 
 ## Change map and verification
+
+macOS DMG layout is owned by `src-tauri/tauri.conf.json`; regenerate its committed artwork with
+`node scripts/make-dmg-background.mjs` after changing dimensions or icon positions. The generator draws
+only the arrow/waves; Tauri supplies the native app and `/Applications` drop link. `scripts/dmg-contract.mjs`
+owns the shared layout/resource/workflow checks used by release preflight. CI and release prerequisites
+run its regression tests without Finder or packaging. The release build opts into Finder automation only
+on macOS and propagates layout failures before collecting artifacts. READMEs describe DMG installation first.
 
 Tasks and Problems changes require frontend tests for task discovery, execution state, output parsing, path
 filtering, custom cwd, aggregate diagnostics, settings migration, Problem navigation, early events, failed

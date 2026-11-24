@@ -25,6 +25,7 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { RELEASE_TARGETS } from './release-targets.mjs'
 import { checkTrackingState } from './release-git-state.mjs'
+import { dmgConfigIssues, dmgWorkflowIssues } from './dmg-contract.mjs'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const WORKFLOW_CI = '.github/workflows/ci.yml'
@@ -418,6 +419,12 @@ function checkTauri() {
   const list = Array.isArray(targets) ? targets : targets === 'all' ? ['app', 'dmg', 'nsis'] : []
   if (list.includes('app') && list.includes('dmg')) pass('bundle targets include app and dmg')
   else fail('bundle targets do not include app and dmg', 'keep app/dmg for macOS; the release workflow overrides Windows with nsis')
+
+  const dmgIssues = dmgConfigIssues(tauri.bundle?.macOS?.dmg, (background) =>
+    readFileSync(resolve(ROOT, 'src-tauri', background)),
+  )
+  if (dmgIssues.length === 0) pass('DMG background dimensions and drag-to-Applications layout match')
+  else for (const issue of dmgIssues) fail(issue, 'fix bundle.macOS.dmg and run node scripts/make-dmg-background.mjs')
 }
 
 function checkInstallScript() {
@@ -484,6 +491,10 @@ function checkWorkflows() {
   if (releaseText === null || ciText === null) return
   const releaseCode = stripWorkflowComments(releaseText)
   const ciCode = stripWorkflowComments(ciText)
+
+  const dmgIssues = dmgWorkflowIssues(releaseCode)
+  if (dmgIssues.length === 0) pass('macOS release build enables Finder DMG layout and fails on layout errors')
+  else for (const issue of dmgIssues) fail(issue, 'restore the macOS-only DMG layout opt-in in the installer build step')
 
   checkWorkflowPatterns(WORKFLOW_RELEASE, releaseCode, [
     [/tags:\s*\["v\*"\]/, 'v* tag trigger', 'restore the tag trigger in release.yml'],

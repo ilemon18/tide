@@ -72,6 +72,14 @@ App owns hydration/window coordination; the settings store and Rust theme comman
 - Right editor region owns terminal geometry. Maximize hides its wrapper without unmount/sidebar changes;
   follow [terminal.md](./terminal.md) for drag/restore.
 
+## macOS distribution
+
+`src-tauri/tauri.conf.json` owns DMG window dimensions and native icon coordinates: Tide on the left,
+Applications on the right, aligned horizontally. The background is generated from those coordinates;
+asset generation, release automation and guards follow [checks.md](./checks.md). Keep `Tide.app` at the
+volume root so the command-line installer and app updates can locate it. The Finder drop link targets
+`/Applications`; users open the copied app after installation.
+
 ## Keyboard shortcuts
 
 - commandRegistry owns stable metadata/default strokes/scopes; commands owns executable actions and shared

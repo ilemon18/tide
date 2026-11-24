@@ -30,6 +30,9 @@ for the full gate, test code changed, or the change touches update, path contain
 commands or agent providers; run `sh scripts/test-install.sh` when installer files changed. Docs-only or
 frontend-only changes with no test edits leave tests to CI, and that decision is reported.
 
+Run `node --test scripts/dmg-contract.test.mjs` when DMG configuration, artwork, its generator/guards or
+release workflow changed. These checks do not build an installer or automate Finder.
+
 Run `pnpm test:frontend` when frontend agent code or its tests changed; CI also runs this suite.
 
 ## Fix and rerun

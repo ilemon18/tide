@@ -22,6 +22,10 @@
 
 ## 安装
 
+macOS 用户请从 [GitHub Releases](https://github.com/ilemon18/tide/releases/latest) 下载 `.dmg`，打开后将 **Tide** 拖到 **Applications（应用程序）**。复制完成后，从应用程序文件夹打开 Tide，并推出安装磁盘。
+
+也可以使用命令行安装：
+
 ```sh
 curl -fsSL https://github.com/ilemon18/tide/releases/latest/download/install.sh | sh
 ```
