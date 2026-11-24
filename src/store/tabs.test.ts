@@ -171,3 +171,32 @@ describe('running Agent close protection', () => {
     expect(onTabClosed).toHaveBeenCalledExactlyOnceWith('one')
   })
 })
+
+
+describe('replace a blank Agent tab with a history reference', () => {
+  it.each(['row', 'column'] as const)('preserves the %s split, tab position and pin without closing a pane', orientation => {
+    const blank = { ...tab('chat:empty', 'chat'), pinned: true }
+    const other = tab('chat:other', 'chat')
+    split([file], [blank, other], orientation)
+    const ratio = useTabs.getState().splitRatio
+    expect(useTabs.getState().replaceChatTab('empty', 'saved', '/repo', 'Saved conversation')).toBe(true)
+    expect(useTabs.getState()).toMatchObject({
+      splitOrientation: orientation, splitRatio: ratio, activeGroupId: 'secondary', activeId: 'chat:saved',
+    })
+    expect(useTabs.getState().groups[1]).toMatchObject({ order: ['chat:saved', 'chat:other'], activeId: 'chat:saved' })
+    expect(useTabs.getState().tabs.find(tab => tab.id === 'chat:saved')).toMatchObject({ name: 'Saved conversation', pinned: true, root: '/repo' })
+    expect(useTabs.getState().closedTabs).toEqual([])
+    expect(onTabClosed).not.toHaveBeenCalled()
+  })
+
+  it('rejects root mismatches, a running source and duplicate target references', () => {
+    split([file], [tab('chat:empty', 'chat')])
+    expect(useTabs.getState().replaceChatTab('empty', 'saved', '/other', 'Saved')).toBe(false)
+    isChatRunning.mockReturnValue(true)
+    expect(useTabs.getState().replaceChatTab('empty', 'saved', '/repo', 'Saved')).toBe(false)
+    isChatRunning.mockReturnValue(false)
+    split([file], [tab('chat:empty', 'chat'), tab('chat:saved', 'chat')])
+    expect(useTabs.getState().replaceChatTab('empty', 'saved', '/repo', 'Saved')).toBe(false)
+    expect(useTabs.getState().groups[1].order).toEqual(['chat:empty', 'chat:saved'])
+  })
+})

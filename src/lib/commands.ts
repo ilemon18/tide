@@ -44,6 +44,13 @@ export type Command = {
   run: () => unknown | Promise<unknown>
 }
 
+// Only navigation, appearance and this page's search may act while the workspace is hidden.
+const historyCommandIds = new Set([
+  'editor.find', 'view.explorer', 'view.search', 'view.git', 'view.structure', 'view.projects', 'view.commands',
+  'view.panel', 'panel.show', 'prefs.open', 'agent.ask', 'folder.open', 'app.newWindow', 'app.cycleWindow',
+  'theme.cycle', 'theme.eyecare', 'theme.dracula',
+])
+
 const closeCommandIds = new Set([
   'tab.close', 'tab.closeCurrent', 'tab.closeOthers', 'tab.closeLeft', 'tab.closeRight',
   'tab.closeAll', 'tab.closeUnmodified',
@@ -223,7 +230,7 @@ export function buildCommands(includeUnavailable = false, captureSources = true)
     } },
     { id: 'editor.zoomIn', run: () => { const s = useSettings.getState(); s.patch({ fontSize: Math.min(24, s.fontSize + 1) }) } },
     { id: 'editor.zoomOut', run: () => { const s = useSettings.getState(); s.patch({ fontSize: Math.max(10, s.fontSize - 1) }) } },
-    { id: 'panel.show', run: () => terminal.setVisible(true) },
+    { id: 'panel.show', run: () => { ui.setPage('workspace'); terminal.setVisible(true) } },
   )
   for (const id of ['editor.find', 'tree.rename', 'tree.delete', 'terminal.clear', 'context.openOrLatest']) {
     const run = captureRuntimeCommand(id)
@@ -257,6 +264,7 @@ export function buildCommands(includeUnavailable = false, captureSources = true)
 
 /** Availability is shared by the palette and dispatch. Focus-specific runtime actions retain their owners. */
 export function commandAvailable(id: string): boolean {
+  if (useUi.getState().page === 'history' && !historyCommandIds.has(id)) return false
   if (closeCommandBlocked(id)) return false
   if (id.startsWith('agent.context.')) {
     if (!useSettings.getState().agentEnabled) return false

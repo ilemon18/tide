@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from 'vitest'
 const { state, addContext } = vi.hoisted(() => ({
-  state: { agentEnabled: true, activeGroupId: 'primary', activeId: 'terminal', visible: true,
+  state: { page: 'workspace', agentEnabled: true, activeGroupId: 'primary', activeId: 'terminal', visible: true,
     tabs: [] as Array<{ id: string; kind: string; pinned?: boolean; dirty?: boolean }>,
     chats: {} as Record<string, { status: string }>, shortcutOverrides: {} as Record<string, string[]> }, addContext: vi.fn(),
 }))
@@ -9,7 +9,7 @@ vi.mock('./actions', () => ({ closeWorkspaceDialog: vi.fn(), newEntry: vi.fn(), 
   openFolderDialog: vi.fn(), openSettings: vi.fn(), openTerminalHere: vi.fn(), removeRoot: vi.fn(), toggleSidebar: vi.fn(), toggleTerminal: vi.fn() }))
 vi.mock('../store/tabs', () => ({ useTabs: { getState: () => state }, groupTabs: (tabs: unknown[], group: { order?: string[] }) =>
   (group?.order ?? []).map(id => tabs.find((tab: unknown) => (tab as { id: string }).id === id)).filter(Boolean) }))
-vi.mock('../store/ui', () => ({ useUi: { getState: () => ({}) } }))
+vi.mock('../store/ui', () => ({ useUi: { getState: () => state } }))
 vi.mock('../store/settings', () => ({ useSettings: { getState: () => state } }))
 vi.mock('../store/git', () => ({ useGit: { getState: () => ({}) } }))
 vi.mock('../store/workspace', () => ({ activeRoot: () => ({ id: '/repo' }), useWorkspace: { getState: () => ({}) } }))
@@ -21,7 +21,7 @@ import { terminalSelections } from './terminalSelection'
 import { buildCommands, commandAvailable } from './commands'
 import { registerCommandHandlers } from './commandRuntime'
 const disposers: Array<() => void> = []
-afterEach(() => { disposers.splice(0).forEach(dispose => dispose()); state.agentEnabled = true; state.tabs = []; state.activeId = 'terminal'; state.chats = {}; vi.clearAllMocks() })
+afterEach(() => { disposers.splice(0).forEach(dispose => dispose()); state.page = 'workspace'; state.agentEnabled = true; state.tabs = []; state.activeId = 'terminal'; state.chats = {}; vi.clearAllMocks() })
 
 it('retains editor and terminal source snapshots while the command palette takes focus', () => {
   let text = 'captured'
@@ -76,4 +76,19 @@ it('blocks bulk close commands when their target set contains a running chat', (
   expect(commandAvailable('tab.closeAll')).toBe(false)
   expect(commandAvailable('tab.closeUnmodified')).toBe(false)
   expect(commandAvailable('tab.closeRight')).toBe(false)
+})
+
+
+it('keeps hidden workspace commands unavailable while history owns find and navigation', () => {
+  state.page = 'history'
+  const find = vi.fn()
+  disposers.push(registerCommandHandlers({ 'editor.find': { available: () => true, run: find } }))
+  for (const id of ['tab.closeCurrent', 'tab.closeAll', 'tab.next', 'view.splitRight', 'context.openOrLatest', 'file.save', 'terminal.clear', 'agent.context.add']) {
+    expect(commandAvailable(id)).toBe(false)
+  }
+  expect(commandAvailable('editor.find')).toBe(true)
+  expect(commandAvailable('view.explorer')).toBe(true)
+  expect(commandAvailable('agent.ask')).toBe(true)
+  buildCommands().find(command => command.id === 'editor.find')!.run()
+  expect(find).toHaveBeenCalledOnce()
 })

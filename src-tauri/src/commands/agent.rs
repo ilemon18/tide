@@ -516,9 +516,10 @@ pub fn agent_chat_list(
     root: String,
     offset: usize,
     limit: usize,
+    query: Option<String>,
 ) -> AppResult<store::AgentChatListPage> {
     let root = state.authorize(&root)?;
-    store::list_chats(&app, &root.to_string_lossy(), offset, limit)
+    store::list_chats(&app, &root.to_string_lossy(), offset, limit, query.as_deref().unwrap_or_default())
 }
 
 #[tauri::command(async)]

@@ -1,7 +1,7 @@
 import { dispatchShortcut } from './lib/shortcutDispatch'
 import { registerCommandHandlers } from './lib/commandRuntime'
 import { dragTerminalHeight, terminalAvailableHeight } from './lib/terminalLayout'
-import { Suspense, lazy, useEffect, useRef, useState } from 'react'
+import { Suspense, lazy, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
 import { listen } from '@tauri-apps/api/event'
 import { TitleBar } from './components/TitleBar'
@@ -12,6 +12,7 @@ import { GitPanel } from './components/GitPanel'
 import { StructurePanel } from './components/StructurePanel'
 import { TasksPanel } from './components/TasksPanel'
 import { EditorArea } from './components/EditorArea'
+import { AgentHistoryPage } from './components/AgentHistoryPage'
 import { StatusBar } from './components/StatusBar'
 import { Splitter } from './components/Splitter'
 import { Overlays } from './components/Overlays'
@@ -68,6 +69,42 @@ export function App() {
   const panelVisibleSetting = useSettings((s) => s.panelVisible)
   const sidebarWidth = useSettings((s) => s.sidebarWidth)
   const agentEnabled = useSettings((s) => s.agentEnabled)
+  const historyEnabled = useSettings(s => s.agentHistoryEnabled)
+  const page = useUi(s => s.page)
+  const historyVisible = page === 'history' && historyEnabled
+  const workspaceFocus = useRef<{ element: HTMLElement; tabId: string | null } | null>(null)
+  useEffect(() => {
+    const rememberFocus = () => {
+      const element = document.activeElement
+      if (useUi.getState().page === 'workspace' && element instanceof HTMLElement && element.closest('[data-workspace]')) {
+        workspaceFocus.current = { element, tabId: useTabs.getState().activeId }
+      }
+    }
+    document.addEventListener('focusin', rememberFocus)
+    const unsubscribe = useUi.subscribe((next, previous) => {
+      // Capture before React hides/inerts the workspace. Activity-bar clicks retain its last focus.
+      if (next.page === 'history' && previous.page !== 'history') {
+        const element = document.activeElement
+        if (element instanceof HTMLElement && element.closest('[data-workspace]')) {
+          workspaceFocus.current = { element, tabId: useTabs.getState().activeId }
+        }
+      }
+    })
+    return () => { document.removeEventListener('focusin', rememberFocus); unsubscribe() }
+  }, [])
+  useLayoutEffect(() => {
+    if (!historyVisible) {
+      const previous = workspaceFocus.current
+      workspaceFocus.current = null
+      if (previous?.element.isConnected && previous.tabId === useTabs.getState().activeId) previous.element.focus()
+    }
+  }, [historyVisible])
+  useEffect(() => {
+    if (!historyEnabled) {
+      useAgent.getState().clearHistory()
+      if (useUi.getState().page === 'history') useUi.getState().setPage('workspace')
+    }
+  }, [historyEnabled])
   const patchSettings = useSettings((s) => s.patch)
   const activeTabId = useTabs((s) => s.activeId)
   const terminalVisible = useTerminal((s) => s.visible)
@@ -345,9 +382,12 @@ export function App() {
       available: () => {
         const tabs = useTabs.getState()
         const active = tabs.tabs.find(tab => tab.id === tabs.activeId)
-        return Boolean(active && (active.kind === 'file' || active.kind === 'untitled') && !active.preview)
+        return useUi.getState().page === 'history' || Boolean(active && (active.kind === 'file' || active.kind === 'untitled') && !active.preview)
       },
-      run: () => { setSearchOpen(true); setSearchFocus(n => n + 1) },
+      run: () => {
+        if (useUi.getState().page === 'history') useUi.getState().focusHistorySearch()
+        else { setSearchOpen(true); setSearchFocus(n => n + 1) }
+      },
     },
   }), [])
 
@@ -362,7 +402,7 @@ export function App() {
   useEffect(() => {
     if (!searchOpen) return
     const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !useUi.getState().overlay) setSearchOpen(false)
+      if (e.key === 'Escape' && useUi.getState().page !== 'history' && !useUi.getState().overlay) setSearchOpen(false)
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
@@ -438,7 +478,7 @@ export function App() {
         <ActivityBar
           view={activityView}
           onChange={(v) => {
-            if (activityView === v && sidebarVisible) {
+            if (!historyVisible && activityView === v && sidebarVisible) {
               patchSettings({ sidebarVisible: false })
             } else {
               setActivityView(v)
@@ -449,87 +489,89 @@ export function App() {
           onOpenSettings={() => openSettings()}
         />
 
-        {sidebarVisible ? (
-          <>
-            <aside
-              className="tide-sidebar flex min-h-0 shrink-0 flex-col overflow-hidden bg-panel"
-              style={{ width: sidebarWidth }}
-            >
-              <header className="flex h-[32px] shrink-0 items-center pl-3 pr-1.5">
-                {activityView === 'explorer' ? (
-                  <ExplorerHeader />
-                ) : (
-                  <span className="min-w-0 truncate text-xs font-semibold text-fg/80">
-                    {sidebarTitle}
-                  </span>
-                )}
-              </header>
-              <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-                <ErrorBoundary label={sidebarTitle}>
+        {historyVisible ? <ErrorBoundary label={t('agent.history.title')}><AgentHistoryPage /></ErrorBoundary> : null}
+        <div data-workspace inert={historyVisible} aria-hidden={historyVisible || undefined} className={historyVisible ? 'hidden' : 'flex min-h-0 min-w-0 flex-1'}>
+          {sidebarVisible ? (
+            <>
+              <aside
+                className="tide-sidebar flex min-h-0 shrink-0 flex-col overflow-hidden bg-panel"
+                style={{ width: sidebarWidth }}
+              >
+                <header className="flex h-[32px] shrink-0 items-center pl-3 pr-1.5">
                   {activityView === 'explorer' ? (
-                    <FileTree />
-                  ) : activityView === 'search' ? (
-                    <SearchPanel focusSeq={panelSearchFocus} />
-                  ) : activityView === 'git' ? (
-                    <GitPanel />
-                  ) : activityView === 'tasks' ? (
-                    <TasksPanel />
+                    <ExplorerHeader />
                   ) : (
-                    <StructurePanel />
+                    <span className="min-w-0 truncate text-xs font-semibold text-fg/80">
+                      {sidebarTitle}
+                    </span>
                   )}
-                </ErrorBoundary>
-              </div>
-            </aside>
-            <Splitter
-              direction="v"
-              onDrag={(dx) =>
-                patchSettings({
-                  // Read the store directly: React may not have committed the previous frame's width yet
-                  sidebarWidth: clamp(useSettings.getState().sidebarWidth + dx, 180, 560),
-                })
-              }
-              onCommit={() => useSettings.getState().flush()}
-            />
-          </>
-        ) : null}
-
-        <div ref={editorRegionRef} className="relative flex min-h-0 min-w-0 flex-1 flex-col">
-          <div className={terminalMaximized && panelVisible ? 'hidden' : 'flex min-h-0 flex-1 flex-col'}>
-          <ErrorBoundary label={t('app.editor')}>
-            <EditorArea
-              searchOpen={searchOpen}
-              searchFocus={searchFocus}
-              onCloseSearch={() => setSearchOpen(false)}
-            />
-          </ErrorBoundary>
-
-          </div>
-          {panelVisible ? (
-            <Splitter
-              direction="h"
-              onDrag={(dy) => {
-                const next = dragTerminalHeight(useSettings.getState().panelHeight,
-                  useTerminal.getState().maximized, dy, editorRegionRef.current?.getBoundingClientRect().height ?? 0)
-                useTerminal.getState().setMaximized(next.maximized)
-                if (!next.maximized) patchSettings({ panelHeight: next.height })
-              }}
-            />
+                </header>
+                <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+                  <ErrorBoundary label={sidebarTitle}>
+                    {activityView === 'explorer' ? (
+                      <FileTree />
+                    ) : activityView === 'search' ? (
+                      <SearchPanel focusSeq={panelSearchFocus} />
+                    ) : activityView === 'git' ? (
+                      <GitPanel />
+                    ) : activityView === 'tasks' ? (
+                      <TasksPanel />
+                    ) : (
+                      <StructurePanel />
+                    )}
+                  </ErrorBoundary>
+                </div>
+              </aside>
+              <Splitter
+                direction="v"
+                onDrag={(dx) =>
+                  patchSettings({
+                    // Read the store directly: React may not have committed the previous frame's width yet
+                    sidebarWidth: clamp(useSettings.getState().sidebarWidth + dx, 180, 560),
+                  })
+                }
+                onCommit={() => useSettings.getState().flush()}
+              />
+            </>
           ) : null}
 
-          {/* Don't unmount the terminal when the panel collapses: the xterm instance (scrollback and glyph
-              cache) stays, so reopening shows the same screen. Hidden via display:none; on expand the
-              ResizeObserver / active change triggers a fit + full redraw */}
-          {terminalCount > 0 ? (
-            <div className={panelVisible ? 'shrink-0 overflow-hidden' : 'hidden'}>
-              <Suspense fallback={null}>
-                <TerminalPanel height={terminalMaximized ? terminalAvailableHeight(editorRegionHeight) : Math.min(normalPanelHeight, terminalAvailableHeight(editorRegionHeight))} />
-              </Suspense>
+          <div ref={editorRegionRef} className="relative flex min-h-0 min-w-0 flex-1 flex-col">
+            <div className={terminalMaximized && panelVisible ? 'hidden' : 'flex min-h-0 flex-1 flex-col'}>
+              <ErrorBoundary label={t('app.editor')}>
+                <EditorArea
+                  searchOpen={searchOpen}
+                  searchFocus={searchFocus}
+                  onCloseSearch={() => setSearchOpen(false)}
+                />
+              </ErrorBoundary>
             </div>
-          ) : null}
+            {panelVisible ? (
+              <Splitter
+                direction="h"
+                onDrag={(dy) => {
+                  const next = dragTerminalHeight(useSettings.getState().panelHeight,
+                    useTerminal.getState().maximized, dy, editorRegionRef.current?.getBoundingClientRect().height ?? 0)
+                  useTerminal.getState().setMaximized(next.maximized)
+                  if (!next.maximized) patchSettings({ panelHeight: next.height })
+                }}
+              />
+            ) : null}
+
+            {/* Don't unmount the terminal when the panel collapses: the xterm instance (scrollback and glyph
+                cache) stays, so reopening shows the same screen. Hidden via display:none; on expand the
+                ResizeObserver / active change triggers a fit + full redraw */}
+            {terminalCount > 0 ? (
+              <div className={panelVisible ? 'shrink-0 overflow-hidden' : 'hidden'}>
+                <Suspense fallback={null}>
+                  <TerminalPanel height={terminalMaximized ? terminalAvailableHeight(editorRegionHeight) : Math.min(normalPanelHeight, terminalAvailableHeight(editorRegionHeight))} />
+                </Suspense>
+              </div>
+            ) : null}
+          </div>
         </div>
       </div>
 
-      <StatusBar />
+      <div hidden={historyVisible} className="shrink-0"><StatusBar /></div>
 
       <Overlays />
       <ThemeMenu />

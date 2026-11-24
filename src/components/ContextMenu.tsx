@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useUi } from '../store/ui'
 
 export type MenuItem =
   | {
@@ -40,7 +41,7 @@ export function ContextMenu({ x, y, items, onClose, maxHeight }: Props) {
       if (!ref.current?.contains(e.target as Node)) onClose()
     }
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return
+      if (e.key !== 'Escape' || useUi.getState().page === 'history') return
       // Menus are a layer above the editor and agent. Escape dismisses the menu only; letting the
       // same key reach the focused chat would also cancel a running turn.
       e.preventDefault()

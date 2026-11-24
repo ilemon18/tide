@@ -56,6 +56,16 @@ export const ROUTING_FIXTURES = Object.freeze([
     expected: ['agent-storage.md'],
   },
   {
+    name: 'Standalone Agent history page',
+    paths: ['src/components/AgentHistoryPage.tsx', 'src/components/AgentHistoryPage.test.tsx'],
+    expected: ['agent-storage.md'],
+  },
+  {
+    name: 'History page navigation',
+    paths: ['src/store/ui.ts'],
+    expected: ['runtime.md'],
+  },
+  {
     name: 'Shared agent state',
     paths: ['src/store/agent.ts'],
     expected: ['agent-composer.md', 'agent-storage.md', 'agent.md'],

@@ -494,6 +494,7 @@ export type AgentChatSummary = {
 export type AgentChatListPage = {
   chats: AgentChatSummary[]
   nextOffset: number | null
+  total: number
 }
 
 export const api = {
@@ -670,8 +671,8 @@ export const api = {
     invoke<AgentChatPage>('agent_chat_apply', { id, patch }),
   agentChatReset: (id: string, header: AgentChatRecord) =>
     invoke<AgentChatPage>('agent_chat_reset', { id, header }),
-  agentChatList: (root: string, offset = 0, limit = 5) =>
-    invoke<AgentChatListPage>('agent_chat_list', { root, offset, limit }),
+  agentChatList: (root: string, offset = 0, limit = 15, query = '') =>
+    invoke<AgentChatListPage>('agent_chat_list', { root, offset, limit, query }),
   agentChatClone: (fromId: string, header: AgentChatRecord) =>
     invoke<AgentChatPage>('agent_chat_clone', { fromId, header }),
   agentChatDelete: (id: string, root: string) => invoke<void>('agent_chat_delete', { id, root }),

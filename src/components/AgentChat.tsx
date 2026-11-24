@@ -4,6 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { chatTabId, findPendingPlanAction, findPendingQuestion, useAgent } from '../store/agent'
 import { useTabs } from '../store/tabs'
 import { useUi } from '../store/ui'
+import { useWorkspace } from '../store/workspace'
 import type { AgentDraft } from '../lib/agentCommand'
 import { useSettings } from '../store/settings'
 import { useT } from '../i18n'
@@ -44,58 +45,13 @@ export function AgentChat({ chatId }: { chatId: string }) {
   const interjecting = useAgent(s => s.interjecting[chatId])
   const providers = useAgent((s) => s.providers)
   const historyEnabled = useSettings((s) => s.agentHistoryEnabled)
-  const history = useAgent((s) => s.historyByRoot[chat?.root ?? ''])
-  const runningChats = useAgent(s => s.running)
-  const deletingChats = useAgent(s => s.deletingChats)
-  const historyConfirmPending = useRef(false)
-  const [historyOpen, setHistoryOpen] = useState(false)
-  const historyVisible = historyEnabled && (historyOpen || localPicker?.kind === 'resume')
-  const historyRef = useRef<HTMLDivElement>(null)
-  const historyButtonRef = useRef<HTMLButtonElement>(null)
-  const historyCloseRef = useRef<HTMLButtonElement>(null)
-  const closeHistory = useCallback(() => {
-    setHistoryOpen(false)
-    if (useAgent.getState().localPicker?.kind === 'resume') useAgent.setState({ localPicker: null })
-    historyButtonRef.current?.focus()
-  }, [])
   const enabled = useSettings((s) => s.agentEnabled)
-  const focused = useTabs((s) => s.activeId === chatTabId(chatId))
+  const workspaceVisible = useUi(s => s.page !== 'history')
+  const active = useTabs((s) => s.activeId === chatTabId(chatId))
+  const focused = workspaceVisible && active
   useEffect(() => {
     if (focused) useAgent.getState().markChatFocused(chatId)
   }, [focused, chatId])
-
-  useEffect(() => {
-    if (!historyVisible || !chat?.root) return
-    void useAgent.getState().loadHistory(chat.root, true)
-    historyCloseRef.current?.focus()
-    const keyDown = (event: KeyboardEvent) => {
-      if (historyConfirmPending.current || useUi.getState().confirmReq) return
-      if (event.key !== 'Escape' || event.isComposing) return
-      event.preventDefault()
-      event.stopImmediatePropagation()
-      closeHistory()
-    }
-    const pointerDown = (event: PointerEvent) => {
-      if (historyConfirmPending.current || useUi.getState().confirmReq) return
-      const target = event.target as Node
-      if (!historyRef.current?.contains(target) && !historyButtonRef.current?.contains(target)) closeHistory()
-    }
-    window.addEventListener('keydown', keyDown, true)
-    window.addEventListener('pointerdown', pointerDown, true)
-    return () => {
-      window.removeEventListener('keydown', keyDown, true)
-      window.removeEventListener('pointerdown', pointerDown, true)
-      useAgent.getState().clearHistory()
-    }
-  }, [historyVisible, chat?.root, closeHistory])
-
-  useEffect(() => {
-    if (!historyEnabled) {
-      setHistoryOpen(false)
-      if (useAgent.getState().localPicker?.kind === 'resume') useAgent.setState({ localPicker: null })
-      useAgent.getState().clearHistory()
-    }
-  }, [historyEnabled])
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const popupBoundaryRef = useRef<HTMLDivElement>(null)
@@ -172,7 +128,7 @@ export function AgentChat({ chatId }: { chatId: string }) {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== 'Escape' || e.repeat || e.isComposing || e.defaultPrevented) return
       const ui = useUi.getState()
-      if (ui.overlay || ui.confirmReq || ui.promptReq) return
+      if (ui.page === 'history' || ui.overlay || ui.confirmReq || ui.promptReq) return
       e.preventDefault()
       e.stopPropagation()
       void useAgent.getState().stop(chatId)
@@ -202,14 +158,14 @@ export function AgentChat({ chatId }: { chatId: string }) {
   useEffect(() => {
     if (!focused) return
     const unregister = registerCommandHandlers({
-      'context.openOrLatest': { available: () => focused && !document.activeElement?.closest('[data-shortcut-tree]'), run: jumpToLatest },
+      'context.openOrLatest': { available: () => useUi.getState().page !== 'history' && focused && !document.activeElement?.closest('[data-shortcut-tree]'), run: jumpToLatest },
     })
     // A standalone chat also uses the shared configuration. App capture consumes this first when mounted.
     const handler = (event: KeyboardEvent) => {
       if (document.activeElement?.closest('[data-shortcut-tree]') || event.defaultPrevented || event.repeat || event.isComposing || event.keyCode === 229 ||
         !matchesShortcut('context.openOrLatest', event)) return
       const ui = useUi.getState()
-      if (ui.overlay || ui.confirmReq || ui.promptReq) return
+      if (ui.page === 'history' || ui.overlay || ui.confirmReq || ui.promptReq) return
       event.preventDefault()
       void jumpToLatest()
     }
@@ -318,14 +274,14 @@ export function AgentChat({ chatId }: { chatId: string }) {
         <div className="ml-auto flex shrink-0 items-center gap-1.5">
           {historyEnabled ? (
             <button
-              ref={historyButtonRef}
               type="button"
               data-tip={t('agent.history.title')}
               aria-label={t('agent.history.title')}
-              aria-haspopup="dialog"
-              aria-expanded={historyVisible}
-              onClick={() => historyVisible ? closeHistory() : setHistoryOpen(true)}
-              className={`flex h-6 w-6 items-center justify-center rounded-[var(--r-control)] transition-colors duration-fast ${historyOpen ? 'bg-hover text-fg' : 'text-muted hover:bg-hover hover:text-fg'}`}
+              onClick={() => {
+                useWorkspace.getState().setActiveRoot(chat.root)
+                useUi.getState().setPage('history')
+              }}
+              className="flex h-6 w-6 items-center justify-center rounded-[var(--r-control)] text-muted transition-colors duration-fast hover:bg-hover hover:text-fg"
             >
               <Icon name="clock" size={13} />
             </button>
@@ -341,62 +297,6 @@ export function AgentChat({ chatId }: { chatId: string }) {
           </button>
         </div>
       </div>
-
-      {historyVisible ? (
-        <div ref={historyRef} role="dialog" aria-label={t('agent.history.title')} className="absolute right-2 top-10 z-20 flex max-h-[min(420px,70vh)] w-[340px] max-w-[calc(100%-16px)] flex-col overflow-hidden rounded-[var(--r-popup)] border border-line-soft bg-panel shadow-md">
-          <div className="flex items-center justify-between border-b border-line-soft px-3 py-2">
-            <span className="text-xs font-medium text-fg/90">{t('agent.history.title')}</span>
-            <button ref={historyCloseRef} type="button" aria-label={t('tabs.close')} onClick={closeHistory} className="flex h-6 w-6 items-center justify-center rounded-[var(--r-control)] text-muted hover:bg-hover hover:text-fg"><Icon name="close" size={12} /></button>
-          </div>
-          <div className="min-h-0 overflow-y-auto p-1">
-            {!history || (!history.loaded && history.loading) ? (
-              <div className="flex items-center gap-2 px-3 py-4 text-xs text-muted"><Icon name="spinner" size={12} className="animate-spin" />{t('agent.history.loading')}</div>
-            ) : history.error && !history.chats.length ? (
-              <button type="button" onClick={() => chat?.root && void useAgent.getState().loadHistory(chat.root, true)} className="w-full px-3 py-4 text-left text-xs text-accent hover:bg-hover">{t('agent.history.retry')}</button>
-            ) : history.chats.length === 0 ? (
-              <div className="px-3 py-4 text-xs text-muted">{history.loading ? t('agent.history.loading') : t('agent.history.empty')}</div>
-            ) : history.chats.map((item) => (
-              <div key={item.id} className="flex items-center rounded-[var(--r-control)] transition-colors hover:bg-hover">
-                <button type="button" disabled={deletingChats[item.id]} className="flex min-w-0 flex-1 flex-col gap-1 px-2.5 py-2 text-left disabled:opacity-50" onClick={() => {
-                  void useAgent.getState().resumeChat(item.id, chat.root).then((restored) => {
-                    if (restored) closeHistory()
-                    else useUi.getState().toast(t('agent.missingChat'), 'error')
-                  })
-                }}>
-                  <span className="w-full truncate text-xs text-fg/90">{item.title || item.id}</span>
-                  <span className="flex w-full items-center gap-1.5 text-2xs text-muted"><span className="truncate">{item.provider}</span><span>·</span><span className="truncate">{new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(item.updatedAt))}</span></span>
-                </button>
-                <button type="button" disabled={runningChats[item.id] !== undefined || deletingChats[item.id]}
-                  aria-label={t('agent.history.delete', { title: item.title || item.id })}
-                  data-tip={t(runningChats[item.id] !== undefined ? 'agent.history.deleteRunning' : 'agent.history.deleteTitle')}
-                  className="mr-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-[var(--r-control)] text-muted hover:bg-danger/10 hover:text-danger disabled:cursor-default disabled:opacity-40"
-                  onClick={async event => {
-                    if (historyConfirmPending.current) return
-                    const trigger = event.currentTarget
-                    historyConfirmPending.current = true
-                    try {
-                      const confirmed = await useUi.getState().confirm({
-                        title: t('agent.history.deleteTitle'),
-                        message: t('agent.history.deleteMessage', { title: item.title || item.id }),
-                        confirmText: t('agent.history.deleteTitle'), danger: true,
-                      })
-                      if (confirmed) await useAgent.getState().deleteChat(item.id, item.root)
-                    } finally {
-                      historyConfirmPending.current = false
-                      if (trigger.isConnected) trigger.focus()
-                      else historyCloseRef.current?.focus()
-                    }
-                  }}><Icon name={deletingChats[item.id] ? 'spinner' : 'trash'} size={13} className={deletingChats[item.id] ? 'animate-spin' : ''} /></button>
-              </div>
-            ))}
-          </div>
-          {(history?.error && history.chats.length > 0) || (history?.nextOffset !== null && history?.nextOffset !== undefined) ? (
-            <button type="button" disabled={history.loading} onClick={() => chat?.root && void useAgent.getState().loadHistory(chat.root)} className="border-t border-line-soft px-3 py-2 text-left text-xs text-accent hover:bg-hover disabled:opacity-50">
-              {history.loading ? t('agent.history.loading') : history.error ? t('agent.history.retry') : t('agent.history.more')}
-            </button>
-          ) : null}
-        </div>
-      ) : null}
 
       <div ref={popupBoundaryRef} data-agent-content className={`flex min-h-0 flex-1 flex-col ${initialConversation ? 'overflow-y-auto' : ''}`}>
         <div className={initialConversation ? 'hidden' : 'relative min-h-0 flex-1'}>
@@ -602,7 +502,7 @@ export function AgentChat({ chatId }: { chatId: string }) {
             {chat.sessionAction === 'fork' && chat.status === 'error' ? (
               <button onClick={() => useAgent.getState().restartSession(chatId)} className="text-xs text-accent">{t('agent.local.restart')}</button>
             ) : null}
-            {localPicker && localPicker.kind !== 'resume' ? (
+            {localPicker ? (
               <div role="dialog" aria-label={t(`agent.local.${localPicker.kind}.label`)} className="flex flex-col gap-1 rounded border border-line p-2">
                 <button className="self-end text-xs" onClick={() => useAgent.setState({ localPicker: null })}>{t('tabs.close')}</button>
                 {localPicker.kind === 'model' ? (

@@ -300,6 +300,8 @@ type TabsStore = {
   openChat: (chatId: string, root: string, title: string) => void
   /** Open a chat in the active layout: fill an empty editor, otherwise keep files in primary and split */
   openChatInRight: (chatId: string, root: string, title: string) => void
+  /** Replace an empty chat's reference without closing its pane or changing tab attributes. */
+  replaceChatTab: (previousChatId: string, chatId: string, root: string, title: string) => boolean
   /** Rename a tab without touching its content (agent title follows the first prompt) */
   setTabName: (id: string, name: string) => void
   /**
@@ -1127,6 +1129,28 @@ export const useTabs = create<TabsStore>((set, get) => ({
       ...(isNewSplit ? { splitRatio: CHAT_SPLIT_RATIO } : {}),
     })
     if (root) useWorkspace.getState().setActiveRoot(root)
+  },
+
+  replaceChatTab: (previousChatId, chatId, root, title) => {
+    const previousId = `chat:${previousChatId}`
+    const id = `chat:${chatId}`
+    const state = get()
+    const previous = state.tabs.find(tab => tab.id === previousId && tab.kind === 'chat' && tab.root === root)
+    if (!previous || state.tabs.some(tab => tab.id === id) || agentBridge.isChatRunning(previousChatId)) return false
+    const group = state.groups.find(group => group.id === state.activeGroupId && group.order.includes(previousId)) ??
+      state.groups.find(group => group.order.includes(previousId))
+    if (!group) return false
+    set({
+      tabs: state.tabs.map(tab => tab.id === previousId ? { ...tab, id, name: title } : tab),
+      groups: state.groups.map(current => ({ ...current,
+        order: current.order.map(tabId => tabId === previousId ? id : tabId),
+        activeId: current.id === group.id || current.activeId === previousId ? id : current.activeId,
+      })),
+      activeId: id,
+      activeGroupId: group.id,
+    })
+    useWorkspace.getState().setActiveRoot(root)
+    return true
   },
 
   setTabName: (id, name) => {

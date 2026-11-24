@@ -25,6 +25,11 @@ export type PromptRequest = {
 export type ActivityView = 'explorer' | 'search' | 'git' | 'structure' | 'tasks'
 
 type UiStore = {
+  page: 'workspace' | 'history'
+  pageEpoch: number
+  setPage: (page: 'workspace' | 'history') => void
+  historySearchFocus: number
+  focusHistorySearch: () => void
   activityView: ActivityView
   setActivityView: (view: ActivityView) => void
 
@@ -63,8 +68,16 @@ type UiStore = {
 let nextToastId = 1
 
 export const useUi = create<UiStore>((set, get) => ({
+  page: 'workspace',
+  pageEpoch: 0,
+  setPage: (page) => set({ page, pageEpoch: get().pageEpoch + Number(page !== get().page), themeMenu: null, branchMenu: null }),
+  historySearchFocus: 0,
+  focusHistorySearch: () => set({ historySearchFocus: get().historySearchFocus + 1 }),
   activityView: 'explorer',
-  setActivityView: (activityView) => set({ activityView }),
+  setActivityView: (activityView) => {
+    get().setPage('workspace')
+    set({ activityView })
+  },
 
   toasts: [],
   toast: (text, kind = 'info') => {

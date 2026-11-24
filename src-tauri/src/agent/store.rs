@@ -91,13 +91,15 @@ pub struct AgentChatSummary {
 pub struct AgentChatListPage {
     pub chats: Vec<AgentChatSummary>,
     pub next_offset: Option<usize>,
+    pub total: usize,
 }
 
 fn chat_list_page(chats: Vec<AgentChatSummary>, offset: usize, limit: usize) -> AgentChatListPage {
     let limit = limit.clamp(1, 50);
-    let next_offset = (offset.saturating_add(limit) < chats.len()).then_some(offset.saturating_add(limit));
+    let total = chats.len();
+    let next_offset = (offset.saturating_add(limit) < total).then_some(offset.saturating_add(limit));
     let chats = chats.into_iter().skip(offset).take(limit).collect();
-    AgentChatListPage { chats, next_offset }
+    AgentChatListPage { chats, next_offset, total }
 }
 
 // List only metadata: skip message values without allocating transcripts for any project.
@@ -532,13 +534,14 @@ pub fn clone_chat(
     Ok(recent_page(&document, DEFAULT_PAGE_LIMIT))
 }
 
-pub fn list_chats(app: &AppHandle, root: &str, offset: usize, limit: usize) -> AppResult<AgentChatListPage> {
+pub fn list_chats(app: &AppHandle, root: &str, offset: usize, limit: usize, query: &str) -> AppResult<AgentChatListPage> {
     let dir = agent_dir(app)?.join("chats");
     std::fs::create_dir_all(&dir)?;
-    list_chats_in_dir(&dir, root, offset, limit)
+    list_chats_in_dir(&dir, root, offset, limit, query)
 }
 
-fn list_chats_in_dir(dir: &Path, root: &str, offset: usize, limit: usize) -> AppResult<AgentChatListPage> {
+fn list_chats_in_dir(dir: &Path, root: &str, offset: usize, limit: usize, query: &str) -> AppResult<AgentChatListPage> {
+    let query = query.trim().to_lowercase();
     let mut out = Vec::new();
     for entry in std::fs::read_dir(dir)? {
         let path = entry?.path();
@@ -549,6 +552,9 @@ fn list_chats_in_dir(dir: &Path, root: &str, offset: usize, limit: usize) -> App
             continue;
         };
         if summary.root != root {
+            continue;
+        }
+        if !query.is_empty() && !summary.title.to_lowercase().contains(&query) && !summary.id.to_lowercase().contains(&query) {
             continue;
         }
         out.push(summary);
@@ -624,21 +630,71 @@ mod tests {
     }
 
     #[test]
-    fn history_list_pages_five_summaries_and_reports_the_next_offset() {
-        let summaries: Vec<AgentChatSummary> = (0..11).map(|index| AgentChatSummary {
-            id: format!("chat-{index}"), root: "/tmp/project".into(), title: String::new(),
-            provider: "codex".into(), model: String::new(), updated_at: index as f64,
-            message_count: 0,
-        }).collect();
-        let first = chat_list_page(summaries.clone(), 0, 5);
-        assert_eq!(first.chats.len(), 5);
-        assert_eq!(first.next_offset, Some(5));
-        let second = chat_list_page(summaries.clone(), 5, 5);
-        assert_eq!(second.chats.len(), 5);
-        assert_eq!(second.next_offset, Some(10));
-        let final_page = chat_list_page(summaries, 10, 5);
-        assert_eq!(final_page.chats.len(), 1);
-        assert_eq!(final_page.next_offset, None);
+    fn history_list_pages_fifteen_summaries_and_reports_filtered_total() {
+        for total in [0, 15, 16, 30, 31] {
+            let summaries: Vec<AgentChatSummary> = (0..total).map(|index| AgentChatSummary {
+                id: format!("chat-{index}"), root: "/tmp/project".into(), title: String::new(),
+                provider: "codex".into(), model: String::new(), updated_at: index as f64,
+                message_count: 0,
+            }).collect();
+            for offset in [0, 15, 30] {
+                let page = chat_list_page(summaries.clone(), offset, 15);
+                assert_eq!(page.total, total);
+                assert_eq!(page.chats.len(), total.saturating_sub(offset).min(15));
+                assert_eq!(page.next_offset, (offset + 15 < total).then_some(offset + 15));
+            }
+        }
+    }
+
+    #[test]
+    fn history_search_filters_all_project_summaries_before_sorting_and_paging() {
+        let dir = std::env::temp_dir().join(format!(
+            "tide-chat-history-{}-{}", std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("clock").as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        for index in 0..31 {
+            let mut doc = document();
+            doc.header.insert("root".into(), json!("/tmp/project"));
+            doc.header.insert("title".into(), json!(format!("NeEdLe {index}")));
+            doc.header.insert("updatedAt".into(), json!(index));
+            doc.messages = vec![message("m1", "user", "body-only keyword")];
+            write_document(&dir.join(format!("chat-{index}.json")), &doc).expect("seed");
+        }
+        let mut other = document();
+        other.header.insert("root".into(), json!("/other/project"));
+        other.header.insert("title".into(), json!("Needle"));
+        write_document(&dir.join("other.json"), &other).expect("other project");
+        std::fs::write(dir.join("corrupt.json"), b"invalid json").expect("corrupt seed");
+
+        let first = list_chats_in_dir(&dir, "/tmp/project", 0, 15, "  NEEDLE  ").expect("search first");
+        assert_eq!(first.total, 31);
+        assert_eq!(first.chats.len(), 15);
+        assert_eq!(first.chats[0].id, "chat-30");
+        let second = list_chats_in_dir(&dir, "/tmp/project", 15, 15, "needle").expect("search second");
+        assert_eq!(second.chats.len(), 15);
+        assert_eq!(second.chats[0].id, "chat-15");
+        assert_eq!(second.next_offset, Some(30));
+        let last = list_chats_in_dir(&dir, "/tmp/project", 30, 15, "needle").expect("search last");
+        assert_eq!(last.chats.len(), 1);
+        assert_eq!(last.next_offset, None);
+
+        let id = list_chats_in_dir(&dir, "/tmp/project", 0, 15, "CHAT-30").expect("id search");
+        assert_eq!(id.total, 1);
+        assert_eq!(id.chats[0].id, "chat-30");
+        assert_eq!(list_chats_in_dir(&dir, "/tmp/project", 0, 15, "body-only").expect("body excluded").total, 0);
+        assert_eq!(list_chats_in_dir(&dir, "/tmp/project", 0, 15, "codex").expect("provider excluded").total, 0);
+        assert_eq!(list_chats_in_dir(&dir, "/tmp/project", 0, 15, "   ").expect("empty search").total, 31);
+
+        let mut unicode = document();
+        unicode.header.insert("root".into(), json!("/tmp/project"));
+        unicode.header.insert("title".into(), json!("修复登录 [literal].*"));
+        write_document(&dir.join("unicode.json"), &unicode).expect("unicode seed");
+        assert_eq!(list_chats_in_dir(&dir, "/tmp/project", 0, 15, "登录").expect("unicode search").total, 1);
+        assert_eq!(list_chats_in_dir(&dir, "/tmp/project", 0, 15, "[literal].*").expect("literal search").total, 1);
+        assert_eq!(list_chats_in_dir(&dir, "/tmp/project", 0, 15, "unmatched").expect("empty result").total, 0);
+        assert!(dir.join("corrupt.json").exists());
+        std::fs::remove_dir_all(dir).expect("cleanup");
     }
 
     fn document() -> ChatDocument {

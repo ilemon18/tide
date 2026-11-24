@@ -1,10 +1,11 @@
 import { useShortcut, useShortcutTip } from '../lib/useShortcut'
 import { useEffect, useMemo, useState } from 'react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
-import { activeRoot, IS_PRIMARY_WINDOW, useWorkspace } from '../store/workspace'
+import { IS_PRIMARY_WINDOW, useWorkspace } from '../store/workspace'
 import { useTabs } from '../store/tabs'
 import { useSettings } from '../store/settings'
 import { useAgent } from '../store/agent'
+import { useUi } from '../store/ui'
 import { Icon } from './Icon'
 import { UpdateBadge } from './UpdateBadge'
 import { newWindow, revealInExplorer } from '../lib/actions'
@@ -136,6 +137,7 @@ export function TitleBar() {
   const t = useT()
   const mac = isMac()
   const roots = useWorkspace((s) => s.roots)
+  const activeRootId = useWorkspace(s => s.activeRootId)
   const activeId = useTabs((s) => s.activeId)
   const tabs = useTabs((s) => s.tabs)
   const agentEnabled = useSettings((s) => s.agentEnabled)
@@ -143,9 +145,10 @@ export function TitleBar() {
   const agentTip = agentKeys ? t('titlebar.agentTip', { shortcut: agentKeys }) : t('commands.agent.ask')
   const windowTip = useShortcutTip('app.newWindow', 'titlebar.newWindowTip')
 
-  const active = tabs.find((t) => t.id === activeId)
+  const historyVisible = useUi(s => s.page === 'history')
+  const active = historyVisible ? undefined : tabs.find((t) => t.id === activeId)
   // Breadcrumbs follow the active tab's project so they can't disagree with activeRoot
-  const root = roots.find((r) => r.id === active?.root) ?? activeRoot()
+  const root = roots.find((r) => r.id === active?.root) ?? roots.find(root => root.id === activeRootId) ?? roots[0]
 
   const crumbs = useMemo(() => {
     // Welcome/settings tabs have no file path, so only the project badge is shown
@@ -215,7 +218,7 @@ export function TitleBar() {
         ) : null}
         <button
           data-tip={t('titlebar.welcomeTip')}
-          onClick={() => useTabs.getState().openWelcome()}
+          onClick={() => { useUi.getState().setPage('workspace'); useTabs.getState().openWelcome() }}
           className="flex h-6 w-6 items-center justify-center rounded-[var(--r-control)] text-muted transition-colors duration-fast hover:bg-hover hover:text-fg"
         >
           <Icon name="home" size={15} />

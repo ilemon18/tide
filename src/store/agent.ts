@@ -30,7 +30,7 @@ import { budget } from '../lib/memoryBudget'
 import { useSettings } from './settings'
 import { useTabs } from './tabs'
 import { useUi } from './ui'
-import { activeRoot } from './workspace'
+import { activeRoot, useWorkspace } from './workspace'
 import { normalizeAgentUsage, replaceTurnUsage } from '../lib/agentUsage'
 import { agentBridge } from '../lib/agentBridge'
 
@@ -208,8 +208,16 @@ export function applyToolOutput(items: AgentItem[], toolId: string, text: string
 }
 
 type Running = Record<string, number>
-const AGENT_HISTORY_PAGE_SIZE = 5
-export type AgentHistory = { chats: AgentChatSummary[]; nextOffset: number | null; loading: boolean; loaded: boolean; error: boolean }
+export const AGENT_HISTORY_PAGE_SIZE = 15
+export type AgentHistory = {
+  chats: AgentChatSummary[]
+  page: number
+  query: string
+  total: number
+  loading: boolean
+  loaded: boolean
+  error: boolean
+}
 
 type AgentStore = {
   providers: AgentProviderInfo[] | null
@@ -235,9 +243,11 @@ type AgentStore = {
 
   chatDefaults: ChatDefaults
   historyByRoot: Record<string, AgentHistory>
-  loadHistory: (root: string, reset?: boolean) => Promise<void>
+  loadHistory: (root: string, options?: { page?: number; query?: string }) => Promise<void>
   clearHistory: () => void
   resumeChat: (id: string, root: string) => Promise<boolean>
+  resumingChatId: string | null
+  isBlankChat: (id: string, root: string) => boolean
   deletingChats: Record<string, boolean>
   deleteChat: (id: string, root: string) => Promise<boolean>
 
@@ -245,7 +255,7 @@ type AgentStore = {
   loadCatalog: (provider: string, force?: boolean) => Promise<void>
   resolveDefaults: () => void
 
-  localPicker: { chatId: string; kind: 'resume' | 'model' | 'permissions' } | null
+  localPicker: { chatId: string; kind: 'model' | 'permissions' } | null
   focusRequests: Record<string, number>
   restartSession: (chatId: string) => void
   pages: Record<string, AgentChatPage>
@@ -751,47 +761,111 @@ export const useAgent = create<AgentStore>((set, get) => {
       historyTicket++
       set({ historyByRoot: {} })
     },
-    loadHistory: async (root, reset = false) => {
+    loadHistory: async (root, options = {}) => {
       if (!useSettings.getState().agentHistoryEnabled || !root) return
       const current = get().historyByRoot[root]
-      if (current?.loading || (current?.loaded && !reset && current.nextOffset === null)) return
+      const query = (options.query ?? current?.query ?? '').trim()
+      const requestedPage = options.page ?? current?.page ?? 1
+      const pageNumber = Number.isFinite(requestedPage) ? Math.max(1, Math.floor(requestedPage)) : 1
       const ticket = ++historyTicket
-      const offset = reset ? 0 : current?.nextOffset ?? 0
-      // Retain summaries for only the project currently being browsed. A different root invalidates old requests.
+      const isCurrent = () => ticket === historyTicket && useSettings.getState().agentHistoryEnabled
+      // Keep only one page for the project currently being browsed. New requests supersede in-flight reads.
       set({ historyByRoot: { [root]: {
-        chats: reset ? [] : current?.chats ?? [], nextOffset: reset ? null : current?.nextOffset ?? null,
-        loaded: reset ? false : current?.loaded ?? false, loading: true, error: false,
+        chats: [], page: pageNumber, query, total: current?.query === query ? current.total : 0,
+        loaded: false, loading: true, error: false,
       } } })
       try {
-        const ids = Object.values(get().chats).filter(chat => chat.root === root).map(chat => chat.id)
-        await Promise.all(ids.map(id => persistChat(id)))
+        const ids = Object.values(get().chats).filter(chat => chat.root === root && !get().deletingChats[chat.id]).map(chat => chat.id)
+        // Closing a tab releases its in-memory record before its accepted write finishes.
+        // Include these writes (and retry failed closing saves) before reading summaries.
+        const closedWrites = [...unsavedClosedChats].filter(([id, chat]) => chat.root === root && !get().deletingChats[id])
+          .map(([id, chat]) => {
+            persistLeavingChat(id, chat)
+            return writeQueues.get(id)
+          })
+        await Promise.all([...ids.map(id => persistChat(id)), ...closedWrites])
         await Promise.all(ids.map(id => writeQueues.get(id)))
-        if (ticket !== historyTicket || !useSettings.getState().agentHistoryEnabled) return
-        const page = await api.agentChatList(root, offset, AGENT_HISTORY_PAGE_SIZE)
-        if (ticket !== historyTicket) return
-        if (!useSettings.getState().agentHistoryEnabled) {
-          const latest = get().historyByRoot[root]
-          if (latest) set({ historyByRoot: { ...get().historyByRoot, [root]: { ...latest, loading: false } } })
-          return
+        if (!isCurrent()) return
+        let targetPage = pageNumber
+        let result = await api.agentChatList(root, (targetPage - 1) * AGENT_HISTORY_PAGE_SIZE, AGENT_HISTORY_PAGE_SIZE, query)
+        if (!isCurrent()) return
+        // Deletion (including another window) may have removed the last page while it was being read.
+        const lastPage = Math.max(1, Math.ceil(result.total / AGENT_HISTORY_PAGE_SIZE))
+        if (targetPage > lastPage) {
+          targetPage = lastPage
+          result = await api.agentChatList(root, (targetPage - 1) * AGENT_HISTORY_PAGE_SIZE, AGENT_HISTORY_PAGE_SIZE, query)
+          if (!isCurrent()) return
         }
-        const latest = get().historyByRoot[root]
-        const chats = [...new Map([...(reset ? [] : latest?.chats ?? []), ...page.chats]
-          .filter(chat => chat.root === root).map(chat => [chat.id, chat])).values()]
-        set({ historyByRoot: { ...get().historyByRoot, [root]: { chats, nextOffset: page.nextOffset, loading: false, loaded: true, error: false } } })
+        set({ historyByRoot: { [root]: {
+          chats: result.chats.filter(chat => chat.root === root), page: targetPage, query, total: result.total,
+          loading: false, loaded: true, error: false,
+        } } })
       } catch (error) {
-        if (ticket !== historyTicket) return
+        if (!isCurrent()) return
         const latest = get().historyByRoot[root]
-        set({ historyByRoot: { ...get().historyByRoot, [root]: { chats: latest?.chats ?? [], nextOffset: latest?.nextOffset ?? null, loading: false, loaded: latest?.loaded ?? false, error: true } } })
+        if (latest) set({ historyByRoot: { [root]: { ...latest, loading: false, error: true } } })
         useUi.getState().toast(errorText(error), 'error')
       }
     },
+    resumingChatId: null,
+    isBlankChat: (id, root) => {
+      const state = get()
+      const chat = state.chats[id]
+      const page = state.pages[id]
+      const draft = state.chatDrafts[id]
+      return !!chat && chat.root === root && chat.status === 'idle' && !chat.title && !chat.error &&
+        !chat.messages.length && !chat.sessionId && !chat.sessionAction && !chat.compactSummary && !chat.compactPending &&
+        !chat.activeRunId && !chat.currentContext && !chat.sessionUsage && !chat.sessionCost &&
+        !(page?.total || page?.hasEarlier || page?.hasLater || page?.hasPendingQuestion || page?.hasUnhandledPlanAction || page?.pendingMessageId) &&
+        !draft?.text && !draft?.command && !draft?.attachments?.length && !draft?.mentions?.length && !draft?.skills?.length &&
+        !state.queues[id]?.length && state.running[id] === undefined && !state.loadingChats[id] && !state.pageLoading[id] &&
+        !state.deletingChats[id] && !state.interjecting[id] && !resetLocks.has(id) && !evictions.has(id) &&
+        ![...planActionLocks].some(key => key.startsWith(`${id}:`)) && state.localPicker?.chatId !== id
+    },
     resumeChat: async (id, root) => {
-      if (get().deletingChats[id]) return false
-      await get().loadChat(id, root)
-      const chat = get().chats[id]
-      if (!chat || chat.root !== root || get().deletingChats[id]) return false
-      get().openChatTab(id)
-      return true
+      if (get().resumingChatId || get().deletingChats[id]) return false
+      const workspace = useWorkspace.getState()
+      const owner = workspace.roots.find(node => node.id === root)
+      if (!owner) return false
+      const originPage = useUi.getState().page
+      const originEpoch = useUi.getState().pageEpoch
+      const alreadyLoaded = !!get().chats[id]
+      set({ resumingChatId: id })
+      try {
+        await get().loadChat(id, root)
+        // An already-open tab may be hydrating the same chat. loadChat deduplicates that read;
+        // wait for it to settle before validating and activating the target.
+        if (get().loadingChats[id]) {
+          await new Promise<void>(resolve => {
+            const unsubscribe = useAgent.subscribe(state => {
+              if (state.loadingChats[id]) return
+              unsubscribe()
+              resolve()
+            })
+          })
+        }
+        const chat = get().chats[id]
+        const currentRoot = useWorkspace.getState().roots.find(node => node.id === root)
+        if (!chat || chat.root !== root || get().deletingChats[id] || currentRoot?.lifetime !== owner.lifetime ||
+          (originPage === 'history' && (useUi.getState().page !== 'history' || useUi.getState().pageEpoch !== originEpoch || activeRoot()?.id !== root))) return false
+        const tabs = useTabs.getState()
+        if (tabs.tabs.some(tab => tab.id === chatTabId(id))) {
+          tabs.openChat(id, root, chat.title)
+        } else {
+          const blank = tabs.tabs.filter(tab => tab.kind === 'chat' && get().isBlankChat(tab.id.slice(5), root))
+            .sort((a, b) => Number(b.id === tabs.activeId) - Number(a.id === tabs.activeId) ||
+              (get().chatFocusOrder[b.id.slice(5)] ?? 0) - (get().chatFocusOrder[a.id.slice(5)] ?? 0))[0]
+          if (blank && tabs.replaceChatTab(blank.id.slice(5), id, root, chat.title)) get().forgetChat(blank.id.slice(5))
+          else tabs.openChatInRight(id, root, chat.title)
+        }
+        useUi.getState().setPage('workspace')
+        get().markChatFocused(id)
+        set({ focusRequests: { ...get().focusRequests, [id]: (get().focusRequests[id] ?? 0) + 1 } })
+        return true
+      } finally {
+        if (!alreadyLoaded && !useTabs.getState().tabs.some(tab => tab.id === chatTabId(id))) get().forgetChat(id)
+        set({ resumingChatId: null })
+      }
     },
     deletingChats: {},
     deleteChat: async (id, root) => {
@@ -823,11 +897,7 @@ export const useAgent = create<AgentStore>((set, get) => {
         await useTabs.getState().close(chatTabId(id), true)
         agentBridge.onChatDeleted()
         if (get().historyByRoot[root]) {
-          historyTicket++
-          const history = get().historyByRoot[root]
-          set({ historyByRoot: { ...get().historyByRoot, [root]: { ...history,
-            chats: history.chats.filter(item => item.id !== id), loading: false, nextOffset: null } } })
-          await get().loadHistory(root, true)
+          await get().loadHistory(root)
         }
         return true
       } catch (error) {
@@ -1098,6 +1168,7 @@ export const useAgent = create<AgentStore>((set, get) => {
     openChatTab: (id) => {
       const chat = get().chats[id]
       if (!chat || get().deletingChats[id]) return
+      useUi.getState().setPage('workspace')
       useTabs.getState().openChat(id, chat.root, chat.title || '')
     },
 
@@ -1140,6 +1211,7 @@ export const useAgent = create<AgentStore>((set, get) => {
           : {}),
       })
       schedulePersist(chatId)
+      useUi.getState().setPage('workspace')
       useTabs.getState().openChatInRight(chatId, targetRoot, '')
       if (defaults.provider) void get().loadCatalog(defaults.provider)
       return chatId
@@ -1188,7 +1260,8 @@ export const useAgent = create<AgentStore>((set, get) => {
           if (local.id === 'resume') {
             if (!local.args) {
               if (!useSettings.getState().agentHistoryEnabled) throw new Error(t('agent.local.unavailable'))
-              set({ localPicker: { chatId, kind: 'resume' } })
+              useWorkspace.getState().setActiveRoot(chat.root)
+              useUi.getState().setPage('history')
               return
             }
             if (!await get().resumeChat(local.args, chat.root)) throw new Error(t('agent.missingChat'))

@@ -60,6 +60,9 @@ EditorHost selects tab kinds; markdown helpers own contained links and images.
 - Chat fills an empty editor; otherwise opens a secondary row split without moving existing tabs. Ordinary
   opens target primary. Measure tab widths once and on resize, outside tab state; wheel writes scrollLeft
   once/frame. TabBar hooks must precede its empty return, including first-open/last-close transitions.
+- History restore can replace a blank Agent tab reference atomically through tabs.replaceChatTab, preserving
+  its pane, order, pinned state and split geometry without closing/recreating a pane or adding closedTabs.
+  The agent store owns blank eligibility and root/session restoration; see [agent-storage.md](./agent-storage.md).
 - Closing or dragging away a pane's final tab collapses the split, including when the surviving pane contains
   an Agent. The survivor becomes primary with its selection/preview state; closing all tabs leaves one empty
   primary. Shared files retain the surviving buffer; cancelled unsaved closes leave layout intact. Empty panes

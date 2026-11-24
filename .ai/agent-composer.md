@@ -95,7 +95,8 @@ actions and queue gates. Rust parses questions/scans skills. Provider/model/perm
   /permissions, /plan, /goal, /review, /test, /explain and /help. Local /new resets the current chat tab
   in place, clears its transcript/session context and keeps the selected provider/model/permissions.
   Local commands never reach the model; prompt commands are wrapped and sent as their matching tags.
-  Missing arguments open selectors; invalid ones report errors.
+  Argument-less /resume opens the standalone project history page; other missing arguments open selectors.
+  Invalid arguments report errors.
 - /fork clones saved history after capability probing (Claude --fork-session; Codex app-server/RPC validation).
   Failure preserves clone/parent boundaries with explicit fresh-session restart. Empty model/effort sends no
   flag, preserving CLI/per-chat defaults.

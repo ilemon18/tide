@@ -6,6 +6,7 @@ scope:
   - src/store/agent.test.ts
   - src/lib/agentSession.ts
   - src/components/AgentChat*.tsx
+  - src/components/AgentHistoryPage*.tsx
   - src-tauri/src/agent/store.rs
   - src-tauri/src/commands/agent.rs
 keywords:
@@ -22,22 +23,33 @@ keywords:
 
 ## Ownership
 
-Rust agent/store owns locked patches/cursors; the frontend agent store owns loaded pages; agentSession
-restores primary-window tabs. Keep transcript v:1 compatible.
+Rust owns locked patches/cursors; the agent store owns loaded pages; agentSession restores primary-window
+tabs. Keep transcript v:1 compatible.
 
 ## Storage contracts
 
 - Open/page/apply/list/clone merge patches, preserve unknown/unloaded data and lock each file. Atomic writes
   reject invalid JSON or >8 MiB without damaging originals; failed close writes retry.
-- Project history lists are fetched only when opened, authorize/filter by the owning root, and return five
-  summaries per page in updated-time order (`AGENT_HISTORY_PAGE_SIZE` in `src/store/agent.ts`). Transcript
-  pages remain independently lazy-loaded on selection; project-root restore validates the saved root again.
-  Flush open chats before listing so a new turn is visible immediately, but discard the list when its panel closes.
-- History deletion requires explicit confirmation. Frontend and Rust reject running chats; Rust authorizes
-  the project and validates transcript ownership under the document lock before removal. The frontend blocks
-  new operations, drains accepted writes and invalidates old reads/save callbacks, then clears transcript,
+- History is an active-project page, opened from the activity bar, chat header or argument-less /resume.
+  Fetch on entry; discard summaries/obsolete reads on exit, root lifetime change or disabling
+  agentHistoryEnabled. Its preference is independent of agentEnabled.
+- Rust authorizes the root, reads summaries without allocating bodies, filters trimmed case-insensitive
+  literal title/ID matches, sorts updated-time/ID descending, then pages with filtered total/nextOffset.
+  Keep one page of 15 (`AGENT_HISTORY_PAGE_SIZE` in src/store/agent.ts). Search resets to page one; IME-aware
+  debounce belongs to AgentHistoryPage. Flush accepted open/closing-chat writes first; load bodies on selection.
+- Rows use AgentProviderIcon with unknown-provider fallback, New chat for empty titles and visible IDs.
+  Restore locks duplicates, revalidates root/lifetime/page epoch, preserves native options/pending gates and
+  never sends. Page transitions invalidate old restores.
+- Restore focuses an existing target, else reuses the active same-root blank tab, then the last-focused blank,
+  else follows the Agent split rule. isBlankChat rejects transcript/pages/session/summary/usage, drafts with
+  text/attachments/mentions/commands/skills, queues and conflicting transactions. Recheck after loading;
+  replace the tab reference, preserve pane/position/pinning and release the placeholder.
+- History deletion requires confirmation. Frontend/Rust reject running chats; Rust validates project ownership
+  under the document lock. The frontend blocks new operations, drains writes, invalidates old reads/save
+  callbacks, then clears transcript,
   draft/queue/page/retry state and closes any open tab without another save. Flush tab references immediately.
-  Failed removal retains the record and tab for retry; successful removal restarts history paging at offset zero.
+  Failed removal retains the record and tab for retry. Successful removal preserves keyword/page; refresh
+  the page and fall back to the last valid page when its final entry was removed.
 - Initial page: 80 records/512 KiB, then 40/load. Loaded window: 160 records/1 MiB; oversized record alone.
   Persist before eviction/navigation; retain cursors/anchor, scan pending cards across full history, flush
   agent/tabs.json on hide/unload. Only completed questions establish a persisted question gate; streamed

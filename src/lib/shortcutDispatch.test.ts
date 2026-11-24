@@ -2,7 +2,7 @@
 import { afterEach, expect, it, vi } from 'vitest'
 import { assignShortcuts, startShortcutRecording } from './shortcuts'
 const { state, ui, run, terminal } = vi.hoisted(() => ({
-  state: { shortcutOverrides: {} as Record<string, string[]>, closeBlocked: false }, ui: { overlay: null, confirmReq: null, promptReq: null },
+  state: { shortcutOverrides: {} as Record<string, string[]>, closeBlocked: false }, ui: { page: 'workspace', overlay: null, confirmReq: null, promptReq: null },
   run: vi.fn(), terminal: { focused: false },
 }))
 vi.mock('../store/settings', () => ({ useSettings: { getState: () => state } }))
@@ -10,10 +10,10 @@ vi.mock('../store/ui', () => ({ useUi: { getState: () => ui } }))
 vi.mock('../store/terminal', () => ({ terminalFocused: () => terminal.focused }))
 vi.mock('./paths', () => ({ isMac: () => true }))
 vi.mock('./commands', () => ({ commandAvailable: (id: string) => !['tab.closeCurrent', 'tab.close'].includes(id) || !state.closeBlocked,
-  buildCommands: () => ['agent.ask', 'file.save', 'view.commands', 'tree.rename', 'editor.zoomIn', 'view.wordWrap', 'tab.closeCurrent'].map(id => ({ id, run: () => run(id) })) }))
+  buildCommands: () => ['agent.ask', 'file.save', 'view.commands', 'tree.rename', 'editor.zoomIn', 'view.wordWrap', 'tab.closeCurrent', 'editor.find'].map(id => ({ id, run: () => run(id) })) }))
 import { dispatchShortcut } from './shortcutDispatch'
 
-afterEach(() => { state.shortcutOverrides = {}; state.closeBlocked = false; ui.overlay = null; ui.confirmReq = null; ui.promptReq = null;
+afterEach(() => { state.shortcutOverrides = {}; state.closeBlocked = false; ui.page = 'workspace'; ui.overlay = null; ui.confirmReq = null; ui.promptReq = null;
   terminal.focused = false; document.body.innerHTML = ''; vi.clearAllMocks() })
 const press = (key: string, options: KeyboardEventInit = {}) => {
   const event = new KeyboardEvent('keydown', { key, metaKey: true, bubbles: true, cancelable: true, ...options })
@@ -93,4 +93,13 @@ it('does not dispatch close shortcuts while the active chat is running', () => {
   state.closeBlocked = false
   expect(press('w').defaultPrevented).toBe(true)
   expect(run).toHaveBeenCalledExactlyOnceWith('tab.closeCurrent')
+})
+
+
+it('dispatches the history find shortcut from its search field while workspace editor scopes remain blocked', () => {
+  ui.page = 'history'
+  const input = document.createElement('input'); document.body.append(input); input.focus()
+  expect(press('f').defaultPrevented).toBe(true)
+  expect(run).toHaveBeenCalledExactlyOnceWith('editor.find')
+  expect(press('z', { metaKey: false, altKey: true, code: 'KeyZ' }).defaultPrevented).toBe(false)
 })

@@ -4,6 +4,8 @@ scope:
   - .ai/runtime.md
   - src/App.tsx
   - src/App.test.tsx
+  - src/store/ui.ts
+  - src/lib/actions.ts
   - src/main.tsx
   - src/lib/contextMenu*.ts
   - src/components/TitleBar.tsx
@@ -58,6 +60,14 @@ App owns hydration/window coordination; the settings store and Rust theme comman
 - Mod+Shift+A opens Agent using the title-bar action, including from editors/terminals/text fields. Mod+A
   always remains native; dialogs/overlays block app shortcuts. Shared shortcut contracts are below.
 
+- useUi.page switches between the workspace and standalone Agent history. App keeps the workspace mounted
+  but hidden/inert, preserving editor/split/terminal state, and restores the previous connected focus when
+  returning to the same tab. Page epochs invalidate obsolete restores. Activity navigation, settings, welcome
+  and explicit Agent opens return to the workspace. History details: [agent-storage.md](./agent-storage.md).
+- While history is visible, command availability blocks hidden workspace editing/tab/terminal/context
+  actions; the configured Find command targets history search, including from its input. Global navigation
+  and appearance commands remain available. Hidden Agent Escape/latest handlers and popup listeners must
+  not consume history input or stop background turns.
 - One window/project. Only `IS_PRIMARY_WINDOW` persists session/chat state; secondaries use the window URL
   project without overwriting primary state. `app:open-file` has no listener; do not assume consumption.
 - macOS retains traffic-light inset; Windows/Linux use TitleBar's custom drag/control region. Every window

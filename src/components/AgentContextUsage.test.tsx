@@ -14,8 +14,9 @@ vi.mock('../store/agent', () => ({ useAgent: Object.assign((select: (state: unkn
 vi.mock('../i18n', () => ({ useT: () => (key: string, params?: { percent: number }) => params ? `${params.percent}%` : key }))
 vi.mock('./Icon', () => ({ Icon: () => null }))
 import { AgentContextUsage } from './AgentContextUsage'
-beforeEach(() => { vi.clearAllMocks() })
-afterEach(() => { cleanup(); vi.useRealTimers() })
+import { useUi } from '../store/ui'
+beforeEach(() => { vi.clearAllMocks(); useUi.setState({ page: 'workspace' }) })
+afterEach(() => { cleanup(); useUi.setState({ page: 'workspace' }); vi.useRealTimers() })
 it('uses the persisted zero context snapshot and supports popup click, Escape and focus restoration', () => {
   render(<AgentContextUsage chatId="chat" />)
   const button = screen.getByRole('button', { name: /0%/ })
@@ -52,4 +53,20 @@ it('uses the same token usage title for a new chat with no usage', () => {
   expect(screen.getByText('agent.usage.title')).toBeTruthy()
   expect(screen.queryByText('agent.context.tokenBreakdown')).toBeNull()
   expect(screen.queryByText('agent.usage.cost')).toBeNull()
+})
+
+
+it('does not consume Escape or restore hidden popup focus while the history page is visible', () => {
+  render(<AgentContextUsage chatId="chat" />)
+  const button = screen.getByRole('button', { name: /0%/ })
+  fireEvent.click(button)
+  useUi.setState({ page: 'history' })
+  const input = document.createElement('input')
+  document.body.append(input)
+  input.focus()
+  const escape = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+  input.dispatchEvent(escape)
+  expect(escape.defaultPrevented).toBe(false)
+  expect(document.activeElement).toBe(input)
+  input.remove()
 })
