@@ -60,6 +60,8 @@ tabs. Keep transcript v:1 compatible.
 
 ## Snapshot persistence
 
+- Replies snapshot optional `provider`; switches retain attribution. Keep v:1, discard invalid values and
+  preserve the field through paging, reopen and cloning.
 - Sent user-message attachments preserve exact capture text/metadata through atomic patches, paging,
   eviction, reopen and cloning. Keep v:1; absent attachments mean none. normalizeChat rejects malformed
   attachment records before rendering, while Rust continues preserving unknown message fields.
@@ -68,7 +70,7 @@ tabs. Keep transcript v:1 compatible.
 
 ## Change map and verification
 
-Coordinate Rust/IPC/frontend DTOs. Saving a partial page preserves unloaded records; compact/reset preserves
-transcript. Action transactions: [agent-composer.md](./agent-composer.md). Run ownership: [agent.md](./agent.md).
+Align Rust/IPC/frontend DTOs; partial saves retain unloaded records. Action transactions:
+[agent-composer.md](./agent-composer.md). Run ownership: [agent.md](./agent.md).
 Rust tests cover corrupt/oversized input, concurrent patches, cursors/budgets; store tests cover eviction,
 failed-close retry/reopen. Gate policy: [checks.md](./checks.md).

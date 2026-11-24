@@ -3,6 +3,8 @@ summary: Git actions, diffs and conflicts
 scope:
   - .ai/git.md
   - src/store/git.ts
+  - src/store/commitHover*.ts
+  - src/components/CommitHoverCard*.tsx
   - src/components/DiffView.tsx
   - src/components/DiffView.test.tsx
   - src/components/diffScroll.ts
@@ -53,6 +55,20 @@ and subprocess policy. DiffView/diffScroll own positioning; editor/conflicts own
   rename/delete/reveal flows and group-specific Git actions; wait for metadata before opening diffs,
   disable mutations while busy/loading or metadata is unreadable, keep
   path copies available, and close obsolete targets after status changes. Menus scroll within the viewport.
+
+## Inline blame hover
+
+- store/commitHover owns requests, hover intent and completed content. Share cached/in-flight details by
+  structured root/SHA/path/original-line/current-line keys; use memoryBudget.commitDetails for LRU eviction.
+  Foreground hover reads immediately and shares matching background reads; background prefetch is serial
+  with only the latest waiting target. Prefetch failures remain silent and hover retries failures.
+- CommitHoverCard appears only with a completed diff, empty-change result or error. Measure the full card
+  invisibly before first paint; cached results enter synchronously. Keep the existing single-line snippet.
+  Target/content updates are atomic so a new target never paints the previous target's snippet.
+- Closing or leaving a pending hover invalidates its presentation immediately. Visible cards retain the
+  200ms anchor-to-card grace period. Esc, external scroll, edits and file/line changes close pending/visible
+  cards; internal scroll stays open. Request sequences reject stale presentation; clearCommitDetails also
+  cancels queued prefetch and uses a generation to prevent late requests from refilling reclaimed caches.
 
 ## Bulk discard transaction
 

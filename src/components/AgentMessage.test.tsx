@@ -12,10 +12,12 @@ vi.mock('../lib/actions', () => ({ revealInExplorer: vi.fn() }))
 vi.mock('../i18n', () => ({ useT: () => (key: string) => key }))
 vi.mock('./AgentMarkdown', () => ({ AgentMarkdown: ({ text, root }: { text: string; root?: string }) => <div data-root={root}>{text}</div> }))
 vi.mock('./AgentTags', () => ({ CommandChip: () => null, SkillChip: () => null }))
-vi.mock('./CopyButton', () => ({ CopyButton: ({ text, className, label }: { text: string; className: string; label: string }) => label === 'agent.copy.userTurn' ? <button data-testid="user-copy" data-copy={text} className={className} /> : null }))
+vi.mock('./CopyButton', () => ({ CopyButton: ({ text, className, label }: { text: string; className: string; label: string }) =>
+  label === 'agent.copy.userTurn' || label === 'agent.copy.logs'
+    ? <button data-testid={label === 'agent.copy.userTurn' ? 'user-copy' : 'log-copy'} data-copy={text} className={className} /> : null }))
 vi.mock('./FileIcon', () => ({ FileIcon: () => null }))
 vi.mock('./Icon', () => ({ Icon: () => null }))
-import { AssistantMessage, serializeAssistantMessage, toolCommand, toolPreview } from './AgentMessage'
+import { AssistantMessage, UserMessage, serializeAssistantMessage, toolCommand, toolPreview } from './AgentMessage'
 
 const planMessage = (resolved = false): AgentMessage => ({
   id: 'reply', role: 'assistant', at: 1, readOnly: true,
@@ -25,13 +27,40 @@ const planMessage = (resolved = false): AgentMessage => ({
   ],
 })
 const view = (message = planMessage(), running = false) => (
-  <AssistantMessage chatId="chat" message={message} running={running} pendingQuestionId={null} />
+  <AssistantMessage chatId="chat" providerLabel="Codex" message={message} running={running} pendingQuestionId={null} />
 )
 beforeEach(() => {
   resolvePlanAction.mockReset(); resolvePlanAction.mockResolvedValue(true)
   answerQuestion.mockReset(); answerQuestion.mockResolvedValue(true)
 })
 afterEach(cleanup)
+
+it('labels user turns above their content without adding the label to copied text', () => {
+  const message: AgentMessage = { id: 'user', role: 'user', at: 1, text: 'Keep my spacing  \nNext line' }
+  render(<UserMessage root="/repo" message={message} />)
+  const label = screen.getByText('agent.you')
+  expect(label.compareDocumentPosition(screen.getByText(/Keep my spacing/)) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  expect(screen.getByTestId('user-copy').getAttribute('data-copy')).toBe(message.text)
+})
+
+it.each(['Codex', 'Claude Code', 'custom-agent'])('uses %s for the expandable output title and retains raw output copy', providerLabel => {
+  const message: AgentMessage = { id: 'reply', role: 'assistant', at: 1,
+    items: [{ id: 'log', type: 'log', text: 'Provider diagnostics\nSecond line' }] }
+  const { container, rerender } = render(
+    <AssistantMessage chatId="chat" providerLabel={providerLabel} message={message} running={false} pendingQuestionId={null} />,
+  )
+  expect(container.querySelector('summary')?.textContent).toBe(providerLabel)
+  expect(screen.queryByText('agent.logs')).toBeNull()
+  const details = container.querySelector('details')!
+  details.open = true
+  const streamed = { ...message, items: [{ ...message.items![0], text: 'More diagnostics' }] }
+  rerender(<AssistantMessage chatId="chat" providerLabel={providerLabel} message={streamed} running={false} pendingQuestionId={null} />)
+  expect(container.querySelector('details')).toBe(details)
+  expect(details.open).toBe(true)
+  expect(container.querySelector('pre')?.textContent).toBe('More diagnostics')
+  expect(screen.getByTestId('log-copy').getAttribute('data-copy')).toBe('More diagnostics')
+  expect(serializeAssistantMessage(streamed)).toBe('More diagnostics')
+})
 
 it('preserves the live status and spinner when streaming updates or inserts content blocks', () => {
   const message: AgentMessage = { id: 'reply', role: 'assistant', at: 1, items: [
@@ -59,7 +88,7 @@ it('passes the conversation workspace to text, reasoning and plan Markdown', () 
     { id: 'thinking', type: 'thinking', text: 'Reasoning' },
     { id: 'plan', type: 'plan', text: 'Plan', resolved: true },
   ] }
-  render(<AssistantMessage chatId="chat" root="/owning-repo" message={message} running={false} pendingQuestionId={null} />)
+  render(<AssistantMessage chatId="chat" providerLabel="Codex" root="/owning-repo" message={message} running={false} pendingQuestionId={null} />)
   for (const text of ['Reply', 'Reasoning', 'Plan']) expect(screen.getByText(text).getAttribute('data-root')).toBe('/owning-repo')
 })
 
@@ -125,7 +154,7 @@ const questionMessage = (multiSelect = false, answer?: string): AgentMessage => 
     ] }],
 })
 const questionView = (message = questionMessage(), running = false, pendingQuestionId: string | null = 'question') => (
-  <AssistantMessage chatId="chat" message={message} running={running} pendingQuestionId={pendingQuestionId} />
+  <AssistantMessage chatId="chat" providerLabel="Codex" message={message} running={running} pendingQuestionId={pendingQuestionId} />
 )
 
 it('hides structured question options until streaming completes', async () => {

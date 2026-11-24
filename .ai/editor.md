@@ -95,6 +95,11 @@ EditorHost selects tab kinds; markdown helpers own contained links and images.
 - Reconfigure theme/font/blame/wrap via Compartments; rebuilding state discards undo. DOM extensions
   (conflicts/blame/folds) need editor/locale.ts effects and destroy-time watchLocale unsubscribe. Large-file
   outline traversal must tolerate viewport-only Lezer trees.
+- editor/blame schedules current-line detail prefetch after blame arrives or the cursor changes lines,
+  debounced 150ms by store/commitHover. Reuse the typing suppression period before scheduling; skip absent,
+  disabled and uncommitted blame. Same-line/viewport/locale refreshes do not restart the debounce.
+  State replacement, extension removal and view destruction cancel that view's pending prefetch without
+  cancelling another pane's newer target. Hover request/presentation contracts: [git.md](./git.md).
 
 ## Selection context
 

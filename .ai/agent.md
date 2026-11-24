@@ -86,14 +86,15 @@ CLIs own auth/models/tools; Rust owns processes; the agent store owns queues/UI.
 - Tab failures override completion. Replies use GFM/code-copy, reject HTML/remote images and accept only
   contained owning-root file links (`:line:col`/`#LlineCcol`). Entry points respect agentEnabled; tree double-click
   stays a tree gesture. Items preserve source order, reconcile IDs and retain expansion.
+- Output folds show reply provider names (catalog, then Codex/Claude Code or ID); legacy replies use the chat
+  provider. Retain expansion/copy. User bubbles show `agent.you`; copies omit speaker labels.
 - History opens on demand for the active project and validates roots on resume; native session IDs preserve
   provider continuation. Its preference is independent from agentEnabled.
 - Tail reports activity/elapsed/confirmation waits; persist completion time and backend duration. Finished
   reopened turns show local HH:mm, live ones omit it. History expansion pauses following.
-- The live tail status is isolated from streamed assistant content and receives primitive status fields, so
-  markdown/tool updates do not remount or flash the elapsed line. Its own one-second clock remains local.
-  AgentSpinner rotates a fixed HTML box on the compositor, keeping SVG painting separate. The live reply
-  uses visible content rendering; only inactive messages use automatic skipped-content rendering.
+- Tail status receives primitive fields and owns its one-second clock; streamed Markdown/tools never remount
+  it. AgentSpinner rotates a fixed HTML box separately from SVG painting. Live replies use visible rendering;
+  only inactive messages use automatic skipped-content rendering.
 - The configurable context.openOrLatest action (default Mod+Down) jumps only in the active chat, respecting
   overlays and IME; its other focus context opens a file-tree row. Jumping loads the latest
   history page first. Sends and successful interjections resume following after transcript commits, through
@@ -109,11 +110,9 @@ CLIs own auth/models/tools; Rust owns processes; the agent store owns queues/UI.
   latest-turn token details are not displayed. Zero is valid; invalid is unavailable. Keep persisted cost
   fields compatible, without price UI.
 
-- The composer no longer repeats a plan/read-only permission line above its footer; the permission picker
-  and permission request cards remain authoritative. Settings → Agent keeps all installed providers visible,
-  shows the first five uninstalled providers by default, and reveals the rest through a More control. The
-  project history toggle is in Settings → Agent; permission defaults and the explanatory permission card
-  are not exposed there, while chat-level permission controls remain available.
+- Composer permission state comes from its picker/cards, without a duplicate plan/read-only line.
+  Settings → Agent shows all installed providers and five uninstalled (More reveals the rest), plus the
+  history toggle. Permission defaults/explanation stay hidden there; chat permission controls remain.
 
 ## Snapshot transport
 

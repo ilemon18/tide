@@ -59,9 +59,11 @@ actions and queue gates. Rust parses questions/scans skills. Provider/model/perm
   Candidate overlays share a height cap measured below the chat header, remeasure on resize/scroll/content
   changes and scroll the active item into view without resizing the composer/footer. Popup/row limits live
   in `src/components/AgentComposer.tsx`. Scan project/user skills lazily, cache results, keep plan tags single.
-- A new conversation centers its workspace heading above one complete accent-bordered composer. Messages,
-  persisted history/pages, loading, running, existing sessions or queued sends keep the transcript/footer layout.
-  First send changes layout without remounting the composer; provider/error guidance remains visible.
+- Empty chats center a workspace heading above one accent-bordered composer. Messages/history, loading,
+  running, sessions or queues use the transcript/footer layout; transitions retain the composer and guidance.
+- Sends atomically append messages, start running and consume the matching draft before save/launch awaits.
+  Failures restore the original only if its empty replacement is untouched and the run still owns the chat;
+  edits, queues and reset/close invalidate recovery. Queue/card follow-ups preserve drafts.
 - The footer permission picker shows its mode icon, localized mode name and dropdown arrow only when the
   entire label fits; otherwise it uses the compact icon button. Measure the full intrinsic content separately
   from the allocated slot to avoid resize oscillation; mode/locale/font changes update the measurement.
@@ -85,12 +87,11 @@ actions and queue gates. Rust parses questions/scans skills. Provider/model/perm
   with a fresh provider session in that same tab; continue-planning is read-only. Persist action/result/target
   before launch, lock duplicates, restore the plan card after a reset/launch failure for retry, and never run
   on hydration.
-- Plan options use Codex's official English copy/order, translated consistently across all catalogs:
+- Plan options follow Codex copy/order in all catalogs:
   “Yes, implement this plan”; “Yes, clear context and implement”; “No, stay in Plan mode”.
   Source: [Codex plan_implementation.rs, commit 63a15005](https://github.com/openai/codex/blob/63a15005de43a3db68d451403593b202ed337d20/codex-rs/tui/src/chatwidget/plan_implementation.rs).
-  Copy maps to existing persisted action IDs; clear-context execution reuses the current chat tab after clearing
-  its context and carries the plan into the new session.
-  Optional instructions follow all three action buttons and accompany the selected action.
+  Preserve persisted action IDs. Clear-context passes the plan into a fresh session in the same tab.
+  Optional instructions follow all three buttons and accompany the selected action.
 - The complete command set is /new, /resume [chat ID], /fork, /compact, /status, /model [ID|default],
   /permissions, /plan, /goal, /review, /test, /explain and /help. Local /new resets the current chat tab
   in place, clears its transcript/session context and keeps the selected provider/model/permissions.
@@ -105,8 +106,8 @@ actions and queue gates. Rust parses questions/scans skills. Provider/model/perm
 
 ## Context attachments
 
-- Explicit editor/terminal actions append immutable snapshots to a same-root draft, then focus it. Prefer
-  visible chat tabs, then other open chats, ordered by last focus; otherwise create a same-root chat.
+- Editor/terminal actions append immutable snapshots to a same-root draft and focus it: visible chats first,
+  then other open chats by last focus, else a new chat.
   Explain/refactor append editable instructions without replacing text, tags, skills or permissions.
 - Draft/user-message/request attachments are optional for v:1 compatibility. snapshotAgentDraft owns
   queue/interjection copies; adding context never sends. Existing question/plan gates remain authoritative.
@@ -117,7 +118,6 @@ actions and queue gates. Rust parses questions/scans skills. Provider/model/perm
 
 ## Change map and verification
 
-Align prompt construction, Rust parser, UI cards and saved actions. Existing tests protect IME/chip boundaries,
-read-only guidance, questions (streaming edits and failed-launch unlock/retry), plan persistence, duplicate
-actions, retries and permission picker labels/actions.
-Real IME/native approval verification requires an explicit request; gate policy: [checks.md](./checks.md).
+Align prompts, Rust parsing, cards and saved actions. Tests cover IME/chips, read-only guidance, streaming
+questions and launch recovery, plans, duplicate actions/retries and permission pickers.
+Native IME/approval checks require a request; gate policy: [checks.md](./checks.md).

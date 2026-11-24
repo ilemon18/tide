@@ -42,6 +42,13 @@ export const ROUTING_FIXTURES = Object.freeze([
     expected: ['git.md'],
   },
   {
+    name: 'Inline blame hover',
+    paths: ['src/store/commitHover.ts', 'src/store/commitHover.test.ts',
+      'src/components/CommitHoverCard.tsx', 'src/components/CommitHoverCard.test.tsx',
+      'src/editor/blame.ts', 'src/editor/blame.test.ts'],
+    expected: ['editor.md', 'git.md'],
+  },
+  {
     name: 'Agent composer settings migration',
     paths: [
       'src/components/AgentComposer.tsx',

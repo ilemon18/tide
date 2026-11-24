@@ -3,6 +3,7 @@ import React from 'react'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { AgentHistory } from '../store/agent'
+import codexIcon from '../assets/agentIcons/codex.svg'
 
 const { state, actions, workspace, ui } = vi.hoisted(() => ({
   state: {
@@ -13,7 +14,7 @@ const { state, actions, workspace, ui } = vi.hoisted(() => ({
     deletingChats: {} as Record<string, boolean>, resumingChatId: null as string | null,
   },
   actions: { loadHistory: vi.fn(), clearHistory: vi.fn(), resumeChat: vi.fn(), deleteChat: vi.fn() },
-  workspace: { activeRootId: '/repo', roots: [{ id: '/repo', name: 'Example project', lifetime: 1 }] },
+  workspace: { activeRootId: '/repo', roots: [{ id: '/repo', name: 'Example project', lifetime: Symbol('/repo') }] },
   ui: { page: 'history', historySearchFocus: 0, setPage: vi.fn(), toast: vi.fn(), confirm: vi.fn() },
 }))
 
@@ -40,7 +41,7 @@ beforeEach(() => {
   state.chats = {}
   state.deletingChats = {}
   state.resumingChatId = null
-  workspace.roots = [{ id: '/repo', name: 'Example project', lifetime: 1 }]
+  workspace.roots = [{ id: '/repo', name: 'Example project', lifetime: Symbol('/repo') }]
   workspace.activeRootId = '/repo'
   ui.page = 'history'
   ui.historySearchFocus = 0
@@ -57,7 +58,7 @@ it('shows the project and provider logo before the conversation name, and releas
   expect(actions.loadHistory).toHaveBeenCalledExactlyOnceWith('/repo', { page: 1, query: '' })
   const row = screen.getByRole('button', { name: 'agent.history.open Saved conversation' })
   const logo = row.querySelector('img')!
-  expect(logo.getAttribute('src')).toContain('codex.svg')
+  expect(logo.getAttribute('src')).toBe(codexIcon)
   expect(logo.compareDocumentPosition(screen.getByText('Saved conversation')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   expect(container.querySelector('[role="dialog"]')).toBeNull()
   actions.clearHistory.mockClear()
@@ -166,11 +167,22 @@ it('does not search incomplete IME text or allow its timer to survive a project 
   expect(actions.loadHistory).toHaveBeenCalledExactlyOnceWith('/repo', { page: 1, query: '\u4e2d' })
   actions.loadHistory.mockClear()
   fireEvent.change(input, { target: { value: 'old project' } })
-  workspace.roots = [{ id: '/other', name: 'Other project', lifetime: 2 }]
+  workspace.roots = [{ id: '/other', name: 'Other project', lifetime: Symbol('/other') }]
   workspace.activeRootId = '/other'
   rerender(<AgentHistoryPage />)
   act(() => { vi.advanceTimersByTime(500) })
   expect(actions.loadHistory).toHaveBeenCalledExactlyOnceWith('/other', { page: 1, query: '' })
+})
+
+it('resets search when the same workspace path has a new symbol lifetime', () => {
+  const { rerender } = render(<AgentHistoryPage />)
+  fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'old search' } })
+  actions.loadHistory.mockClear()
+  workspace.roots = [{ ...workspace.roots[0], lifetime: Symbol('/repo') }]
+  rerender(<AgentHistoryPage />)
+  act(() => { vi.advanceTimersByTime(500) })
+  expect((screen.getByRole('searchbox') as HTMLInputElement).value).toBe('')
+  expect(actions.loadHistory).toHaveBeenCalledExactlyOnceWith('/repo', { page: 1, query: '' })
 })
 
 it('shows page navigation and requests the selected page', () => {

@@ -29,6 +29,7 @@ import { ko } from '../i18n/messages/ko'
 import { zhCN } from '../i18n/messages/zh-CN'
 import { zhTW } from '../i18n/messages/zh-TW'
 import { setMemoryProfile } from '../lib/memoryBudget'
+import type { AgentDraft } from '../lib/agentCommand'
 
 const chat = (): AgentChat => ({ v: 1, id: 'chat-test', root: '/tmp/project', title: 'test', provider: 'codex',
   model: '', effort: '', sessionId: 'session-1', messages: [{ id: 'a1', role: 'assistant', at: 1, items: [] }],
@@ -607,6 +608,126 @@ describe('remembered Agent choices', () => {
 })
 
 describe('chat protocol state', () => {
+  it.each(['save', 'launch'] as const)('clears the first draft with the transcript update before a slow %s', async stage => {
+    useAgent.setState({ chats: { 'chat-test': { ...chat(), title: '', sessionId: null, messages: [] } } })
+    const draft: AgentDraft = { text: 'First message', mentions: [{ rel: 'src', isDir: true }],
+      skills: [{ name: 'review', path: '/tmp/project/.agents/skills/review/SKILL.md', source: 'project' }], attachments: [contextAttachment()] }
+    useAgent.getState().setChatDraft('chat-test', draft)
+    let release!: () => void
+    const gate = new Promise<void>(resolve => { release = resolve })
+    if (stage === 'save') vi.mocked(api.agentChatApply).mockImplementationOnce(async () => { await gate; return page() })
+    else vi.mocked(api.agentSend).mockReturnValueOnce(gate)
+    const observed: Array<{ running: boolean; draft: string }> = []
+    const unsubscribe = useAgent.subscribe(state => observed.push({
+      running: state.chats['chat-test'].status === 'running', draft: state.chatDrafts['chat-test']?.text ?? '',
+    }))
+    try {
+      const pending = useAgent.getState().sendMessage('chat-test', draft)
+      expect(useAgent.getState().chatDrafts['chat-test']).toEqual({ text: '', mentions: [] })
+      expect(useAgent.getState().chats['chat-test'].messages).toEqual([
+        expect.objectContaining({ role: 'user', ...draft }),
+        expect.objectContaining({ role: 'assistant', provider: 'codex' }),
+      ])
+      await vi.advanceTimersByTimeAsync(0)
+      expect(observed.some(state => state.running && state.draft !== '')).toBe(false)
+      expect(api.agentSend).toHaveBeenCalledTimes(stage === 'save' ? 0 : 1)
+      release()
+      await pending
+      expect(api.agentSend).toHaveBeenCalledTimes(1)
+      expect(api.agentSend).toHaveBeenCalledWith(expect.objectContaining({
+        mentions: draft.mentions, attachments: draft.attachments, prompt: expect.stringContaining('First message'),
+      }))
+      expect(useAgent.getState().chatDrafts['chat-test']?.text ?? '').toBe('')
+    } finally { release(); unsubscribe() }
+  })
+
+  it('preserves a draft edited while loading the latest history before sending', async () => {
+    let loaded!: (value: ReturnType<typeof page>) => void
+    useAgent.setState({ pages: { 'chat-test': { ...page(), hasLater: true } } })
+    vi.mocked(api.agentChatOpen).mockReturnValueOnce(new Promise(resolve => { loaded = resolve }))
+    useAgent.getState().setChatDraft('chat-test', { text: 'Send this' })
+    const pending = useAgent.getState().sendMessage('chat-test', useAgent.getState().chatDrafts['chat-test'])
+    useAgent.getState().setChatDraft('chat-test', { text: 'Newer draft', attachments: [contextAttachment('newer')] })
+    const newer = useAgent.getState().chatDrafts['chat-test']
+    loaded(page())
+    await pending
+    expect(api.agentSend).toHaveBeenCalledWith(expect.objectContaining({ prompt: expect.stringContaining('Send this') }))
+    expect(useAgent.getState().chatDrafts['chat-test']).toBe(newer)
+  })
+
+  it.each(['save', 'launch'] as const)('restores the unnormalized draft and metadata after a failed %s', async stage => {
+    const draft: AgentDraft = { text: '/review Keep spacing  \n', mentions: [{ rel: 'src', isDir: true }],
+      skills: [{ name: 'review', path: '/tmp/project/.agents/skills/review/SKILL.md', source: 'project' }], attachments: [contextAttachment()] }
+    useAgent.getState().setChatDraft('chat-test', draft)
+    if (stage === 'save') vi.mocked(api.agentChatApply).mockRejectedValueOnce(new Error('save failed'))
+    else vi.mocked(api.agentSend).mockRejectedValueOnce(new Error('launch failed'))
+    await useAgent.getState().sendMessage('chat-test', draft)
+    expect(useAgent.getState().chatDrafts['chat-test']).toEqual(draft)
+    expect(useAgent.getState().chats['chat-test'].status).toBe('error')
+    expect(api.agentSend).toHaveBeenCalledTimes(stage === 'save' ? 0 : 1)
+  })
+
+  it.each(['typing', 'cleared', 'queued'] as const)('does not restore an older failed draft after newer input is %s', async edit => {
+    let reject!: (error: Error) => void
+    vi.mocked(api.agentSend).mockReturnValueOnce(new Promise<void>((_, fail) => { reject = fail }))
+    useAgent.getState().setChatDraft('chat-test', { text: 'First message' })
+    const pending = useAgent.getState().sendMessage('chat-test', useAgent.getState().chatDrafts['chat-test'])
+    await vi.advanceTimersByTimeAsync(0)
+    useAgent.getState().setChatDraft('chat-test', { text: 'Next message', attachments: [contextAttachment('next')] })
+    if (edit === 'cleared') useAgent.getState().setChatDraft('chat-test', { text: '', attachments: [] })
+    if (edit === 'queued') await useAgent.getState().sendMessage('chat-test', useAgent.getState().chatDrafts['chat-test'])
+    const newer = useAgent.getState().chatDrafts['chat-test']
+    reject(new Error('launch failed'))
+    await pending
+    expect(useAgent.getState().chatDrafts['chat-test']).toBe(newer)
+    if (edit === 'queued') expect(useAgent.getState().queues['chat-test']).toEqual([
+      expect.objectContaining({ text: 'Next message', attachments: [contextAttachment('next')] }),
+    ])
+  })
+
+  it.each(['reset', 'closed', 'new run'] as const)('ignores an old launch failure after the chat is %s', async change => {
+    let reject!: (error: Error) => void
+    vi.mocked(api.agentSend).mockReturnValueOnce(new Promise<void>((_, fail) => { reject = fail }))
+    useAgent.getState().setChatDraft('chat-test', { text: 'First message' })
+    const pending = useAgent.getState().sendMessage('chat-test', useAgent.getState().chatDrafts['chat-test'])
+    await vi.advanceTimersByTimeAsync(0)
+    if (change === 'reset') {
+      finishTurn(false, true)
+      expect(await useAgent.getState().resetChat('chat-test')).toBe(true)
+    } else if (change === 'closed') useAgent.getState().forgetChat('chat-test')
+    else {
+      finishTurn(true, false)
+      await useAgent.getState().sendMessage('chat-test', { text: 'Another run', mentions: [] })
+    }
+    const current = useAgent.getState().chats['chat-test']
+    reject(new Error('old launch failed'))
+    await pending
+    expect(useAgent.getState().chats['chat-test']).toBe(current)
+    expect(useAgent.getState().chatDrafts['chat-test']?.text ?? '').toBe('')
+  })
+
+  it('keeps the sent provider through a switch, persistence and reopen', async () => {
+    await useAgent.getState().sendMessage('chat-test', { text: 'First provider', mentions: [] })
+    finishTurn(true, false)
+    useAgent.getState().setChatProvider('chat-test', 'claude')
+    await useAgent.getState().sendMessage('chat-test', { text: 'Second provider', mentions: [] })
+    finishTurn(true, false)
+    const current = useAgent.getState().chats['chat-test']
+    expect(current.messages.filter(message => message.role === 'assistant' && message.provider).map(message => message.provider))
+      .toEqual(['codex', 'claude'])
+    expect(api.agentChatApply).toHaveBeenLastCalledWith('chat-test', expect.objectContaining({
+      upserts: expect.arrayContaining([
+        expect.objectContaining({ role: 'assistant', provider: 'codex' }),
+        expect.objectContaining({ role: 'assistant', provider: 'claude' }),
+      ]),
+    }))
+    useAgent.getState().forgetChat('chat-test')
+    vi.mocked(api.agentChatOpen).mockResolvedValueOnce({ ...page(), header: current, messages: current.messages })
+    await useAgent.getState().loadChat('chat-test', '/tmp/project')
+    expect(useAgent.getState().chats['chat-test'].messages.map(message => message.provider))
+      .toEqual(current.messages.map(message => message.provider))
+  })
+
   it.each([
     { name: 'trimmed first line', text: '  \n  Fix login failure  \nMore details here  ', title: 'Fix login failure' },
     { name: 'exactly 48 characters', text: 'x'.repeat(48), title: 'x'.repeat(48) },

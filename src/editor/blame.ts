@@ -9,7 +9,7 @@ import {
 } from '@codemirror/view'
 import type { BlameRange, BlameResult } from '../lib/ipc'
 import { relativeTime, shortSha } from '../lib/format'
-import { useCommitHover } from '../store/commitHover'
+import { commitDetailKey, scheduleCommitPrefetch, useCommitHover } from '../store/commitHover'
 import { t } from '../i18n'
 import { hasLocaleEffect, watchLocale } from './locale'
 
@@ -31,7 +31,7 @@ class BlameWidget extends WidgetType {
     readonly text: string,
     readonly root: string,
     readonly rel: string,
-    /** Hover card shows author/time right away instead of waiting for git details */
+    /** Metadata travels with the target so the completed card needs no extra lookup. */
     readonly author: string,
     readonly authorTime: number,
     readonly summary: string,
@@ -106,17 +106,25 @@ function rangeFor(ranges: BlameRange[], line: number): BlameRange | null {
   return null
 }
 
-function build(view: EditorView, suppressed: boolean): DecorationSet {
+function cursorBlame(view: EditorView, suppressed: boolean) {
   // Hidden while typing: trailing grey commit text distracts and makes fresh keystrokes jump
-  if (suppressed) return EMPTY
+  if (suppressed) return null
   const data = view.state.field(blameField, false)
-  if (!data || data.disabled || data.ranges.length === 0) return EMPTY
+  if (!data || data.disabled || data.ranges.length === 0) return null
 
   // Only on the cursor line (GitLens current-line blame), not on every line
   const head = view.state.selection.main.head
   const line = view.state.doc.lineAt(head)
   const range = rangeFor(data.ranges, line.number)
-  if (!range) return EMPTY
+  if (!range) return null
+
+  const origLine = range.origLine ? range.origLine + (line.number - range.startLine) : 0
+  return { data, line, range, origLine }
+}
+
+function build(cursor: ReturnType<typeof cursorBlame>): DecorationSet {
+  if (!cursor) return EMPTY
+  const { data, line, range, origLine } = cursor
 
   // Trailing text carries the commit title; hover reveals the full message
   const text = range.uncommitted
@@ -124,9 +132,6 @@ function build(view: EditorView, suppressed: boolean): DecorationSet {
     : [range.author, relativeTime(range.authorTime), shortSha(range.sha), range.summary]
         .filter(Boolean)
         .join(' · ')
-
-  // The cursor may sit mid-range: map it to the original line in that commit
-  const origLine = range.origLine ? range.origLine + (line.number - range.startLine) : 0
 
   return Decoration.set(
     [
@@ -162,10 +167,43 @@ const blamePlugin = ViewPlugin.fromClass(
     private typingUntil = 0
     private timer: ReturnType<typeof setTimeout> | null = null
     private unwatch: () => void = () => {}
+    private prefetchKey: string | null = null
+    private cancelPrefetch: () => void = () => {}
+    private source: { root: string; rel: string } | null = null
 
     constructor(view: EditorView) {
-      this.decorations = build(view, false)
+      this.decorations = EMPTY
+      this.refresh(view)
       this.unwatch = watchLocale(view)
+    }
+
+    private refresh(view: EditorView) {
+      const cursor = cursorBlame(view, Date.now() < this.typingUntil)
+      if (!cursor) this.hideHover()
+      const data = view.state.field(blameField, false)
+      this.decorations = build(cursor)
+      const query = cursor && !cursor.range.uncommitted ? {
+        root: cursor.data.root,
+        rel: cursor.data.rel,
+        sha: cursor.range.sha,
+        line: cursor.line.number,
+        origLine: cursor.origLine,
+      } : null
+      const key = query ? commitDetailKey(query) : null
+      if (key !== this.prefetchKey) {
+        this.hideHover()
+        this.cancelPrefetch()
+        this.prefetchKey = key
+        this.cancelPrefetch = query ? scheduleCommitPrefetch(query) : () => {}
+      }
+      this.source = data ? { root: data.root, rel: data.rel } : null
+    }
+
+    private hideHover() {
+      const hover = useCommitHover.getState().target
+      if (hover && hover.root === this.source?.root && hover.rel === this.source.rel) {
+        useCommitHover.getState().hide()
+      }
     }
 
     private arm(view: EditorView) {
@@ -195,19 +233,21 @@ const blamePlugin = ViewPlugin.fromClass(
         update.viewportChanged ||
         hasLocaleEffect(update)
       ) {
-        this.decorations = build(update.view, Date.now() < this.typingUntil)
+        this.refresh(update.view)
       }
       // The hover card holds only while the mouse stays on the grey blame text:
       // moving the cursor, editing or switching files hides it before it shows stale info
       const hover = useCommitHover.getState().target
       if (hover && (update.docChanged || update.selectionSet)) {
         const line = update.state.doc.lineAt(update.state.selection.main.head).number
-        if (update.docChanged || line !== hover.line) useCommitHover.getState().hide()
+        if (update.docChanged || line !== hover.line) this.hideHover()
       }
     }
 
     destroy() {
       if (this.timer) clearTimeout(this.timer)
+      this.cancelPrefetch()
+      this.hideHover()
       this.unwatch()
     }
   },

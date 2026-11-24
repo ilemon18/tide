@@ -174,6 +174,11 @@ function HistoryList({ root }: { root: string }) {
 export function AgentHistoryPage() {
   const t = useT()
   const root = useWorkspace(state => state.roots.find(root => root.id === state.activeRootId) ?? state.roots[0])
+  const historyKey = useRef({ id: root?.id, lifetime: root?.lifetime, revision: 0 })
+  if (historyKey.current.id !== root?.id || historyKey.current.lifetime !== root?.lifetime) {
+    // Symbols with the same description still represent distinct workspace lifetimes.
+    historyKey.current = { id: root?.id, lifetime: root?.lifetime, revision: historyKey.current.revision + 1 }
+  }
   return (
     <main aria-label={t('agent.history.title')} className="flex min-h-0 min-w-0 flex-1 flex-col bg-bg px-6 pt-6">
       <div className="mx-auto flex min-h-0 w-full max-w-[920px] flex-1 flex-col">
@@ -185,7 +190,7 @@ export function AgentHistoryPage() {
           <h1 className="text-xl font-semibold text-fg">{t('agent.history.title')}</h1>
           {root ? <p className="mt-1 truncate text-sm text-muted" title={root.id}>{root.name}</p> : null}
         </header>
-        {root ? <HistoryList key={`${root.id}:${root.lifetime}`} root={root.id} /> : (
+        {root ? <HistoryList key={historyKey.current.revision} root={root.id} /> : (
           <p role="status" className="py-16 text-center text-sm text-muted">{t('agent.history.noProject')}</p>
         )}
       </div>

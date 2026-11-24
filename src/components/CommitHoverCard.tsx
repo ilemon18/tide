@@ -1,12 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { api, errorText, type CommitDetail } from '../lib/ipc'
 import { relativeTime } from '../lib/format'
-import {
-  readCommitDetail,
-  useCommitHover,
-  writeCommitDetail,
-} from '../store/commitHover'
-import { Icon } from './Icon'
+import { useCommitHover, type CommitHoverTarget } from '../store/commitHover'
 import { CopyButton } from './CopyButton'
 import { t } from '../i18n'
 
@@ -27,71 +21,27 @@ function diffClass(line: string): string {
 
 /** Inline blame hover card: shows just the diff of the cursor's line in this commit */
 export function CommitHoverCard() {
-  const target = useCommitHover((s) => s.target)
-  const cancelHide = useCommitHover((s) => s.cancelHide)
-  const hide = useCommitHover((s) => s.hide)
+  const { target, content, cancelHide, hide } = useCommitHover()
 
   const cardRef = useRef<HTMLDivElement>(null)
-  const [detail, setDetail] = useState<CommitDetail | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [pos, setPos] = useState<{ left: number; top: number } | null>(null)
-
-  const sha = target?.sha ?? null
-  const rel = target?.rel ?? null
-  const root = target?.root ?? null
-  const line = target?.line ?? null
-  const origLine = target?.origLine ?? null
-
-  useEffect(() => {
-    if (!target || !sha || !rel || !root) {
-      setDetail(null)
-      setError(null)
-      setLoading(false)
-      return
-    }
-    const key = `${sha}:${rel}:${origLine ?? ''}:${line ?? ''}`
-    const cached = readCommitDetail(key)
-    if (cached) {
-      setDetail(cached)
-      setError(null)
-      setLoading(false)
-      return
-    }
-    let alive = true
-    setDetail(null)
-    setError(null)
-    setLoading(true)
-    void api
-      .gitCommitDetail(root, sha, rel, line, origLine || null)
-      .then((result) => {
-        writeCommitDetail(key, result)
-        if (alive) {
-          setDetail(result)
-          setLoading(false)
-        }
-      })
-      .catch((e) => {
-        if (alive) {
-          setError(errorText(e))
-          setLoading(false)
-        }
-      })
-    return () => {
-      alive = false
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sha, rel, root, line, origLine])
+  const [pos, setPos] = useState<{
+    left: number
+    top: number
+    target: CommitHoverTarget
+    content: typeof content
+  } | null>(null)
+  const detail = content?.detail ?? null
+  const error = content?.error ?? null
 
   // Measure the card before positioning: flip below when it doesn't fit, clamp horizontally to the viewport
   useLayoutEffect(() => {
-    if (!target) {
+    const el = cardRef.current
+    if (!target || !content || !el) {
       setPos(null)
       return
     }
-    const el = cardRef.current
-    const width = el?.offsetWidth ?? CARD_WIDTH
-    const height = el?.offsetHeight ?? 220
+    const width = el.offsetWidth
+    const height = el.offsetHeight
     const rect = target.rect
 
     let top = rect.top - height - MARGIN
@@ -103,8 +53,8 @@ export function CommitHoverCard() {
       Math.max(MARGIN, rect.left),
       Math.max(MARGIN, window.innerWidth - width - MARGIN),
     )
-    setPos({ left, top })
-  }, [target, detail, error, loading])
+    setPos({ left, top, target, content })
+  }, [target, content])
 
   // Esc closes it; scrolling the editor/list closes it too, so the card stays aligned with the blame text.
   // Scrolling the diff inside the card must not close it.
@@ -113,9 +63,9 @@ export function CommitHoverCard() {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') hide()
     }
-    const card = cardRef.current
     const onScroll = (e: Event) => {
-      if (card?.contains(e.target as Node)) return
+      // The card may mount after this listener was installed for a pending hover.
+      if (e.target instanceof Node && cardRef.current?.contains(e.target)) return
       hide()
     }
     window.addEventListener('keydown', onKey)
@@ -126,16 +76,17 @@ export function CommitHoverCard() {
     }
   }, [target, hide])
 
-  if (!target || !pos) return null
+  if (!target || !content) return null
+  const positioned = pos?.target === target && pos.content === content
 
   const fullSha = detail?.sha ?? target.sha
   const shortSha = detail?.shortSha ?? target.sha.slice(0, 7)
-  // Author/time come straight from blame so the card has content immediately; git detail only fills in the diff
+  // Keep the blame metadata while showing the completed diff or error in one paint.
   const author = detail?.author || target.author
   const authorTime = target.authorTime
   const allDiffLines = (detail?.fileDiff ?? '')
     .split('\n')
-    .filter((line) => !DIFF_META.test(line))
+    .filter((line) => line.length > 0 && !DIFF_META.test(line))
   const diffLines = allDiffLines.slice(0, MAX_DIFF_LINES)
   const truncated = allDiffLines.length > MAX_DIFF_LINES
 
@@ -144,8 +95,9 @@ export function CommitHoverCard() {
       ref={cardRef}
       className="fixed z-[60] flex flex-col gap-1.5 rounded-popup border border-line-soft bg-panel p-2.5 text-xs shadow-popup"
       style={{
-        left: pos.left,
-        top: pos.top,
+        left: positioned ? pos.left : 0,
+        top: positioned ? pos.top : 0,
+        visibility: positioned ? 'visible' : 'hidden',
         width: CARD_WIDTH,
         maxWidth: 'calc(100vw - 16px)',
       }}
@@ -154,7 +106,6 @@ export function CommitHoverCard() {
       onMouseDown={(e) => e.stopPropagation()}
     >
       <div className="flex items-center gap-1.5">
-        {/* Author/time come from blame and show on hover; git detail is only for the diff */}
         <span className="min-w-0 truncate text-2xs text-fg/90">{author}</span>
         {authorTime ? (
           <span className="shrink-0 text-2xs text-muted/70">{relativeTime(authorTime)}</span>
@@ -174,10 +125,6 @@ export function CommitHoverCard() {
       </div>
 
       {error ? <div className="text-danger">{error}</div> : null}
-
-      {!detail && !error && loading ? (
-        <div className="px-1 text-2xs text-muted/70">{t('commit.loadingLine')}</div>
-      ) : null}
 
       {detail ? (
         diffLines.length > 0 ? (

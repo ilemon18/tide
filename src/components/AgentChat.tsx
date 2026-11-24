@@ -247,8 +247,9 @@ export function AgentChat({ chatId }: { chatId: string }) {
   const providerInfo = providers?.find((provider) => provider.id === chat.provider)
   const providerMissing =
     providers !== null && (!providerInfo || !providerInfo.installed || !providerInfo.supported)
-  const providerLabel =
-    providerInfo?.name ?? (chat.provider || t('agent.noAgents'))
+  const providerName = (provider: string) => providers?.find(item => item.id === provider)?.name ||
+    (provider === 'codex' ? 'Codex' : provider === 'claude' ? 'Claude Code' : provider) || t('agent.noAgents')
+  const providerLabel = providerName(chat.provider)
   const initialConversation =
     chat.messages.length === 0 &&
     (page?.total ?? 0) === 0 &&
@@ -364,6 +365,7 @@ export function AgentChat({ chatId }: { chatId: string }) {
                       chatId={chatId}
                       root={chat.root}
                       message={message}
+                      providerLabel={providerName(message.provider || chat.provider)}
                       running={running && message.id === last?.id}
                       pendingQuestionId={pendingQuestion?.item.id ?? null}
                     />

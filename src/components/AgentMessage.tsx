@@ -455,6 +455,7 @@ function PlanCard({
 
 function Item({
   chatId,
+  providerLabel,
   root,
   item,
   running,
@@ -462,6 +463,7 @@ function Item({
   items,
 }: {
   chatId: string
+  providerLabel: string
   root: string
   item: AgentItem
   running: boolean
@@ -532,7 +534,7 @@ function Item({
         <details className="group/item text-xs text-muted">
           <summary className="flex cursor-pointer list-none items-center gap-1 hover:text-fg/80">
             <Icon name="terminal" size={11} />
-            <span className="flex-1">{t('agent.logs')}</span>
+            <span className="flex-1">{providerLabel}</span>
             <CopyButton
               text={item.text}
               label={t('agent.copy.logs')}
@@ -578,6 +580,7 @@ export const UserMessage = memo(function UserMessage({
     <div className="group/user relative ml-auto flex w-fit min-w-0 max-w-[85%] flex-col gap-1.5 text-left rounded-[var(--r-popup)] border border-line-soft bg-panel px-3 py-2">
       <div className="min-w-0">
         <div className="flex min-w-0 flex-col gap-1.5">
+          <div className="pr-5 text-2xs font-medium text-muted">{t('agent.you')}</div>
           {message.command || (message.skills && message.skills.length > 0) ? (
             <div className="flex flex-wrap gap-1">
               {message.command ? <CommandChip id={message.command} /> : null}
@@ -610,12 +613,14 @@ export const UserMessage = memo(function UserMessage({
 
 export const AssistantMessage = memo(function AssistantMessage({
   chatId,
+  providerLabel,
   root = '',
   message,
   running,
   pendingQuestionId,
 }: {
   chatId: string
+  providerLabel: string
   root?: string
   message: Message
   running: boolean
@@ -643,7 +648,7 @@ export const AssistantMessage = memo(function AssistantMessage({
             className={replyControlClass}
           />
         </div>
-        {items.map(item => <Item root={root} key={item.id} chatId={chatId} item={item}
+        {items.map(item => <Item root={root} key={item.id} chatId={chatId} providerLabel={providerLabel} item={item}
           running={running} pendingQuestionId={pendingQuestionId} items={items} />)}
         <AgentTurnStatus
           completion={message.completion}

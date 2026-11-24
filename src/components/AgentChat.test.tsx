@@ -10,7 +10,7 @@ const { state, initialChat, actions, settings } = vi.hoisted(() => {
     status: 'running', sessionId: null, error: null, createdAt: 0, updatedAt: 0,
     messages: [{ id: 'reply', role: 'assistant', at: 0, items: [{ id: 'text', type: 'text', text: 'Latest output' }] }],
   }
-  const actions = { stop: vi.fn(), markChatFocused: vi.fn(), loadCatalog: vi.fn(), loadPage: vi.fn(), loadHistory: vi.fn(), clearHistory: vi.fn(), deleteChat: vi.fn().mockResolvedValue(true), resumeChat: vi.fn().mockResolvedValue(true), loadChat: vi.fn().mockResolvedValue(undefined), openChatTab: vi.fn(), sendMessage: vi.fn(), interjectQueued: vi.fn(), removeQueued: vi.fn() }
+  const actions = { stop: vi.fn(), markChatFocused: vi.fn(), loadProviders: vi.fn(), loadCatalog: vi.fn(), loadPage: vi.fn(), loadHistory: vi.fn(), clearHistory: vi.fn(), deleteChat: vi.fn().mockResolvedValue(true), resumeChat: vi.fn().mockResolvedValue(true), loadChat: vi.fn().mockResolvedValue(undefined), openChatTab: vi.fn(), sendMessage: vi.fn(), interjectQueued: vi.fn(), removeQueued: vi.fn() }
   const settings = { agentEnabled: true, agentHistoryEnabled: true, shortcutOverrides: {} }
   return { initialChat, actions, settings, state: {
     chats: { chat: initialChat }, pages: {} as Record<string, Partial<AgentChatPage>>,
@@ -18,7 +18,7 @@ const { state, initialChat, actions, settings } = vi.hoisted(() => {
     running: { chat: Date.now() } as Record<string, number>, chatDrafts: {} as Record<string, AgentDraft>,
     queues: {} as Record<string, AgentQueuedMessage[]>, interjecting: {} as Record<string, string>,
     focusRequests: {}, localPicker: null, historyByRoot: {} as Record<string, import('../store/agent').AgentHistory>,
-    providers: [{ id: 'codex', installed: true, supported: true }],
+    providers: [{ id: 'codex', installed: true, supported: true }] as Array<{ id: string; name?: string; installed: boolean; supported: boolean }> | null,
   } }
 })
 const { ui, tabs, frames, observers, platform } = vi.hoisted(() => ({
@@ -42,19 +42,22 @@ vi.mock('../lib/paths', async importOriginal => ({
 }))
 vi.mock('../lib/actions', () => ({ openSettings: vi.fn() }))
 vi.mock('../i18n', () => ({ useT: () => (key: string) => key }))
-vi.mock('./AgentComposer', () => ({ AgentComposer: ({ outlined, onSend, popupBoundaryRef }: {
-  outlined: boolean; onSend: () => void; popupBoundaryRef: React.RefObject<HTMLDivElement | null>
+vi.mock('./AgentComposer', () => ({ AgentComposer: ({ outlined, draft, onSend, popupBoundaryRef }: {
+  outlined: boolean; draft: string; onSend: () => void; popupBoundaryRef: React.RefObject<HTMLDivElement | null>
 }) => {
   composerBoundary.value = popupBoundaryRef
-  return <input aria-label="composer" data-outlined={outlined} onKeyDown={event => { if (event.key === 'Enter') onSend() }} />
+  return <>
+    <input aria-label="composer" value={draft} readOnly data-outlined={outlined} onKeyDown={event => { if (event.key === 'Enter') onSend() }} />
+    <button aria-label="agent.send" onClick={onSend}>Send</button>
+  </>
 } }))
 vi.mock('./AgentMessage', async () => {
   const { AgentStreamText } = await import('./AgentStreamText')
   return {
-    AssistantMessage: ({ root, message, running }: { root: string; message: Message; running: boolean }) =>
+    AssistantMessage: ({ root, message, running, providerLabel }: { root: string; message: Message; running: boolean; providerLabel: string }) =>
       replyRendering.markdown
         ? <AgentStreamText root={root} text={message.items?.find(item => item.type === 'text')?.text ?? ''} live={running} />
-        : <div data-root={root}>Latest output</div>,
+        : <div data-root={root} data-provider={providerLabel}>Latest output</div>,
     UserMessage: () => null,
   }
 })
@@ -102,6 +105,7 @@ beforeEach(() => {
   actions.resumeChat.mockClear()
   actions.loadChat.mockClear()
   actions.openChatTab.mockClear()
+  actions.sendMessage.mockReset()
 })
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.useRealTimers() })
 it('navigates to the standalone history page without opening a dialog or loading history in the chat', () => {
@@ -113,6 +117,48 @@ it('navigates to the standalone history page without opening a dialog or loading
   settings.agentHistoryEnabled = false
   rerender(<AgentChat chatId="chat" />)
   expect(screen.queryByRole('button', { name: 'agent.history.title' })).toBeNull()
+})
+
+it.each([
+  { stored: 'codex', current: 'claude', catalogName: undefined, expected: 'Codex' },
+  { stored: 'claude', current: 'codex', catalogName: undefined, expected: 'Claude Code' },
+  { stored: undefined, current: 'claude', catalogName: undefined, expected: 'Claude Code' },
+  { stored: 'custom', current: 'codex', catalogName: undefined, expected: 'custom' },
+  { stored: 'codex', current: 'claude', catalogName: 'Installed Codex', expected: 'Installed Codex' },
+])('passes the saved or legacy provider name to replies: $expected', ({ stored, current, catalogName, expected }) => {
+  state.chats.chat = { ...initialChat, provider: current,
+    messages: [{ ...initialChat.messages[0], provider: stored }] }
+  state.providers = catalogName ? [{ id: 'codex', name: catalogName, installed: true, supported: true }] : []
+  const { rerender } = render(<AgentChat chatId="chat" />)
+  expect(screen.getByText('Latest output').getAttribute('data-provider')).toBe(expected)
+  state.providers = null
+  rerender(<AgentChat chatId="chat" />)
+  expect(screen.getByText('Latest output').getAttribute('data-provider'))
+    .toBe(stored === 'codex' ? 'Codex' : expected)
+})
+
+it.each(['Enter', 'click'])('keeps an empty composer mounted after the first send by %s', inputMethod => {
+  emptyChat()
+  const draft = { text: 'First message', mentions: [] }
+  state.chatDrafts.chat = draft
+  const { rerender } = render(<AgentChat chatId="chat" />)
+  const input = screen.getByRole('textbox') as HTMLInputElement
+  expect(input.value).toBe('First message')
+  actions.sendMessage.mockImplementation(() => {
+    state.chatDrafts.chat = { text: '', mentions: [] }
+    state.chats.chat = { ...state.chats.chat, status: 'running', messages: [
+      { id: 'user', role: 'user', at: 1, text: draft.text },
+      { id: 'reply', role: 'assistant', at: 1, provider: 'codex', items: [] },
+    ] }
+    rerender(<AgentChat chatId="chat" />)
+  })
+  if (inputMethod === 'Enter') fireEvent.keyDown(input, { key: 'Enter' })
+  else fireEvent.click(screen.getByRole('button', { name: 'agent.send' }))
+  expect(actions.sendMessage).toHaveBeenCalledExactlyOnceWith('chat', draft)
+  expect(screen.getByRole('textbox')).toBe(input)
+  expect(input.value).toBe('')
+  expect(input.getAttribute('data-outlined')).toBe('false')
+  expect(screen.queryByRole('heading', { name: 'agent.empty' })).toBeNull()
 })
 
 it('does not stop a hidden running Agent or handle its latest-message shortcut on the history page', () => {
@@ -166,7 +212,7 @@ it('keeps the conversation title and provider without a duplicate result label',
   state.chats.chat.status = 'error'
   render(<AgentChat chatId="chat" />)
   expect(screen.getByText('Example')).toBeTruthy()
-  expect(screen.getByText('codex')).toBeTruthy()
+  expect(screen.getByText('Codex')).toBeTruthy()
   expect(screen.queryByText('agent.status.failed')).toBeNull()
 })
 
@@ -217,7 +263,7 @@ it.each(['loading', 'paging', 'running', 'session'] as const)('does not show a n
 it('keeps errors and missing-provider guidance visible in the centered layout', () => {
   emptyChat()
   state.chats.chat.error = 'Launch failed'
-  state.providers[0].installed = false
+  state.providers = [{ id: 'codex', installed: false, supported: true }]
   render(<AgentChat chatId="chat" />)
   expect(screen.getByRole('alert').textContent).toBe('Launch failed')
   expect(screen.getByText('agent.providerMissing')).toBeTruthy()

@@ -58,11 +58,18 @@ Automated tests do not establish native-account compatibility, IME ordering or n
 manual surfaces require an explicit request.
 
 Rust theme compatibility tests protect malformed shortcut fields, aliases, unknown ids and explicit unbinding.
+The `pnpm test:frontend` guard also protects debounced/serial blame prefetch, shared requests, root isolation/LRU, failure retries,
+typing suppression and lifecycle cancellation. Hover tests protect completed-content first paint and measured
+positioning, empty/error results, stale-response rejection, close/scroll behavior and memory reclamation.
+History-page tests use real symbol lifetimes and protect search reset when the same root is reopened.
 Frontend regressions also cover named task controls and shortcut migration to the current settings schema.
 `pnpm test:frontend` also covers blank loaded/filtered-empty file trees, reading/collapsed hints, and Agent
 following through shrink/regrowth scroll events, first-send and queued-card resizing, plus scrollbar pause/send resume.
 Deferred streamed Markdown code/table commits also retain bottom following without another store update or
 resize notification, while formatting after an upward reading gesture preserves the reading position.
+Agent frontend regressions also protect atomic draft consumption before first-send layout, save/launch
+failure recovery without overwriting edits/queues/reset chats, persisted reply provider attribution and
+provider-named output folds, plus localized user labels excluded from copies.
 
 Rust agent tests also protect context root/path/range/byte validation and quoted snapshot prompt round trips.
 Rust history tests cover 0/15/16/30/31-entry page boundaries/totals, project-scoped title/ID search before paging, Unicode/literal matching and exclusion of message bodies.

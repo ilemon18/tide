@@ -89,6 +89,8 @@ export type AgentMessage = {
   id: string
   role: 'user' | 'assistant'
   at: number
+  /** Provider that produced this reply; absent in older v:1 transcripts. */
+  provider?: string
   text?: string
   mentions?: AgentMention[]
   attachments?: AgentContextAttachment[]
@@ -443,7 +445,8 @@ function normalizeChat(raw: unknown, recover = false): AgentChat | null {
       if (message.role !== 'user') {
         const usage = normalizeAgentUsage(message.usage)
         const readOnly = message.readOnly === true ? true : undefined
-        message = { ...message, items: message.items?.map(item => recover && item.type === 'plan' && item.actionState === 'launching'
+        const provider = typeof message.provider === 'string' && message.provider.trim() ? message.provider : undefined
+        message = { ...message, provider, items: message.items?.map(item => recover && item.type === 'plan' && item.actionState === 'launching'
           ? { ...item, resolved: false, actionState: 'failed' as const } : recover && item.type === 'permission' && ['pending', 'submitting'].includes(item.permissionState ?? '') ? { ...item, permissionState: 'expired' as const } : item) }
         return usage ? { ...message, usage, readOnly } : { ...message, usage: undefined, readOnly }
       }
@@ -527,7 +530,7 @@ export const useAgent = create<AgentStore>((set, get) => {
     chatId: string,
     draft: AgentDraft,
     appendUser: boolean,
-    clearDraft = appendUser,
+    composerDraft?: AgentDraft,
     readOnlyOverride?: boolean,
     compact = false,
     actionItemId?: string,
@@ -538,10 +541,13 @@ export const useAgent = create<AgentStore>((set, get) => {
     if (!chat || chat.status === 'running' || resetLocks.has(chatId) || get().deletingChats[chatId] || !useSettings.getState().agentEnabled) return false
     // The backend re-checks the toggle: make sure its 400ms debounced write has landed first
     useSettings.getState().flush()
-    const sentDraft = get().chatDrafts[chatId]
     draft = snapshotAgentDraft(draft)
     const contextError = validateAttachments(chat.root, draft.attachments ?? [])
     if (contextError) { useUi.getState().toast(t(contextError), 'error'); return false }
+    // Retain an empty draft identity so edits (including a later queued send) invalidate recovery.
+    const clearedDraft: AgentDraft | undefined = composerDraft && get().chatDrafts[chatId] === composerDraft
+      ? { text: '', mentions: [] } : undefined
+    const recoverDraft = composerDraft && clearedDraft ? snapshotAgentDraft(composerDraft) : undefined
     const now = Date.now()
     const messages = chat.messages.slice()
     if (appendUser) {
@@ -566,6 +572,7 @@ export const useAgent = create<AgentStore>((set, get) => {
       id: assistantId,
       role: 'assistant',
       at: now,
+      provider: chat.provider,
       items: [],
       readOnly: readOnly || undefined,
       planning,
@@ -592,6 +599,7 @@ export const useAgent = create<AgentStore>((set, get) => {
         },
       },
       running: { ...get().running, [chatId]: now },
+      ...(clearedDraft ? { chatDrafts: { ...get().chatDrafts, [chatId]: clearedDraft } } : {}),
     })
     if (title) useTabs.getState().setTabName(chatTabId(chatId), title)
     schedulePersist(chatId)
@@ -622,13 +630,10 @@ export const useAgent = create<AgentStore>((set, get) => {
           await queueChatSave(chatId, accepted)
         }
       }
-      if (clearDraft && get().chatDrafts[chatId] === sentDraft) {
-        set({ chatDrafts: Object.fromEntries(Object.entries(get().chatDrafts).filter(([id]) => id !== chatId)) })
-      }
       return true
     } catch (e) {
       const current = get().chats[chatId]
-      if (!current) return false
+      if (!current || current.activeRunId !== runId || get().deletingChats[chatId]) return false
       const text = errorText(e)
       const nextMessages = current.messages.slice()
       const last = nextMessages[nextMessages.length - 1]
@@ -658,6 +663,8 @@ export const useAgent = create<AgentStore>((set, get) => {
           },
         },
         running,
+        ...(recoverDraft && get().chatDrafts[chatId] === clearedDraft && !resetLocks.has(chatId)
+          ? { chatDrafts: { ...get().chatDrafts, [chatId]: recoverDraft } } : {}),
       })
       schedulePersist(chatId)
       return false
@@ -668,7 +675,7 @@ export const useAgent = create<AgentStore>((set, get) => {
   }
 
   /** Keep a message typed during a turn; it starts the next turn once the current one ends */
-  const enqueueMessage = (chatId: string, draft: AgentDraft) => {
+  const enqueueMessage = (chatId: string, draft: AgentDraft, composerDraft?: AgentDraft) => {
     if (!draft.text.trim() && !(draft.skills ?? []).length) return
     const queue = get().queues[chatId] ?? []
     set({
@@ -677,9 +684,9 @@ export const useAgent = create<AgentStore>((set, get) => {
         [chatId]: [...queue, { id: agentUid('q'), ...snapshotAgentDraft(draft) }],
       },
       // The message left the composer; a new draft typed meanwhile stays untouched
-      chatDrafts: Object.fromEntries(
-        Object.entries(get().chatDrafts).filter(([id]) => id !== chatId),
-      ),
+      ...(composerDraft && get().chatDrafts[chatId] === composerDraft ? {
+        chatDrafts: Object.fromEntries(Object.entries(get().chatDrafts).filter(([id]) => id !== chatId)),
+      } : {}),
     })
   }
 
@@ -699,7 +706,6 @@ export const useAgent = create<AgentStore>((set, get) => {
       chatId,
       snapshotAgentDraft(head),
       true,
-      false,
     ).then(accepted => {
       if (accepted || !get().chats[chatId]) return
       const remaining = get().queues[chatId] ?? []
@@ -1224,6 +1230,8 @@ export const useAgent = create<AgentStore>((set, get) => {
       if (resetLocks.has(chatId)) return
       if (get().interjecting[chatId]) return
       if ([...planActionLocks].some(key => key.startsWith(`${chatId}:`))) return
+      const composerDraft = get().chatDrafts[chatId]
+      draft = snapshotAgentDraft(draft)
       const local = parseAgentLocalCommand(draft.text)
       const normalized = normalizeAgentDraft(draft)
       if (normalized.command === 'plan' && !normalized.text && !local) {
@@ -1269,7 +1277,7 @@ export const useAgent = create<AgentStore>((set, get) => {
           }
           if (local.id === 'compact') {
             if (!chat.sessionId) throw new Error(t('agent.local.unavailable'))
-            await runTurn(chatId, { text: 'Summarize this conversation for a fresh context. Preserve the task, approved decisions, constraints, relevant paths, completed work, and remaining steps. Return only the summary. Do not modify files, run side-effecting commands, ask questions, or implement the task.', mentions: [] }, false, false, true, true)
+            await runTurn(chatId, { text: 'Summarize this conversation for a fresh context. Preserve the task, approved decisions, constraints, relevant paths, completed work, and remaining steps. Return only the summary. Do not modify files, run side-effecting commands, ask questions, or implement the task.', mentions: [] }, false, undefined, true, true)
             return
           }
           if (local.id === 'fork') {
@@ -1324,11 +1332,11 @@ export const useAgent = create<AgentStore>((set, get) => {
       const queue = get().queues[chatId] ?? []
       // Running turn, or a queue left over from a stopped / disabled turn: keep FIFO order
       if (chat.status === 'running' || queue.length > 0) {
-        enqueueMessage(chatId, next)
+        enqueueMessage(chatId, next, composerDraft)
         if (chat.status !== 'running') drainQueue(chatId)
         return
       }
-      await runTurn(chatId, next, true)
+      await runTurn(chatId, next, true, composerDraft)
     },
 
     answerQuestion: async (chatId, itemId, answer) => {
@@ -1361,7 +1369,7 @@ export const useAgent = create<AgentStore>((set, get) => {
       const question = pending.item.question ?? ''
       const prompt = t('agent.question.answerPrompt', { question, answer: trimmed })
       try {
-        if (await runTurn(chatId, { text: prompt, mentions: [], command: pending.message.planning ? 'plan' : undefined }, true, false, readOnly)) return true
+        if (await runTurn(chatId, { text: prompt, mentions: [], command: pending.message.planning ? 'plan' : undefined }, true, undefined, readOnly)) return true
       } catch (error) {
         const current = get().chats[chatId]
         if (current) set({ chats: { ...get().chats, [chatId]: { ...current, error: errorText(error) } } })
@@ -1451,7 +1459,7 @@ export const useAgent = create<AgentStore>((set, get) => {
           await updateCard(true, 'completed')
           return true
         }
-        const accepted = await runTurn(targetId, { text: prompt, mentions: [] }, true, false, false, false, itemId)
+        const accepted = await runTurn(targetId, { text: prompt, mentions: [] }, true, undefined, false, false, itemId)
         if (action === 'implement-fresh') {
           if (!accepted) await updateCard(false, 'failed')
           await queueChatSave(chatId, get().chats[chatId])
@@ -1523,7 +1531,7 @@ export const useAgent = create<AgentStore>((set, get) => {
         if (!queues[chatId].length) delete queues[chatId]
         removed = { item, index }
         set({ queues })
-        accepted = await runTurn(chatId, snapshotAgentDraft(item), true, false)
+        accepted = await runTurn(chatId, snapshotAgentDraft(item), true)
         return accepted
       } catch (error) {
         const chat = get().chats[chatId]
