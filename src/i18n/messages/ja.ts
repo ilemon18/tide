@@ -467,7 +467,6 @@ export const ja: Messages = {
   'explorer.empty': 'まだプロジェクトを開いていません',
   'explorer.openFolder': 'フォルダーを開く',
   'explorer.collapsed': '折りたたまれています · クリックで展開',
-  'explorer.emptyDir': '空のフォルダー',
   'explorer.reading': '読み込み中…',
   'explorer.newFile': '新規ファイル…',
   'explorer.newFolder': '新規フォルダー…',

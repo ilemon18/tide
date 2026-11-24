@@ -476,7 +476,6 @@ export const es: Messages = {
   'explorer.empty': 'Ningún proyecto abierto',
   'explorer.openFolder': 'Abrir carpeta',
   'explorer.collapsed': 'Contraído · clic para expandir',
-  'explorer.emptyDir': 'Carpeta vacía',
   'explorer.reading': 'Leyendo…',
   'explorer.newFile': 'Nuevo archivo…',
   'explorer.newFolder': 'Nueva carpeta…',

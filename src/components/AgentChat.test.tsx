@@ -2,7 +2,7 @@
 import React from 'react'
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import type { AgentChat as Chat, AgentQueuedMessage } from '../store/agent'
+import type { AgentChat as Chat, AgentMessage as Message, AgentQueuedMessage } from '../store/agent'
 import type { AgentDraft } from '../lib/agentCommand'
 import type { AgentChatPage } from '../lib/ipc'
 const { state, initialChat, actions, settings } = vi.hoisted(() => {
@@ -25,7 +25,10 @@ const { ui, tabs, frames, observers, platform } = vi.hoisted(() => ({
   ui: { overlay: false, confirmReq: null as object | null, confirm: vi.fn<(options: unknown) => Promise<boolean>>(), toast: vi.fn() }, tabs: { activeId: 'chat:chat' }, platform: { mac: false },
   frames: new Map<number, FrameRequestCallback>(), observers: [] as Array<{ callback: () => void; targets: Element[] }>,
 }))
-const { composerBoundary } = vi.hoisted(() => ({ composerBoundary: { value: undefined as React.RefObject<HTMLDivElement | null> | undefined } }))
+const { composerBoundary, replyRendering } = vi.hoisted(() => ({
+  composerBoundary: { value: undefined as React.RefObject<HTMLDivElement | null> | undefined },
+  replyRendering: { markdown: false },
+}))
 vi.mock('../store/agent', () => ({
   useAgent: Object.assign((select: (state: unknown) => unknown) => select(state), { getState: () => ({ ...state, ...actions }) }),
   chatTabId: (id: string) => `chat:${id}`, findPendingQuestion: () => null, findPendingPlanAction: () => null,
@@ -33,7 +36,9 @@ vi.mock('../store/agent', () => ({
 vi.mock('../store/tabs', () => ({ useTabs: (select: (state: unknown) => unknown) => select(tabs) }))
 vi.mock('../store/settings', () => ({ useSettings: Object.assign((select: (state: unknown) => unknown) => select(settings), { getState: () => settings }) }))
 vi.mock('../store/ui', () => ({ useUi: { getState: () => ui } }))
-vi.mock('../lib/paths', () => ({ isMac: () => platform.mac }))
+vi.mock('../lib/paths', async importOriginal => ({
+  ...await importOriginal<typeof import('../lib/paths')>(), isMac: () => platform.mac,
+}))
 vi.mock('../lib/actions', () => ({ openSettings: vi.fn() }))
 vi.mock('../i18n', () => ({ useT: () => (key: string) => key }))
 vi.mock('./AgentComposer', () => ({ AgentComposer: ({ outlined, onSend, popupBoundaryRef }: {
@@ -42,7 +47,16 @@ vi.mock('./AgentComposer', () => ({ AgentComposer: ({ outlined, onSend, popupBou
   composerBoundary.value = popupBoundaryRef
   return <input aria-label="composer" data-outlined={outlined} onKeyDown={event => { if (event.key === 'Enter') onSend() }} />
 } }))
-vi.mock('./AgentMessage', () => ({ AssistantMessage: ({ root }: { root: string }) => <div data-root={root}>Latest output</div>, UserMessage: () => null }))
+vi.mock('./AgentMessage', async () => {
+  const { AgentStreamText } = await import('./AgentStreamText')
+  return {
+    AssistantMessage: ({ root, message, running }: { root: string; message: Message; running: boolean }) =>
+      replyRendering.markdown
+        ? <AgentStreamText root={root} text={message.items?.find(item => item.type === 'text')?.text ?? ''} live={running} />
+        : <div data-root={root}>Latest output</div>,
+    UserMessage: () => null,
+  }
+})
 vi.mock('./AgentContextUsage', () => ({ AgentContextUsage: () => null }))
 vi.mock('./AgentPickers', () => ({ ModelPicker: () => null }))
 vi.mock('./CopyButton', () => ({ CopyButton: () => null }))
@@ -50,11 +64,13 @@ vi.mock('./Icon', () => ({ Icon: () => null }))
 import { AgentChat } from './AgentChat'
 beforeEach(() => {
   vi.clearAllMocks()
+  replyRendering.markdown = false
   frames.clear()
   observers.length = 0
   let frameId = 0
   vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { frames.set(++frameId, callback); return frameId })
   vi.stubGlobal('cancelAnimationFrame', (id: number) => { frames.delete(id) })
+  vi.stubGlobal('PointerEvent', MouseEvent)
   vi.stubGlobal('ResizeObserver', class {
     entry: { callback: () => void; targets: Element[] }
     constructor(callback: () => void) { this.entry = { callback, targets: [] }; observers.push(this.entry) }
@@ -85,7 +101,7 @@ beforeEach(() => {
   actions.loadChat.mockClear()
   actions.openChatTab.mockClear()
 })
-afterEach(() => { cleanup(); vi.unstubAllGlobals() })
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.useRealTimers() })
 it('loads five history records only after opening the project history panel', async () => {
   const { rerender } = render(<AgentChat chatId="chat" />)
   expect(actions.loadHistory).not.toHaveBeenCalled()
@@ -340,6 +356,195 @@ it('follows committed output, deferred content, viewport resizing and final outp
   rerender(<AgentChat chatId="chat" />)
   flushFrames()
   expect(metrics.top).toBe(1900)
+})
+
+it('keeps following after a shrink and regrowth deliver an upward layout scroll after Enter', () => {
+  state.chatDrafts.chat = { text: 'Next message', mentions: [] }
+  const { container, rerender } = render(<AgentChat chatId="chat" />)
+  const { el, metrics } = scrollMetrics(container)
+  flushFrames()
+  fireEvent.wheel(el, { deltaY: -100 })
+  metrics.top = 100
+  fireEvent.scroll(el)
+  fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter' })
+  flushFrames()
+  expect(metrics.top).toBe(800)
+
+  // The browser clamps the old offset, but delivers its scroll event after content grows again.
+  metrics.height = 600
+  el.scrollTop = metrics.top
+  expect(metrics.top).toBe(400)
+  metrics.height = 1400
+  fireEvent.scroll(el)
+  expect(screen.queryByText('agent.jumpToLatest')).toBeNull()
+  flushFrames()
+  expect(metrics.top).toBe(1200)
+
+  metrics.height = 1800
+  updateOutput()
+  rerender(<AgentChat chatId="chat" />)
+  act(() => observers.find(entry => entry.targets.includes(el))!.callback())
+  flushFrames()
+  expect(metrics.top).toBe(1600)
+})
+
+it('anchors the first send after the hidden transcript becomes visible and its layout settles', () => {
+  emptyChat()
+  state.chatDrafts.chat = { text: 'First message', mentions: [] }
+  const { container, rerender } = render(<AgentChat chatId="chat" />)
+  const { el, metrics } = scrollMetrics(container)
+  metrics.height = 0
+  metrics.viewport = 0
+  metrics.top = 0
+  flushFrames()
+  const input = screen.getByRole('textbox')
+  fireEvent.keyDown(input, { key: 'Enter' })
+  expect(actions.sendMessage).toHaveBeenCalledWith('chat', state.chatDrafts.chat)
+
+  state.chats.chat = structuredClone(initialChat)
+  metrics.height = 1400
+  metrics.viewport = 200
+  rerender(<AgentChat chatId="chat" />)
+  expect(screen.getByRole('textbox')).toBe(input)
+  expect(screen.queryByRole('heading', { name: 'agent.empty' })).toBeNull()
+  expect(metrics.top).toBe(1200)
+
+  metrics.height = 1800
+  act(() => observers.find(entry => entry.targets.includes(el))!.callback())
+  flushFrames()
+  expect(metrics.top).toBe(1600)
+})
+
+it('follows the resized transcript when another send adds a queued card during a running turn', () => {
+  state.chatDrafts.chat = { text: 'Queued work', mentions: [] }
+  const { container, rerender } = render(<AgentChat chatId="chat" />)
+  const { el, metrics } = scrollMetrics(container)
+  flushFrames()
+  fireEvent.wheel(el, { deltaY: -100 })
+  metrics.top = 100
+  fireEvent.scroll(el)
+  fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter' })
+  expect(metrics.top).toBe(800)
+  expect(actions.sendMessage).toHaveBeenCalledWith('chat', state.chatDrafts.chat)
+
+  state.queues.chat = [{ id: 'queued', ...state.chatDrafts.chat }]
+  metrics.viewport = 120
+  rerender(<AgentChat chatId="chat" />)
+  expect(screen.getByText('Queued work')).toBeTruthy()
+  act(() => observers.find(entry => entry.targets.includes(el))!.callback())
+  flushFrames()
+  expect(metrics.top).toBe(880)
+
+  metrics.height = 1600
+  updateOutput()
+  rerender(<AgentChat chatId="chat" />)
+  flushFrames()
+  expect(metrics.top).toBe(1480)
+})
+
+it('pauses for scrollbar dragging, keeps the reading position during output and resumes after Enter', () => {
+  state.chatDrafts.chat = { text: 'Next message', mentions: [] }
+  const { container, rerender } = render(<AgentChat chatId="chat" />)
+  const { el, metrics } = scrollMetrics(container)
+  flushFrames()
+  fireEvent.pointerDown(el, { button: 0 })
+  metrics.top = 200
+  fireEvent.scroll(el)
+  fireEvent.pointerUp(el)
+  metrics.height = 1400
+  updateOutput()
+  rerender(<AgentChat chatId="chat" />)
+  act(() => observers.find(entry => entry.targets.includes(el))!.callback())
+  flushFrames()
+  expect(metrics.top).toBe(200)
+  expect(screen.getByText('agent.jumpToLatest')).toBeTruthy()
+
+  fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter' })
+  expect(metrics.top).toBe(1200)
+  expect(screen.queryByText('agent.jumpToLatest')).toBeNull()
+})
+
+it('keeps following when message content is pressed', () => {
+  const { container, rerender } = render(<AgentChat chatId="chat" />)
+  const { el, metrics } = scrollMetrics(container)
+  flushFrames()
+  fireEvent.pointerDown(screen.getByText('Latest output'), { button: 0 })
+  metrics.height = 1400
+  updateOutput()
+  rerender(<AgentChat chatId="chat" />)
+  flushFrames()
+  expect(metrics.top).toBe(1200)
+  expect(screen.queryByText('agent.jumpToLatest')).toBeNull()
+})
+
+it.each([
+  { format: 'code block', prefix: '`', text: '```ts\nconst value = 1\n```\n\nMore', selector: 'pre code' },
+  { format: 'table', prefix: '|', text: '| Name | Value |\n| --- | --- |\n| answer | 42 |\n\nMore', selector: 'table' },
+])('follows a deferred Markdown $format commit without another store update or resize notification', async ({ prefix, text, selector }) => {
+  vi.useFakeTimers()
+  replyRendering.markdown = true
+  const message = state.chats.chat.messages[0]
+  message.items = [{ id: 'text', type: 'text', text: prefix }]
+  const { container, rerender } = render(<AgentChat chatId="chat" />)
+  const { el, metrics } = scrollMetrics(container)
+  flushFrames()
+  expect(el.querySelector(selector)).toBeNull()
+
+  message.items = [{ id: 'text', type: 'text', text }]
+  updateOutput()
+  rerender(<AgentChat chatId="chat" />)
+  flushFrames()
+  expect(metrics.top).toBe(800)
+  expect(el.querySelector(selector)).toBeNull()
+
+  // Only the child stream renderer commits now; no parent rerender or ResizeObserver callback follows.
+  await act(async () => {
+    metrics.height = 1800
+    vi.advanceTimersByTime(1000)
+  })
+  expect(el.querySelector(selector)).toBeTruthy()
+  flushFrames()
+  expect(metrics.top).toBe(1600)
+  expect(screen.queryByText('agent.jumpToLatest')).toBeNull()
+
+  // Further tokens update the existing formatted text node, rather than replacing the Markdown tree.
+  message.items = [{ id: 'text', type: 'text', text: text + ' output' }]
+  updateOutput()
+  rerender(<AgentChat chatId="chat" />)
+  flushFrames()
+  await act(async () => {
+    metrics.height = 2200
+    vi.advanceTimersByTime(1000)
+  })
+  flushFrames()
+  expect(el.textContent).toContain('More output')
+  expect(metrics.top).toBe(2000)
+})
+
+it('keeps the reading position when deferred code formatting commits after following was paused', async () => {
+  vi.useFakeTimers()
+  replyRendering.markdown = true
+  const message = state.chats.chat.messages[0]
+  message.items = [{ id: 'text', type: 'text', text: '`' }]
+  const { container, rerender } = render(<AgentChat chatId="chat" />)
+  const { el, metrics } = scrollMetrics(container)
+  flushFrames()
+  message.items = [{ id: 'text', type: 'text', text: '```ts\nconst value = 1\n```' }]
+  updateOutput()
+  rerender(<AgentChat chatId="chat" />)
+  flushFrames()
+
+  fireEvent.wheel(el, { deltaY: -100 })
+  metrics.top = 200
+  fireEvent.scroll(el)
+  await act(async () => {
+    metrics.height = 1800
+    vi.advanceTimersByTime(1000)
+  })
+  expect(el.querySelector('pre code')?.textContent).toBe('const value = 1')
+  flushFrames()
+  expect(metrics.top).toBe(200)
+  expect(screen.getByText('agent.jumpToLatest')).toBeTruthy()
 })
 
 it('keeps the completed reply at the bottom after its final layout settles', () => {

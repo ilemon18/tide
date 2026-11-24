@@ -535,8 +535,7 @@ export function FileTree() {
     }
   }, [visible, chains, chainRevision, compactFolders, scrollIdle, showHidden])
 
-  // An empty tree has three different causes: project collapsed / not read yet / truly no files.
-  // Sharing one "empty directory" message would make users think the project was wiped.
+  // Loaded empty trees stay blank; collapsed and unread roots retain their actionable/loading hints.
   const allCollapsed = roots.length > 0 && roots.every((root) => root.collapsed)
   const rootLoaded = roots.every((root) => root.collapsed || Boolean(root.tree['']))
 
@@ -896,7 +895,7 @@ export function FileTree() {
           })}
         </div>
 
-        {rows.length === 0 ? (
+        {rows.length === 0 && (allCollapsed || !rootLoaded) ? (
           <div className="px-4 py-6 text-center text-xs text-muted">
             {allCollapsed ? (
               <button
@@ -908,8 +907,6 @@ export function FileTree() {
               >
                 {t('explorer.collapsed')}
               </button>
-            ) : rootLoaded ? (
-              t('explorer.emptyDir')
             ) : (
               t('explorer.reading')
             )}

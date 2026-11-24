@@ -502,7 +502,6 @@ export const en = {
   'explorer.empty': 'No project open',
   'explorer.openFolder': 'Open folder',
   'explorer.collapsed': 'Collapsed · click to expand',
-  'explorer.emptyDir': 'Empty folder',
   'explorer.reading': 'Reading…',
   'explorer.newFile': 'New file…',
   'explorer.newFolder': 'New folder…',

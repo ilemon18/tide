@@ -59,6 +59,10 @@ manual surfaces require an explicit request.
 
 Rust theme compatibility tests protect malformed shortcut fields, aliases, unknown ids and explicit unbinding.
 Frontend regressions also cover named task controls and shortcut migration to the current settings schema.
+`pnpm test:frontend` also covers blank loaded/filtered-empty file trees, reading/collapsed hints, and Agent
+following through shrink/regrowth scroll events, first-send and queued-card resizing, plus scrollbar pause/send resume.
+Deferred streamed Markdown code/table commits also retain bottom following without another store update or
+resize notification, while formatting after an upward reading gesture preserves the reading position.
 
 Rust agent tests also protect context root/path/range/byte validation and quoted snapshot prompt round trips.
 Rust transcript deletion tests cover project ownership, idempotent removal and preservation of corrupt records.

@@ -99,8 +99,11 @@ CLIs own auth/models/tools; Rust owns processes; the agent store owns queues/UI.
   history page first. Sends and successful interjections resume following after transcript commits, through
   deferred content/viewport resizing and final completion layout. A running-to-finished transition also
   re-enables following and anchors the completed reply at the latest bottom after deferred layout. Upward
-  reading gestures pause following; content-growth scroll events alone never clear that intent. Queued cards
-  use the lighter panel surface.
+  reading gestures and direct scrollbar presses pause following. Layout-generated scroll events, including
+  upward offsets after content shrink/regrowth, never clear that intent and schedule another bottom anchor.
+  First-send layout changes and queue/composer resizing retain following. Queued cards use the lighter panel surface.
+  Observe transcript text/child mutations as well as box resizing so deferred stream smoothing and Markdown
+  code/table formatting anchor the latest bottom after rendering; these commits respect paused following.
 - Context popup uses provider context/session usage, unaffected by loaded history/drafts. The context ring
   uses the current context snapshot, while token rows show only the current native session cumulative usage;
   latest-turn token details are not displayed. Zero is valid; invalid is unavailable. Keep persisted cost

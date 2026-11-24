@@ -457,7 +457,6 @@ export const zhCN: Messages = {
   'explorer.empty': '还没有打开项目',
   'explorer.openFolder': '打开文件夹',
   'explorer.collapsed': '已收起 · 点击展开',
-  'explorer.emptyDir': '空目录',
   'explorer.reading': '正在读取…',
   'explorer.newFile': '新建文件…',
   'explorer.newFolder': '新建文件夹…',

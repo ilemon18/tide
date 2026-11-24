@@ -456,7 +456,6 @@ export const zhTW: Messages = {
   'explorer.empty': '還沒有開啟專案',
   'explorer.openFolder': '開啟資料夾',
   'explorer.collapsed': '已收合 · 點擊展開',
-  'explorer.emptyDir': '空資料夾',
   'explorer.reading': '正在讀取…',
   'explorer.newFile': '新增檔案…',
   'explorer.newFolder': '新增資料夾…',

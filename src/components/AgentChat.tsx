@@ -253,13 +253,21 @@ export function AgentChat({ chatId }: { chatId: string }) {
   useEffect(() => {
     const el = scrollRef.current
     const content = el?.firstElementChild
-    if (!el || !content || typeof ResizeObserver === 'undefined') return
-    const observer = new ResizeObserver(() => {
+    if (!el || !content) return
+    const followRenderedContent = () => {
       if (following.current) scheduleScroll()
-    })
-    observer.observe(content)
-    observer.observe(el)
-    return () => observer.disconnect()
+    }
+    const resize = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(followRenderedContent)
+    resize?.observe(content)
+    resize?.observe(el)
+    // Stream smoothing and Markdown formatting commit inside the reply after the message store updates.
+    // Follow those DOM commits too, even when the transcript's observed box has not resized yet.
+    const mutations = typeof MutationObserver === 'undefined' ? null : new MutationObserver(followRenderedContent)
+    mutations?.observe(content, { subtree: true, childList: true, characterData: true })
+    return () => {
+      resize?.disconnect()
+      mutations?.disconnect()
+    }
   }, [chatId, Boolean(chat), scheduleScroll])
 
   if (!chat) {
@@ -394,6 +402,10 @@ export function AgentChat({ chatId }: { chatId: string }) {
         <div className={initialConversation ? 'hidden' : 'relative min-h-0 flex-1'}>
           <div
             ref={scrollRef}
+            onPointerDownCapture={event => {
+              // Scrollbar presses target the viewport; message content targets its descendants.
+              if (event.button === 0 && event.pointerType !== 'touch' && event.target === event.currentTarget) pauseFollowing()
+            }}
             onClickCapture={event => {
               if ((event.target as HTMLElement).closest('button[aria-expanded]')) {
                 pauseFollowing()
@@ -413,12 +425,16 @@ export function AgentChat({ chatId }: { chatId: string }) {
             onScroll={(e) => {
               const el = e.currentTarget
               const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40
-              if (el.scrollTop < lastScrollTop.current) {
-                if (!nearBottom) following.current = false
-              } else if (el.scrollTop > lastScrollTop.current && nearBottom) following.current = true
+              // Layout and skipped-content rendering can move scrollTop upward without a reading gesture.
+              // Only explicit input pauses following; keep settling at the bottom after layout scrolls.
+              if (!following.current && el.scrollTop > lastScrollTop.current && nearBottom) {
+                following.current = true
+                anchor.current = null
+              }
+              if (following.current && el.scrollHeight - el.scrollTop - el.clientHeight > 1) scheduleScroll()
               lastScrollTop.current = el.scrollTop
               setAtBottom(following.current && !page?.hasLater)
-              captureAnchor()
+              if (!following.current) captureAnchor()
             }}
             className="h-full select-text overflow-y-auto"
           >

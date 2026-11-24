@@ -2,7 +2,7 @@
 summary: Workspace tree, folder chains and watchers
 scope:
   - .ai/file-tree.md
-  - src/components/FileTree.tsx
+  - src/components/FileTree*.tsx
   - src/store/workspace.ts
   - src/store/fileIndex.ts
   - src/lib/workspaceEntries*.ts
@@ -31,6 +31,8 @@ pages and leaves scan caps to Rust read_dir. Permission/other failures stay dist
 
 ## Expansion and rows
 
+- Loaded trees with no visible rows render no empty-folder copy or placeholder space. Unread roots
+  keep the reading hint; fully collapsed roots keep the button that expands them.
 - Locate/open expands through workspace.expandChain: fetch levels in parallel, commit once. Sequential
   expandDir causes pop-in. Compact rows represent the deepest directory; every action targets it.
   Invalidate folderChain(root, dir) on content changes or stale shapes persist.
@@ -66,4 +68,5 @@ pages and leaves scan caps to Rust read_dir. Permission/other failures stay dist
 Keep Rust watcher payloads, IPC and frontend batching aligned; checkout/fetch changes also follow git.md.
 Rust tests cover truncation, overflow, continuous-flow deadlines and rescan/errors. Frontend workspace/
 watcher tests cover branch batches, ignore rules, cache races, permissions and missing subtrees.
+FileTree component tests cover blank loaded/filtered-empty trees, reading-hint removal and collapsed-root expansion.
 Run gates only as authorized in [checks.md](./checks.md).

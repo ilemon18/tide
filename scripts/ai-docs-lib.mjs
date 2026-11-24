@@ -32,6 +32,11 @@ export const ROUTING_FIXTURES = Object.freeze([
     expected: ['file-tree.md'],
   },
   {
+    name: 'File tree empty states',
+    paths: ['src/components/FileTree.test.tsx'],
+    expected: ['file-tree.md'],
+  },
+  {
     name: 'Git file menu tests',
     paths: ['src/components/GitPanel.test.tsx'],
     expected: ['git.md'],

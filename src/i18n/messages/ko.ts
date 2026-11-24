@@ -468,7 +468,6 @@ export const ko: Messages = {
   'explorer.empty': '아직 프로젝트를 열지 않았습니다',
   'explorer.openFolder': '폴더 열기',
   'explorer.collapsed': '접힘 · 클릭하여 펼치기',
-  'explorer.emptyDir': '빈 폴더',
   'explorer.reading': '읽는 중…',
   'explorer.newFile': '새 파일…',
   'explorer.newFolder': '새 폴더…',
