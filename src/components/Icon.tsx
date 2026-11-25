@@ -24,6 +24,7 @@ export type IconName =
   | 'close'
   | 'more'
   | 'arrow-up'
+  | 'arrow-up-right'
   | 'arrow-down'
   | 'check'
   | 'check-circle'
@@ -54,6 +55,11 @@ export type IconName =
   | 'split-right'
   | 'pin'
   | 'sparkle'
+  | 'list-check'
+  | 'play'
+  | 'rotate-ccw'
+  | 'message-circle'
+  | 'message-question'
   | 'replace'
   | 'agent'
   | 'send'
@@ -195,6 +201,7 @@ const shapes: Record<IconName, ReactNode> = {
     </>
   ),
   'arrow-up': <path d="M12 19V5M5.5 11.5 12 5l6.5 6.5" />,
+  'arrow-up-right': <path d="M7 17 17 7M8.5 7H17v8.5" />,
   'arrow-down': <path d="M12 5v14M5.5 12.5 12 19l6.5-6.5" />,
   check: <path d="M4.5 12.5 9.5 17.5 19.5 6.5" />,
   // Semantic icon with a round frame (used by toasts): distinct from the bare check / warning shapes
@@ -349,6 +356,41 @@ const shapes: Record<IconName, ReactNode> = {
   // Four-point star for skill chips
   sparkle: (
     <path d="M12 3.5l1.7 5.1 5.1 1.7-5.1 1.7-1.7 5.1-1.7-5.1-5.1-1.7 5.1-1.7Z" />
+  ),
+  // Checklist: an ordered plan rather than the generic sparkle used for agent entry points
+  'list-check': (
+    <>
+      <path d="M9 6h11.5M9 12h11.5M9 18h11.5" />
+      <path d="m3.5 5.8 1.1 1.1L7 4.6" />
+      <path d="m3.5 11.8 1.1 1.1L7 10.6" />
+      <path d="m3.5 17.8 1.1 1.1L7 16.6" />
+    </>
+  ),
+  // Play triangle: start implementing the current plan
+  play: <path d="M8 5.5v13l10-6.5L8 5.5Z" />,
+  // Counter-clockwise rotate: start over with a fresh context
+  'rotate-ccw': (
+    <>
+      <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+      <path d="M3 3v5h5" />
+    </>
+  ),
+  // Speech bubble: continue the planning conversation
+  'message-circle': (
+    <>
+      <path d="M20.5 11.5c0 4.4-3.8 8-8.5 8-1.3 0-2.6-.3-3.7-.8L4 20l1.4-3.9a7.4 7.4 0 0 1-1.9-4.6c0-4.4 3.8-8 8.5-8s8.5 3.6 8.5 8Z" />
+      <circle cx="8.5" cy="11.5" r="0.9" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="11.5" r="0.9" fill="currentColor" stroke="none" />
+      <circle cx="15.5" cy="11.5" r="0.9" fill="currentColor" stroke="none" />
+    </>
+  ),
+  // Speech bubble with a question mark: structured question cards
+  'message-question': (
+    <>
+      <path d="M20.5 11.5c0 4.4-3.8 8-8.5 8-1.3 0-2.6-.3-3.7-.8L4 20l1.4-3.9a7.4 7.4 0 0 1-1.9-4.6c0-4.4 3.8-8 8.5-8s8.5 3.6 8.5 8Z" />
+      <path d="M9.6 9.1a2.6 2.6 0 1 1 3.7 2.4c-.9.4-1.3 1-1.3 1.9" />
+      <circle cx="12" cy="16.2" r="0.9" fill="currentColor" stroke="none" />
+    </>
   ),
 }
 

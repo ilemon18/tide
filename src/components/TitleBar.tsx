@@ -101,7 +101,7 @@ function WindowControls() {
 
 /**
  * Project badge: first two letters/digits of the name (for CJK, the first two chars),
- * uppercased, accent background with inverted text. Clicking reveals the project root; full name in a tooltip.
+ * uppercased into a transparent accent-outline monogram. Clicking reveals the project root; full name in a tooltip.
  */
 function ProjectBadge({ name, root }: { name: string; root: string }) {
   const t = useT()
@@ -125,9 +125,13 @@ function ProjectBadge({ name, root }: { name: string; root: string }) {
       onClick={() => revealInExplorer(root, '', true)}
       data-tip={t('titlebar.projectTip', { name })}
       aria-label={t('titlebar.projectAria', { name })}
-      className="flex h-[20px] w-[20px] shrink-0 items-center justify-center overflow-hidden rounded-[5px] bg-accent p-0 text-[10px] font-semibold uppercase leading-none text-accent-fg transition-opacity duration-fast hover:opacity-90"
+      className="group relative flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-[6px] border border-accent/40 bg-transparent p-0 text-[10px] font-semibold uppercase leading-none tracking-[0.02em] text-accent transition duration-fast hover:-translate-y-px hover:border-accent/65 hover:bg-accent/10 hover:shadow-[0_5px_14px_-9px_var(--c-accent)] active:translate-y-0"
     >
-      {initials}
+      <span
+        aria-hidden
+        className="pointer-events-none absolute inset-x-1 top-0 h-px rounded-full bg-accent/45 opacity-60"
+      />
+      <span className="relative">{initials}</span>
     </button>
   )
 }

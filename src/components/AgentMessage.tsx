@@ -101,6 +101,19 @@ const replyControlClass =
 const userControlClass =
   'h-[22px] w-[22px] pointer-events-none group-hover/user:pointer-events-auto group-focus-within/user:pointer-events-auto opacity-0 transition-opacity duration-fast group-hover/user:opacity-100 group-focus-within/user:opacity-100'
 
+const cardShellClass =
+  'group/item relative overflow-hidden rounded-[16px] border border-accent/25 bg-panel shadow-popup'
+const cardHeaderClass =
+  'relative flex items-start gap-2.5 overflow-hidden border-b border-accent/10 bg-gradient-to-br from-accent/10 via-accent/5 to-transparent px-3.5 py-3'
+const cardIconClass =
+  'relative flex h-8 w-8 shrink-0 items-center justify-center rounded-[11px] bg-gradient-to-br from-accent to-accent/75 text-accent-fg shadow-[0_8px_18px_-12px_var(--c-accent)]'
+const cardGlow = (
+  <div
+    aria-hidden
+    className="pointer-events-none absolute -right-10 -top-16 h-36 w-36 rounded-full bg-accent/10 blur-3xl"
+  />
+)
+
 /** Prefer the executable command/path over the provider's generic tool name or JSON input. */
 export function toolCommand(item: AgentItem): string {
   if (item.detail) {
@@ -260,35 +273,51 @@ function QuestionCard({
   }
 
   return (
-    <div className="group/item overflow-hidden rounded-[var(--r-popup)] border border-accent/30 bg-panel">
-      <div className="flex items-start gap-2 border-b border-line-soft bg-accent/5 px-3 py-2">
-        <Icon name="info" size={12} className="mt-0.5 shrink-0 text-accent" />
+    <div className={cardShellClass}>
+      <div
+        aria-hidden
+        className="absolute inset-x-0 top-0 z-10 h-0.5 bg-gradient-to-r from-accent via-accent/40 to-transparent"
+      />
+      <div className={cardHeaderClass}>
+        {cardGlow}
+        <span className={cardIconClass}>
+          <Icon name="message-question" size={14} />
+        </span>
         <div className="flex min-w-0 flex-1 flex-col gap-1">
-          <div className="text-xs font-medium text-fg/90">{item.header}</div>
-          <div className="whitespace-pre-wrap break-words text-sm leading-relaxed text-fg/85">
+          <div className="text-2xs font-semibold tracking-wide text-accent">{item.header}</div>
+          <div className="whitespace-pre-wrap break-words text-sm font-medium leading-relaxed text-fg">
             {item.question}
           </div>
         </div>
         {multi && ready ? (
-          <span className="shrink-0 text-2xs text-muted">{t('agent.question.multi')}</span>
+          <span className="shrink-0 rounded-full bg-accent/10 px-2 py-0.5 text-[10px] font-semibold text-accent ring-1 ring-inset ring-accent/15">
+            {t('agent.question.multi')}
+          </span>
         ) : null}
       </div>
 
       {answered ? (
-        <div className="flex flex-col gap-1 px-3 py-2">
-          <div className="text-2xs text-muted">{t('agent.question.answered')}</div>
-          <div className="whitespace-pre-wrap break-words rounded-[var(--r-row)] border border-line-soft bg-panel-alt px-2 py-1.5 text-sm leading-relaxed text-fg/90">
-            {item.answer}
+        <div className="flex items-start gap-2.5 bg-success/5 px-3.5 py-3">
+          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[10px] bg-success/10 text-success">
+            <Icon name="check-circle" size={14} />
+          </span>
+          <div className="flex min-w-0 flex-1 flex-col gap-1">
+            <div className="text-2xs font-semibold text-success">
+              {t('agent.question.answered')}
+            </div>
+            <div className="whitespace-pre-wrap break-words rounded-[10px] border border-success/15 bg-panel/70 px-3 py-2 text-sm leading-relaxed text-fg/90">
+              {item.answer}
+            </div>
           </div>
         </div>
       ) : ready ? (
-        <div className="flex flex-col gap-2 px-3 py-2">
+        <div className="flex flex-col gap-2.5 p-3.5">
           <div
             role={multi ? 'group' : 'radiogroup'}
             aria-label={multi ? t('agent.question.multi') : t('agent.question.single')}
-            className="flex flex-col gap-1"
+            className="grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-2"
           >
-            {(item.options ?? []).map((option) => {
+            {(item.options ?? []).map((option, index) => {
               const checked = selected.includes(option.label)
               return (
                 <button
@@ -298,22 +327,29 @@ function QuestionCard({
                   aria-checked={checked}
                   disabled={locked}
                   onClick={() => toggleOption(option.label)}
-                  className={`flex items-start gap-2 rounded-[var(--r-row)] border px-2 py-1.5 text-left transition-colors duration-fast disabled:cursor-not-allowed disabled:opacity-60 ${
+                  className={`group/option flex min-h-[64px] items-start gap-2.5 rounded-[12px] border p-2.5 text-left transition duration-fast hover:-translate-y-px active:translate-y-0 disabled:cursor-not-allowed disabled:translate-y-0 disabled:opacity-55 ${
                     checked
-                      ? 'border-accent/50 bg-accent/10'
-                      : 'border-line-soft bg-panel-alt/50 hover:bg-hover'
+                      ? 'border-accent/50 bg-accent/10 shadow-[0_8px_20px_-18px_var(--c-accent)]'
+                      : 'border-line-soft bg-bg/55 hover:border-accent/30 hover:bg-hover'
                   }`}
                 >
                   <span
-                    className={`mt-0.5 flex h-3.5 w-3.5 shrink-0 items-center justify-center border ${
-                      multi ? 'rounded-[3px]' : 'rounded-full'
-                    } ${checked ? 'border-accent bg-accent text-accent-fg' : 'border-line'}`}
+                    aria-hidden
+                    className={`flex h-6 w-6 shrink-0 items-center justify-center text-[11px] font-semibold transition-colors ${
+                      multi ? 'rounded-[8px]' : 'rounded-full'
+                    } ${
+                      checked
+                        ? 'bg-accent text-accent-fg shadow-[0_5px_14px_-8px_var(--c-accent)]'
+                        : 'bg-panel text-muted ring-1 ring-inset ring-line-soft group-hover/option:text-accent'
+                    }`}
                   >
-                    {checked ? <Icon name="check" size={9} /> : null}
+                    {checked ? <Icon name="check" size={11} /> : String.fromCharCode(65 + index)}
                   </span>
-                  <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                    <span className="break-words text-xs font-medium text-fg/90">{option.label}</span>
-                    <span className="break-words text-2xs leading-relaxed text-muted">
+                  <span className="flex min-w-0 flex-1 flex-col gap-0.5 pt-0.5">
+                    <span className="break-words text-sm font-semibold leading-snug text-fg">
+                      {option.label}
+                    </span>
+                    <span className="break-words text-xs leading-relaxed text-muted">
                       {option.description}
                     </span>
                   </span>
@@ -322,7 +358,10 @@ function QuestionCard({
             })}
           </div>
 
-          <label className="flex flex-col gap-1">
+          <label className="flex items-center gap-2 rounded-[12px] border border-line-soft bg-bg/55 px-2.5 transition-colors duration-fast focus-within:border-accent/45 focus-within:bg-bg">
+            <span aria-hidden className="shrink-0 text-muted/70">
+              <Icon name="edit" size={12} />
+            </span>
             <span className="sr-only">{t('agent.question.custom')}</span>
             <input
               type="text"
@@ -339,7 +378,7 @@ function QuestionCard({
                 event.preventDefault()
                 void submit()
               }}
-              className="h-8 rounded-[var(--r-row)] border border-line-soft bg-bg px-2 text-xs text-fg outline-none placeholder:text-muted/60 focus:border-accent/60 disabled:cursor-not-allowed disabled:opacity-60"
+              className="h-8 min-w-0 flex-1 border-0 bg-transparent text-xs text-fg outline-none placeholder:text-muted/55 disabled:cursor-not-allowed disabled:opacity-60"
             />
           </label>
 
@@ -348,9 +387,9 @@ function QuestionCard({
               type="button"
               disabled={!canSubmit}
               onClick={() => void submit()}
-              className="flex h-7 shrink-0 items-center gap-1 rounded-[var(--r-control)] bg-accent px-2.5 text-xs text-accent-fg transition-opacity duration-fast hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-35"
+              className="flex h-8 shrink-0 items-center gap-1.5 rounded-full bg-gradient-to-r from-accent to-accent/80 px-3.5 text-xs font-semibold text-accent-fg shadow-[0_8px_20px_-12px_var(--c-accent)] transition duration-fast hover:brightness-105 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-35 disabled:shadow-none"
             >
-              <Icon name="send" size={12} />
+              <Icon name="arrow-up-right" size={12} />
               {t('agent.question.submit')}
             </button>
           </div>
@@ -390,14 +429,44 @@ function PlanCard({
     }
   }
 
+  const actions = [
+    {
+      action: 'implement-current',
+      label: t('agent.plan.implementCurrent'),
+      icon: 'play',
+      tone: 'primary',
+    },
+    {
+      action: 'implement-fresh',
+      label: t('agent.plan.implementFresh'),
+      icon: 'rotate-ccw',
+      tone: 'soft',
+    },
+    {
+      action: 'continue-planning',
+      label: t('agent.plan.continuePlanning'),
+      icon: 'message-circle',
+      tone: 'ghost',
+    },
+  ] as const
+
   return (
-    <div className="group/item overflow-hidden rounded-[var(--r-popup)] border border-accent/30 bg-panel">
-      <div className="flex items-start gap-2 border-b border-line-soft bg-accent/5 px-3 py-2">
-        <Icon name="structure" size={12} className="mt-0.5 shrink-0 text-accent" />
+    <div className={cardShellClass}>
+      <div
+        aria-hidden
+        className="absolute inset-x-0 top-0 z-10 h-0.5 bg-gradient-to-r from-accent via-accent/40 to-transparent"
+      />
+      <div className={cardHeaderClass}>
+        {cardGlow}
+        <span className={cardIconClass}>
+          <Icon name="list-check" size={14} />
+        </span>
         <div className="flex min-w-0 flex-1 flex-col gap-1">
-          <div className="text-xs font-medium text-fg/90">{t('agent.plan.header')}</div>
+          <div className="text-2xs font-semibold tracking-wide text-accent">
+            {t('agent.plan.header')}
+          </div>
           {item.text ? (
-            <div className="whitespace-pre-wrap break-words text-sm leading-relaxed text-fg/85">
+            <div className="whitespace-pre-wrap break-words text-sm leading-relaxed text-fg/90">
               <AgentStreamText root={root} text={item.text} live={running && !item.complete} />
             </div>
           ) : null}
@@ -405,33 +474,49 @@ function PlanCard({
       </div>
 
       {!resolved ? (
-        <div className="flex flex-col gap-2 p-3">
+        <div className="flex flex-col gap-2.5 p-3.5">
           {/* Codex plan_implementation.rs: keep official option copy/order; action IDs stay persisted. */}
-          <div className="flex flex-col gap-1.5">
-            <button
-              type="button"
-              disabled={locked}
-              onClick={() => handleAction('implement-current')}
-              className="flex items-start gap-2 rounded-[var(--r-row)] border border-line-soft bg-bg px-3 py-2 text-left transition-colors duration-fast hover:border-accent/40 hover:bg-accent/5 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              <span className="min-w-0 flex-1 text-xs font-medium text-fg">{t('agent.plan.implementCurrent')}</span>
-            </button>
-            <button
-              type="button"
-              disabled={locked}
-              onClick={() => handleAction('implement-fresh')}
-              className="flex items-start gap-2 rounded-[var(--r-row)] border border-line-soft bg-bg px-3 py-2 text-left transition-colors duration-fast hover:border-accent/40 hover:bg-accent/5 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              <span className="min-w-0 flex-1 text-xs font-medium text-fg">{t('agent.plan.implementFresh')}</span>
-            </button>
-            <button
-              type="button"
-              disabled={locked}
-              onClick={() => handleAction('continue-planning')}
-              className="flex items-start gap-2 rounded-[var(--r-row)] border border-line-soft bg-bg px-3 py-2 text-left transition-colors duration-fast hover:border-accent/40 hover:bg-accent/5 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              <span className="min-w-0 flex-1 text-xs font-medium text-fg">{t('agent.plan.continuePlanning')}</span>
-            </button>
+          <div className="flex flex-col gap-2">
+            {actions.map(({ action, label, icon, tone }) => {
+              const primary = tone === 'primary'
+              const soft = tone === 'soft'
+              return (
+                <button
+                  key={action}
+                  type="button"
+                  disabled={locked}
+                  onClick={() => handleAction(action)}
+                  className={`group/action flex items-center gap-2.5 rounded-[12px] px-3 py-2.5 text-left transition duration-fast hover:-translate-y-px active:translate-y-0 disabled:cursor-not-allowed disabled:translate-y-0 disabled:opacity-55 ${
+                    primary
+                      ? 'bg-gradient-to-r from-accent to-accent/80 text-accent-fg shadow-[0_10px_24px_-14px_var(--c-accent)] hover:brightness-105'
+                      : soft
+                        ? 'border border-accent/20 bg-accent/5 hover:border-accent/35 hover:bg-accent/10'
+                        : 'border border-line-soft bg-bg/55 hover:border-accent/25 hover:bg-hover'
+                  }`}
+                >
+                  <span
+                    aria-hidden
+                    className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-[8px] ${
+                      primary
+                        ? 'bg-accent-fg/15 text-accent-fg'
+                        : soft
+                          ? 'bg-panel text-accent ring-1 ring-inset ring-accent/15'
+                          : 'bg-panel text-muted ring-1 ring-inset ring-line-soft group-hover/action:text-accent'
+                    }`}
+                  >
+                    <Icon name={icon} size={12} />
+                  </span>
+                  <span className="min-w-0 flex-1 text-xs font-semibold">{label}</span>
+                  <Icon
+                    name="chevron-right"
+                    size={12}
+                    className={`shrink-0 transition-transform duration-fast group-hover/action:translate-x-0.5 ${
+                      primary ? 'opacity-75' : 'text-muted/70'
+                    }`}
+                  />
+                </button>
+              )
+            })}
           </div>
           <textarea
             value={instructions}
@@ -440,13 +525,15 @@ function PlanCard({
             aria-label={t('agent.plan.instructions')}
             placeholder={t('agent.plan.instructions')}
             rows={2}
-            className="w-full resize-y rounded-[var(--r-row)] border border-line-soft bg-bg px-2 py-1.5 text-xs text-fg outline-none placeholder:text-muted/60 focus:border-accent/60 disabled:opacity-60"
+            className="w-full resize-y rounded-[12px] border border-line-soft bg-bg/55 px-3 py-2 text-xs text-fg outline-none transition-colors duration-fast placeholder:text-muted/55 focus:border-accent/45 focus:bg-bg disabled:opacity-60"
           />
         </div>
       ) : (
-        <div className="flex items-center gap-2 px-3 py-2 text-xs text-success">
-          <Icon name="check" size={12} className="shrink-0" />
-          {t('agent.plan.resolved')}
+        <div className="flex items-center gap-2.5 bg-success/5 px-3.5 py-3 text-success">
+          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[10px] bg-success/10">
+            <Icon name="check-circle" size={14} />
+          </span>
+          <span className="text-xs font-semibold">{t('agent.plan.resolved')}</span>
         </div>
       )}
     </div>

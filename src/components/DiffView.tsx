@@ -593,7 +593,7 @@ export function DiffView({ tab }: Props) {
       return (
         <div
           key={`gap-${row.id}`}
-          className="flex h-6 min-w-full items-center justify-center border-y border-line/40 bg-panel-alt/40 text-2xs text-muted"
+          className="flex h-6 w-full items-center justify-center border-y border-line/40 bg-panel-alt/40 text-2xs text-muted"
         >
           {t('diff.skipped', { count: row.count })}
         </div>
@@ -606,7 +606,7 @@ export function DiffView({ tab }: Props) {
           key={`fold-${row.id}`}
           type="button"
           onClick={() => toggleRun(row.id)}
-          className="flex h-6 min-w-full items-center justify-center gap-1 border-y border-line/40 bg-panel-alt/40 text-2xs text-muted hover:text-fg"
+          className="flex h-6 w-full items-center justify-center gap-1 border-y border-line/40 bg-panel-alt/40 text-2xs text-muted hover:text-fg"
         >
           <Icon name={row.folded ? 'chevron-right' : 'chevron-down'} size={11} />
           {row.folded ? t('diff.expandLines', { count: row.count }) : t('diff.foldLines', { count: row.count })}
@@ -623,7 +623,7 @@ export function DiffView({ tab }: Props) {
       <div
         key={`row-${row.id}`}
         data-diff-change={row.changed ? '1' : undefined}
-        className="flex min-w-full hover:bg-hover"
+        className="flex w-full hover:bg-hover"
       >
         <LineNo no={cell?.no ?? null} tone={tone} />
         <Cell
@@ -666,7 +666,11 @@ export function DiffView({ tab }: Props) {
             className="diff-selectable min-h-0 min-w-0 flex-1 overflow-auto font-mono"
             style={{ fontSize: 'var(--text-xs)' }}
           >
-            {display.map((row) => renderRow(row, side))}
+            {/* Size every row to the pane's longest line, so row backgrounds also cover the empty
+                horizontal tail exposed when a long line is scrolled to the right. */}
+            <div className="w-max min-w-full">
+              {display.map((row) => renderRow(row, side))}
+            </div>
           </div>
           {rulerMarks.length > 0 ? (
             <DiffRuler marks={rulerMarks} scrollRef={isLeft ? leftRef : rightRef} onJump={jumpToRatio} />
