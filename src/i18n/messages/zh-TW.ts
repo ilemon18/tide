@@ -125,7 +125,7 @@ export const zhTW: Messages = {
   'agent.history.title': '歷史對話',
   'agent.history.loading': '正在載入歷史記錄…',
   'agent.history.empty': '目前專案還沒有已儲存的對話。',
-  "agent.history.search": "搜尋會話名稱或 ID",
+  "agent.history.search": "搜尋會話名稱",
   "agent.history.noResults": "找不到符合的會話。",
   "agent.history.noProject": "請先開啟專案，再查看歷史會話。",
   "agent.history.close": "關閉會話歷史",

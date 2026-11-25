@@ -125,7 +125,7 @@ export const ko: Messages = {
   'agent.history.title': '채팅 기록',
   'agent.history.loading': '기록을 불러오는 중…',
   'agent.history.empty': '이 프로젝트에 저장된 채팅이 없습니다.',
-  "agent.history.search": "대화 이름 또는 ID로 검색",
+  "agent.history.search": "대화 이름으로 검색",
   "agent.history.noResults": "검색과 일치하는 대화가 없습니다.",
   "agent.history.noProject": "프로젝트를 열어 대화 기록을 확인하세요.",
   "agent.history.close": "채팅 기록 닫기",

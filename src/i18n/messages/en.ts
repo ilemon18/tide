@@ -129,7 +129,7 @@ export const en = {
   'agent.history.title': 'Chat history',
   'agent.history.loading': 'Loading history…',
   'agent.history.empty': 'No saved chats for this project yet.',
-  "agent.history.search": "Search by chat name or ID",
+  "agent.history.search": "Search by chat name",
   "agent.history.noResults": "No chats match your search.",
   "agent.history.noProject": "Open a project to view its chat history.",
   "agent.history.close": "Close chat history",

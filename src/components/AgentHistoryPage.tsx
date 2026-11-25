@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { useT } from '../i18n'
+import { compactAge } from '../lib/format'
 import { AGENT_HISTORY_PAGE_SIZE, useAgent } from '../store/agent'
 import { useUi } from '../store/ui'
 import { useWorkspace } from '../store/workspace'
@@ -12,13 +13,13 @@ const SEARCH_DELAY_MS = 250
 function HistoryList({ root }: { root: string }) {
   const t = useT()
   const history = useAgent(state => state.historyByRoot[root])
-  const providers = useAgent(state => state.providers)
   const running = useAgent(state => state.running)
   const chats = useAgent(state => state.chats)
   const deleting = useAgent(state => state.deletingChats)
   const resuming = useAgent(state => state.resumingChatId)
   const searchFocus = useUi(state => state.historySearchFocus)
   const [search, setSearch] = useState('')
+  const [, setAgeTick] = useState(0)
   const [composing, setComposing] = useState(false)
   const searchRef = useRef<HTMLInputElement>(null)
   const confirmPending = useRef(false)
@@ -28,6 +29,11 @@ function HistoryList({ root }: { root: string }) {
     searchRef.current?.focus()
     searchRef.current?.select()
   }, [searchFocus])
+
+  useEffect(() => {
+    const timer = setInterval(() => setAgeTick(tick => tick + 1), 30_000)
+    return () => clearInterval(timer)
+  }, [])
 
   useEffect(() => {
     if (composing) return
@@ -43,6 +49,7 @@ function HistoryList({ root }: { root: string }) {
 
   const totalPages = Math.max(1, Math.ceil((history?.total ?? 0) / AGENT_HISTORY_PAGE_SIZE))
   const busy = !history || history.loading
+  const now = Date.now()
   const formatDate = (value: number) => {
     const date = new Date(value)
     return Number.isFinite(date.getTime())
@@ -77,7 +84,7 @@ function HistoryList({ root }: { root: string }) {
         />
       </div>
 
-      <div className="mt-4 min-h-0 flex-1 overflow-y-auto" aria-busy={busy}>
+      <div className="mt-4 -mr-2 min-h-0 flex-1 overflow-y-auto pr-2" aria-busy={busy}>
         {busy ? (
           <div role="status" className="flex items-center justify-center gap-2 py-16 text-sm text-muted">
             <Icon name="spinner" size={16} className="animate-spin" />{t('agent.history.loading')}
@@ -95,14 +102,13 @@ function HistoryList({ root }: { root: string }) {
             {history.chats.map(item => {
               const title = item.title || t('agent.newChat')
               const isRunning = running[item.id] !== undefined || chats[item.id]?.status === 'running'
-              const provider = providers?.find(provider => provider.id === item.provider)?.name ?? item.provider
               return (
                 <li key={item.id} className="flex items-center gap-2 rounded-[var(--r-control)] px-2 transition-colors hover:bg-hover">
                   <button
                     type="button"
                     disabled={!!resuming || deleting[item.id]}
                     aria-label={t('agent.history.open', { title })}
-                    title={item.id}
+                    title={title}
                     className="flex min-w-0 flex-1 items-start gap-3 py-4 text-left disabled:opacity-50"
                     onClick={async () => {
                       const restored = await useAgent.getState().resumeChat(item.id, root)
@@ -114,10 +120,7 @@ function HistoryList({ root }: { root: string }) {
                     <AgentProviderIcon provider={item.provider} size={20} className="mt-0.5 shrink-0 text-accent" />
                     <span className="flex min-w-0 flex-1 flex-col gap-1">
                       <span className="truncate text-sm font-medium text-fg">{title}</span>
-                      <span className="flex flex-wrap items-center gap-x-2 text-xs text-muted">
-                        <span>{provider}</span><span aria-hidden="true">·</span><span>{formatDate(item.updatedAt)}</span>
-                      </span>
-                      <span className="truncate font-mono text-2xs text-muted">{item.id}</span>
+                      <span className="text-xs text-muted" title={formatDate(item.updatedAt)}>{compactAge(item.updatedAt, now)}</span>
                     </span>
                     {resuming === item.id ? <Icon name="spinner" size={16} className="shrink-0 animate-spin text-muted" /> : null}
                   </button>
@@ -135,7 +138,7 @@ function HistoryList({ root }: { root: string }) {
                         const confirmed = await useUi.getState().confirm({
                           title: t('agent.history.deleteTitle'),
                           message: t('agent.history.deleteMessage', { title }),
-                          confirmText: t('agent.history.deleteTitle'), danger: true,
+                          confirmText: t('agent.history.deleteTitle'), danger: true, confirmOnEnter: true,
                         })
                         if (confirmed) await useAgent.getState().deleteChat(item.id, root)
                       } finally {

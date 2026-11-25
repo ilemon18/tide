@@ -31,10 +31,22 @@ export function ConfirmDialog() {
   const req = useUi((s) => s.confirmReq)
   const answer = useUi((s) => s.answerConfirm)
   const confirmRef = useRef<HTMLButtonElement>(null)
+  const cancelRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
     if (req) confirmRef.current?.focus()
   }, [req])
+
+  useEffect(() => {
+    if (!req?.confirmOnEnter) return
+    const handler = (event: KeyboardEvent) => {
+      if (event.key !== 'Enter' || event.repeat || event.isComposing) return
+      event.preventDefault()
+      answer(event.target !== cancelRef.current)
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [req, answer])
 
   if (!req) return null
 
@@ -46,6 +58,7 @@ export function ConfirmDialog() {
       </div>
       <div className="flex justify-end gap-2 border-t border-line px-3 py-2.5">
         <button
+          ref={cancelRef}
           onClick={() => answer(false)}
           className="rounded border border-line px-3 py-1 text-sm text-muted hover:bg-hover hover:text-fg"
         >

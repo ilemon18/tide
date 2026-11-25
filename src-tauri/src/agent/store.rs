@@ -554,7 +554,7 @@ fn list_chats_in_dir(dir: &Path, root: &str, offset: usize, limit: usize, query:
         if summary.root != root {
             continue;
         }
-        if !query.is_empty() && !summary.title.to_lowercase().contains(&query) && !summary.id.to_lowercase().contains(&query) {
+        if !query.is_empty() && !summary.title.to_lowercase().contains(&query) {
             continue;
         }
         out.push(summary);
@@ -679,9 +679,9 @@ mod tests {
         assert_eq!(last.chats.len(), 1);
         assert_eq!(last.next_offset, None);
 
-        let id = list_chats_in_dir(&dir, "/tmp/project", 0, 15, "CHAT-30").expect("id search");
-        assert_eq!(id.total, 1);
-        assert_eq!(id.chats[0].id, "chat-30");
+        let id = list_chats_in_dir(&dir, "/tmp/project", 0, 15, "CHAT-30").expect("id excluded");
+        assert_eq!(id.total, 0);
+        assert!(id.chats.is_empty());
         assert_eq!(list_chats_in_dir(&dir, "/tmp/project", 0, 15, "body-only").expect("body excluded").total, 0);
         assert_eq!(list_chats_in_dir(&dir, "/tmp/project", 0, 15, "codex").expect("provider excluded").total, 0);
         assert_eq!(list_chats_in_dir(&dir, "/tmp/project", 0, 15, "   ").expect("empty search").total, 31);

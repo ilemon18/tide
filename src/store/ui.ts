@@ -10,6 +10,8 @@ export type ConfirmRequest = {
   message: string
   confirmText?: string
   danger?: boolean
+  /** Enter confirms this dialog unless focus is on its cancel button. Reserved for destructive history actions. */
+  confirmOnEnter?: boolean
   resolve: (ok: boolean) => void
 }
 

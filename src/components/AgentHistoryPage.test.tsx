@@ -28,13 +28,15 @@ vi.mock('../i18n', () => ({ useT: () => (key: string, params?: Record<string, un
   params ? `${key} ${Object.values(params).join(' ')}` : key }))
 import { AgentHistoryPage } from './AgentHistoryPage'
 
-const summary = (id = 'saved', provider = 'codex') => ({ id, provider, root: '/repo', title: 'Saved conversation', model: '', updatedAt: 1, messageCount: 2 })
+const NOW = Date.parse('2026-01-01T00:00:00Z')
+const summary = (id = 'saved', provider = 'codex', updatedAt = NOW - 30_000) => ({ id, provider, root: '/repo', title: 'Saved conversation', model: '', updatedAt, messageCount: 2 })
 const history = (patch: Partial<AgentHistory> = {}): AgentHistory => ({
   chats: [summary()], page: 1, query: '', total: 16, loaded: true, loading: false, error: false, ...patch,
 })
 
 beforeEach(() => {
   vi.useFakeTimers()
+  vi.setSystemTime(NOW)
   vi.clearAllMocks()
   state.historyByRoot = { '/repo': history() }
   state.running = {}
@@ -51,7 +53,7 @@ beforeEach(() => {
 })
 afterEach(() => { cleanup(); vi.clearAllTimers(); vi.useRealTimers() })
 
-it('shows the project and provider logo before the conversation name, and releases summaries on exit', () => {
+it('shows the project and provider icon before the conversation name, and releases summaries on exit', () => {
   const { container, unmount } = render(<AgentHistoryPage />)
   expect(screen.getByRole('complementary', { name: 'agent.history.title' })).toBeTruthy()
   expect(screen.getByText('Example project')).toBeTruthy()
@@ -60,6 +62,10 @@ it('shows the project and provider logo before the conversation name, and releas
   const logo = row.querySelector('img')!
   expect(logo.getAttribute('src')).toBe(codexIcon)
   expect(logo.compareDocumentPosition(screen.getByText('Saved conversation')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  expect(row.getAttribute('title')).toBe('Saved conversation')
+  expect(screen.getByText('30s')).toBeTruthy()
+  expect(screen.queryByText('Codex')).toBeNull()
+  expect(screen.queryByText('saved')).toBeNull()
   expect(container.querySelector('[role="dialog"]')).toBeNull()
   actions.clearHistory.mockClear()
   unmount()
@@ -74,11 +80,32 @@ it('uses the generic Agent icon when a provider has no registered logo', () => {
   expect(row.querySelector('svg')).toBeTruthy()
 })
 
-it('keeps the ID visible when the conversation uses the localized empty-title fallback', () => {
+it('does not expose provider text or the ID when the conversation uses the localized empty-title fallback', () => {
   state.historyByRoot['/repo'] = history({ chats: [{ ...summary(), title: '' }] })
   render(<AgentHistoryPage />)
-  expect(screen.getByRole('button', { name: 'agent.history.open agent.newChat' })).toBeTruthy()
-  expect(screen.getByText('saved')).toBeTruthy()
+  const row = screen.getByRole('button', { name: 'agent.history.open agent.newChat' })
+  expect(row.getAttribute('title')).toBe('agent.newChat')
+  expect(screen.queryByText('Codex')).toBeNull()
+  expect(screen.queryByText('saved')).toBeNull()
+})
+
+it('shows compact relative ages with absolute tooltips and refreshes them while mounted', () => {
+  state.historyByRoot['/repo'] = history({
+    chats: [
+      summary('seconds', 'codex', NOW - 30_000),
+      summary('days', 'codex', NOW - 2 * 86_400_000),
+      summary('longer', 'codex', NOW - 10 * 86_400_000),
+      summary('months', 'codex', NOW - 60 * 86_400_000),
+    ],
+  })
+  render(<AgentHistoryPage />)
+  const expectedTooltip = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(NOW - 30_000))
+  expect(screen.getByText('30s').getAttribute('title')).toBe(expectedTooltip)
+  expect(screen.getByText('2d')).toBeTruthy()
+  expect(screen.getByText('10d')).toBeTruthy()
+  expect(screen.getByText('2m')).toBeTruthy()
+  act(() => { vi.advanceTimersByTime(30_000) })
+  expect(screen.getByText('1min')).toBeTruthy()
 })
 
 it('navigates to a selected conversation and keeps deletion a separate action', async () => {
@@ -105,7 +132,7 @@ it.each([false, true])('requires confirmation before deleting (confirmed=%s)', a
   const trigger = screen.getByRole('button', { name: 'agent.history.delete Saved conversation' })
   await act(async () => { fireEvent.click(trigger) })
   expect(ui.confirm).toHaveBeenCalledWith({ title: 'agent.history.deleteTitle', message: 'agent.history.deleteMessage Saved conversation',
-    confirmText: 'agent.history.deleteTitle', danger: true })
+    confirmText: 'agent.history.deleteTitle', danger: true, confirmOnEnter: true })
   if (confirmed) expect(actions.deleteChat).toHaveBeenCalledExactlyOnceWith('saved', '/repo')
   else expect(actions.deleteChat).not.toHaveBeenCalled()
   expect(actions.resumeChat).not.toHaveBeenCalled()
@@ -139,17 +166,17 @@ it('disables deletion for running or deleting chats and locks selection during r
   expect((screen.getByRole('button', { name: 'agent.history.open Saved conversation' }) as HTMLButtonElement).disabled).toBe(true)
 })
 
-it('debounces name/ID search, resets to page one and loads clearing immediately', () => {
+it('debounces name search, resets to page one and loads clearing immediately', () => {
   state.historyByRoot['/repo'] = history({ page: 2 })
   render(<AgentHistoryPage />)
   actions.loadHistory.mockClear()
   const input = screen.getByRole('searchbox')
-  fireEvent.change(input, { target: { value: '  Chat-ID  ' } })
+  fireEvent.change(input, { target: { value: '  Saved chat  ' } })
   expect(actions.clearHistory).toHaveBeenCalled()
   act(() => { vi.advanceTimersByTime(249) })
   expect(actions.loadHistory).not.toHaveBeenCalled()
   act(() => { vi.advanceTimersByTime(1) })
-  expect(actions.loadHistory).toHaveBeenCalledExactlyOnceWith('/repo', { page: 1, query: 'Chat-ID' })
+  expect(actions.loadHistory).toHaveBeenCalledExactlyOnceWith('/repo', { page: 1, query: 'Saved chat' })
   fireEvent.change(input, { target: { value: '' } })
   expect(actions.loadHistory).toHaveBeenLastCalledWith('/repo', { page: 1, query: '' })
 })

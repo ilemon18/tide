@@ -125,7 +125,7 @@ export const ja: Messages = {
   'agent.history.title': 'チャット履歴',
   'agent.history.loading': '履歴を読み込み中…',
   'agent.history.empty': 'このプロジェクトには保存済みのチャットがありません。',
-  "agent.history.search": "会話名または ID で検索",
+  "agent.history.search": "会話名で検索",
   "agent.history.noResults": "検索に一致する会話がありません。",
   "agent.history.noProject": "プロジェクトを開いて会話履歴を表示してください。",
   "agent.history.close": "チャット履歴を閉じる",

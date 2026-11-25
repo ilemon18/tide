@@ -125,7 +125,7 @@ export const es: Messages = {
   'agent.history.title': 'Historial de chats',
   'agent.history.loading': 'Cargando historial…',
   'agent.history.empty': 'Este proyecto aún no tiene chats guardados.',
-  "agent.history.search": "Buscar por nombre o ID del chat",
+  "agent.history.search": "Buscar por nombre del chat",
   "agent.history.noResults": "Ningún chat coincide con la búsqueda.",
   "agent.history.noProject": "Abre un proyecto para ver su historial de chats.",
   "agent.history.close": "Cerrar el historial de chats",

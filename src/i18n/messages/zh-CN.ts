@@ -125,7 +125,7 @@ export const zhCN: Messages = {
   'agent.history.title': '历史会话',
   'agent.history.loading': '正在加载历史记录…',
   'agent.history.empty': '当前项目还没有已保存的对话。',
-  "agent.history.search": "搜索会话名称或 ID",
+  "agent.history.search": "搜索会话名称",
   "agent.history.noResults": "没有找到匹配的会话。",
   "agent.history.noProject": "请先打开项目，再查看历史会话。",
   "agent.history.close": "关闭会话历史",
