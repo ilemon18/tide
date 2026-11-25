@@ -13,7 +13,7 @@ vi.mock('./settings', () => ({ useSettings: { getState: () => ({ ...settings, pa
 const { setTabName, openChat, openChatInRight, replaceChatTab, closeTab, contextTabs, ui, workspace } = vi.hoisted(() => ({
   setTabName: vi.fn(), openChat: vi.fn(), openChatInRight: vi.fn(), replaceChatTab: vi.fn(), closeTab: vi.fn(),
   contextTabs: { activeId: null as string | null, tabs: [] as Array<{ id: string; kind: string; root: string }>, groups: [] as Array<{ activeId: string }> },
-  ui: { page: 'workspace', pageEpoch: 0, setPage: vi.fn(), toast: vi.fn() },
+  ui: { historyOpen: false, historyEpoch: 0, openHistory: vi.fn(), closeHistory: vi.fn(), toast: vi.fn() },
   workspace: { activeRootId: '/tmp/project', roots: [{ id: '/tmp/project', lifetime: 1 }], setActiveRoot: vi.fn() },
 }))
 vi.mock('./tabs', () => ({ useTabs: { getState: () => ({ ...contextTabs, setTabName, openChat, openChatInRight, replaceChatTab, close: closeTab }) } }))
@@ -130,9 +130,10 @@ beforeEach(() => {
   vi.useFakeTimers()
   vi.clearAllMocks()
   contextTabs.activeId = null
-  ui.page = 'workspace'
-  ui.pageEpoch = 0
-  ui.setPage.mockImplementation(page => { ui.pageEpoch += Number(ui.page !== page); ui.page = page })
+  ui.historyOpen = false
+  ui.historyEpoch = 0
+  ui.openHistory.mockImplementation(() => { if (!ui.historyOpen) { ui.historyOpen = true; ui.historyEpoch++ } })
+  ui.closeHistory.mockImplementation(() => { if (ui.historyOpen) { ui.historyOpen = false; ui.historyEpoch++ } })
   workspace.roots = [{ id: '/tmp/project', lifetime: 1 }]
   workspace.activeRootId = '/tmp/project'
   workspace.setActiveRoot.mockImplementation(root => { workspace.activeRootId = root })
@@ -161,7 +162,7 @@ beforeEach(() => {
 describe('deleting project chat history', () => {
   const summary = (id: string) => ({ id, root: '/tmp/project', title: id, provider: 'codex', model: '', updatedAt: 1, messageCount: 2 })
 
-  it('clears local state, closes the tab and refreshes the current history page', async () => {
+  it('clears local state, closes the tab and removes the history row without reloading the list', async () => {
     const remaining = summary('remaining')
     useAgent.setState({
       historyByRoot: { '/tmp/project': { chats: [summary('chat-test'), remaining], page: 1, query: '', total: 2, loading: false, loaded: true, error: false } },
@@ -169,7 +170,6 @@ describe('deleting project chat history', () => {
       pages: { 'chat-test': page() }, focusRequests: { 'chat-test': 1 }, chatFocusOrder: { 'chat-test': 1 },
     })
     useAgent.getState().setChatOptions('chat-test', { effort: 'high' })
-    vi.mocked(api.agentChatList).mockResolvedValueOnce({ chats: [remaining], nextOffset: null, total: 1 })
     expect(await useAgent.getState().deleteChat('chat-test', '/tmp/project')).toBe(true)
     expect(api.agentChatDelete).toHaveBeenCalledExactlyOnceWith('chat-test', '/tmp/project')
     expect(closeTab).toHaveBeenCalledWith('chat:chat-test', true)
@@ -179,8 +179,9 @@ describe('deleting project chat history', () => {
       useAgent.getState().loadingChats, useAgent.getState().pageLoading, useAgent.getState().deletingChats]) {
       expect(entries['chat-test']).toBeUndefined()
     }
-    expect(api.agentChatList).toHaveBeenLastCalledWith('/tmp/project', 0, 15, '')
     expect(useAgent.getState().historyByRoot['/tmp/project'].chats).toEqual([remaining])
+    expect(useAgent.getState().historyByRoot['/tmp/project'].total).toBe(1)
+    expect(api.agentChatList).not.toHaveBeenCalled()
     useAgent.getState().forgetChat('chat-test') // The delayed tab cleanup must not write the record back.
     await vi.runAllTimersAsync()
     expect(api.agentChatApply).not.toHaveBeenCalled()
@@ -188,12 +189,20 @@ describe('deleting project chat history', () => {
 
   it('preserves the record and tab after a failed deletion and allows retry', async () => {
     const original = useAgent.getState().chats['chat-test']
+    const remaining = summary('remaining')
+    useAgent.setState({ historyByRoot: { '/tmp/project': {
+      chats: [remaining, summary('chat-test')], page: 1, query: '', total: 2, loading: false, loaded: true, error: false,
+    } } })
     vi.mocked(api.agentChatDelete).mockRejectedValueOnce(new Error('disk unavailable'))
     expect(await useAgent.getState().deleteChat('chat-test', '/tmp/project')).toBe(false)
     expect(useAgent.getState().chats['chat-test']).toBe(original)
     expect(useAgent.getState().deletingChats).toEqual({})
     expect(closeTab).not.toHaveBeenCalled()
+    expect(useAgent.getState().historyByRoot['/tmp/project']).toMatchObject({
+      chats: [remaining, summary('chat-test')], total: 2, loading: false, error: false,
+    })
     expect(await useAgent.getState().deleteChat('chat-test', '/tmp/project')).toBe(true)
+    expect(useAgent.getState().historyByRoot['/tmp/project']).toMatchObject({ chats: [remaining], total: 1 })
   })
 
   it('rejects running chats and mismatched project roots before deleting', async () => {
@@ -208,11 +217,16 @@ describe('deleting project chat history', () => {
   it('waits for an accepted save and blocks duplicate delete, send, reset and resume during removal', async () => {
     let finishSave!: (value: ReturnType<typeof page>) => void
     vi.mocked(api.agentChatApply).mockImplementationOnce(() => new Promise(resolve => { finishSave = resolve }))
+    const remaining = summary('remaining')
+    useAgent.setState({ historyByRoot: { '/tmp/project': {
+      chats: [remaining, summary('chat-test')], page: 1, query: '', total: 2, loading: false, loaded: true, error: false,
+    } } })
     useAgent.getState().setChatOptions('chat-test', { effort: 'high' })
     await vi.advanceTimersByTimeAsync(700)
     const deleting = useAgent.getState().deleteChat('chat-test', '/tmp/project')
     expect(useAgent.getState().deletingChats['chat-test']).toBe(true)
     expect(api.agentChatDelete).not.toHaveBeenCalled()
+    expect(useAgent.getState().historyByRoot['/tmp/project']).toMatchObject({ chats: [remaining], total: 1, loading: false })
     expect(await useAgent.getState().deleteChat('chat-test', '/tmp/project')).toBe(false)
     expect(await useAgent.getState().resumeChat('chat-test', '/tmp/project')).toBe(false)
     expect(await useAgent.getState().resetChat('chat-test')).toBe(false)
@@ -266,7 +280,7 @@ describe('deleting project chat history', () => {
     expect(api.agentChatApply).toHaveBeenCalledOnce()
   })
 
-  it('rejects an old history list that returns after the deletion refresh', async () => {
+  it('invalidates an old history list after optimistic deletion and settles with a silent refresh', async () => {
     let finishList!: (value: { chats: ReturnType<typeof summary>[]; nextOffset: number | null; total: number }) => void
     let listRequested!: () => void
     const started = new Promise<void>(resolve => { listRequested = resolve })
@@ -274,6 +288,7 @@ describe('deleting project chat history', () => {
     const reading = useAgent.getState().loadHistory('/tmp/project', { page: 1 })
     await started
     expect(await useAgent.getState().deleteChat('chat-test', '/tmp/project')).toBe(true)
+    await vi.advanceTimersByTimeAsync(0)
     finishList({ chats: [summary('chat-test')], nextOffset: 15, total: 16 })
     await reading
     expect(api.agentChatList).toHaveBeenCalledTimes(2)
@@ -347,13 +362,18 @@ describe('project chat history', () => {
     expect(useAgent.getState().historyByRoot['/other/project'].total).toBe(0)
   })
 
-  it('keeps search and falls back to the last valid page after deleting the only entry on the last page', async () => {
-    useAgent.setState({ historyByRoot: { '/tmp/project': { chats: [], page: 3, query: 'chat', total: 31, loading: false, loaded: true, error: false } } })
+  it('keeps search and silently falls back one page after deleting the only row on the last page', async () => {
+    const row = { id: 'chat-test', root: '/tmp/project', title: 'chat-test', provider: 'codex', model: '', updatedAt: 1, messageCount: 2 }
+    useAgent.setState({ historyByRoot: { '/tmp/project': {
+      chats: [row], page: 3, query: 'chat', total: 31, loading: false, loaded: true, error: false,
+    } } })
     vi.mocked(api.agentChatList).mockResolvedValue({ chats: [], nextOffset: null, total: 30 })
     expect(await useAgent.getState().deleteChat('chat-test', '/tmp/project')).toBe(true)
-    expect(api.agentChatList).toHaveBeenNthCalledWith(1, '/tmp/project', 30, 15, 'chat')
-    expect(api.agentChatList).toHaveBeenLastCalledWith('/tmp/project', 15, 15, 'chat')
-    expect(useAgent.getState().historyByRoot['/tmp/project']).toMatchObject({ page: 2, query: 'chat', total: 30 })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(api.agentChatList).toHaveBeenCalledExactlyOnceWith('/tmp/project', 15, 15, 'chat')
+    expect(useAgent.getState().historyByRoot['/tmp/project']).toMatchObject({
+      page: 2, query: 'chat', total: 30, loading: false,
+    })
   })
 
   it('does not request history while the preference is disabled', async () => {
@@ -368,7 +388,7 @@ describe('project chat history', () => {
     expect(openChat).toHaveBeenCalledWith('chat-test', '/tmp/project', 'test')
     expect(replaceChatTab).not.toHaveBeenCalled()
     expect(openChatInRight).not.toHaveBeenCalled()
-    expect(ui.setPage).toHaveBeenCalledWith('workspace')
+    expect(ui.closeHistory).toHaveBeenCalledOnce()
     expect(useAgent.getState().focusRequests['chat-test']).toBe(1)
   })
 
@@ -471,12 +491,12 @@ describe('project chat history', () => {
 
   it.each(['leave', 'project', 'lifetime', 'round-trip'] as const)('does not navigate after the user changes %s during restore', async change => {
     useAgent.setState({ chats: {} })
-    ui.page = 'history'
+    ui.historyOpen = true
     let finish!: (value: ReturnType<typeof page>) => void
     vi.mocked(api.agentChatOpen).mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
     const restoring = useAgent.getState().resumeChat('chat-test', '/tmp/project')
-    if (change === 'leave') ui.page = 'workspace'
-    if (change === 'round-trip') { ui.setPage('workspace'); ui.setPage('history') }
+    if (change === 'leave') ui.historyOpen = false
+    if (change === 'round-trip') { ui.closeHistory(); ui.openHistory() }
     if (change === 'project') workspace.activeRootId = '/other/project'
     if (change === 'lifetime') workspace.roots = [{ id: '/tmp/project', lifetime: 2 }]
     finish(page())
@@ -486,9 +506,9 @@ describe('project chat history', () => {
     expect(useAgent.getState().resumingChatId).toBeNull()
   })
 
-  it('routes /resume to the history page without sending a turn', async () => {
+  it('routes /resume to the history drawer without sending a turn', async () => {
     await useAgent.getState().sendMessage('chat-test', { text: '/resume', mentions: [] })
-    expect(ui.setPage).toHaveBeenCalledWith('history')
+    expect(ui.openHistory).toHaveBeenCalledOnce()
     expect(workspace.setActiveRoot).toHaveBeenCalledWith('/tmp/project')
     expect(api.agentSend).not.toHaveBeenCalled()
     expect(useAgent.getState().localPicker).toBeNull()
@@ -1463,6 +1483,55 @@ describe('queued message interjection', () => {
     skills: [{ name: 'audit', path: 'skills/audit', source: 'project' as const }], command: 'plan' as const }
   const last = { id: 'last', text: 'Last queued', mentions: [] }
   const queue = () => useAgent.setState({ queues: { 'chat-test': [first, selected, last] } })
+
+  it('moves a queued message back into the composer and appends it to the current draft', () => {
+    const editable = { id: 'editable', text: 'Edit me', mentions: [{ rel: 'src/queued.ts', isDir: false }],
+      attachments: [contextAttachment('queued')], skills: [{ name: 'audit', path: 'skills/audit', source: 'project' as const }],
+      command: 'plan' as const }
+    useAgent.setState({
+      queues: { 'chat-test': [first, editable, last] },
+      chatDrafts: { 'chat-test': {
+        text: 'Current draft',
+        mentions: [{ rel: 'src/current.ts', isDir: false }, { rel: 'src/queued.ts', isDir: false }],
+        attachments: [contextAttachment('current'), contextAttachment('queued')],
+        skills: [{ name: 'review', path: 'skills/review', source: 'project' as const },
+          { name: 'audit', path: 'skills/audit', source: 'project' as const }],
+        command: 'review',
+      } },
+    })
+    expect(useAgent.getState().editQueued('chat-test', editable.id)).toBe(true)
+    expect(useAgent.getState().queues['chat-test']).toEqual([first, last])
+    expect(useAgent.getState().chatDrafts['chat-test']).toEqual({
+      text: 'Current draft\n\nEdit me',
+      mentions: [{ rel: 'src/current.ts', isDir: false }, { rel: 'src/queued.ts', isDir: false }],
+      attachments: [contextAttachment('current'), contextAttachment('queued')],
+      skills: [{ name: 'review', path: 'skills/review', source: 'project' },
+        { name: 'audit', path: 'skills/audit', source: 'project' }],
+      command: 'review',
+    })
+    expect(useAgent.getState().focusRequests['chat-test']).toBe(1)
+  })
+
+  it('restores the complete queued draft when the composer has no meaningful text', () => {
+    useAgent.setState({ queues: { 'chat-test': [selected] } })
+    expect(useAgent.getState().editQueued('chat-test', selected.id)).toBe(true)
+    expect(useAgent.getState().chatDrafts['chat-test']).toEqual({
+      text: selected.text, mentions: selected.mentions, attachments: selected.attachments,
+      skills: selected.skills, command: selected.command,
+    })
+    useAgent.setState({ queues: { 'chat-test': [selected] }, chatDrafts: { 'chat-test': { text: '   ', mentions: [] } } })
+    expect(useAgent.getState().editQueued('chat-test', selected.id)).toBe(true)
+    expect(useAgent.getState().chatDrafts['chat-test'].text).toBe(selected.text)
+  })
+
+  it('does not move a queued message while it is interjecting or deleting', () => {
+    queue()
+    useAgent.setState({ interjecting: { 'chat-test': selected.id } })
+    expect(useAgent.getState().editQueued('chat-test', selected.id)).toBe(false)
+    expect(useAgent.getState().queues['chat-test']).toEqual([first, selected, last])
+    useAgent.setState({ interjecting: {}, deletingChats: { 'chat-test': true } })
+    expect(useAgent.getState().editQueued('chat-test', selected.id)).toBe(false)
+  })
 
   it.each([true, false])('waits for Done and prioritizes the selection when the old turn succeeds=%s', async ok => {
     await useAgent.getState().sendMessage('chat-test', { text: 'Original work', mentions: [] })

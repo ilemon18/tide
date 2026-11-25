@@ -1,6 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { useAgent } from '../store/agent'
-import { useUi } from '../store/ui'
 import { useT } from '../i18n'
 import type { AgentUsage } from '../lib/ipc'
 import { agentContextPercent, formatAgentTokens } from '../lib/agentUsage'
@@ -29,7 +28,7 @@ export function AgentContextUsage({ chatId }: Props) {
       }
     }
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape' || useUi.getState().page === 'history') return
+      if (event.key !== 'Escape') return
       event.preventDefault()
       event.stopPropagation()
       setShowDetails(false)

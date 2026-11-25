@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { useT } from '../i18n'
 import { AGENT_HISTORY_PAGE_SIZE, useAgent } from '../store/agent'
 import { useUi } from '../store/ui'
@@ -52,7 +52,7 @@ function HistoryList({ root }: { root: string }) {
 
   return (
     <>
-      <div className="relative mt-6 shrink-0">
+      <div className="relative mt-4 shrink-0">
         <Icon name="search" size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
         <input
           ref={searchRef}
@@ -106,7 +106,7 @@ function HistoryList({ root }: { root: string }) {
                     className="flex min-w-0 flex-1 items-start gap-3 py-4 text-left disabled:opacity-50"
                     onClick={async () => {
                       const restored = await useAgent.getState().resumeChat(item.id, root)
-                      if (!restored && searchRef.current?.isConnected && useUi.getState().page === 'history') {
+                      if (!restored && searchRef.current?.isConnected && useUi.getState().historyOpen) {
                         useUi.getState().toast(t('agent.missingChat'), 'error')
                       }
                     }}
@@ -174,26 +174,54 @@ function HistoryList({ root }: { root: string }) {
 export function AgentHistoryPage() {
   const t = useT()
   const root = useWorkspace(state => state.roots.find(root => root.id === state.activeRootId) ?? state.roots[0])
+  const opener = useRef<HTMLElement | null>(null)
+  useLayoutEffect(() => {
+    const active = document.activeElement
+    if (active instanceof HTMLElement && !active.closest('[data-history-drawer]')) opener.current = active
+    return () => {
+      const target = opener.current
+      opener.current = null
+      if (target?.isConnected) target.focus()
+    }
+  }, [])
   const historyKey = useRef({ id: root?.id, lifetime: root?.lifetime, revision: 0 })
   if (historyKey.current.id !== root?.id || historyKey.current.lifetime !== root?.lifetime) {
     // Symbols with the same description still represent distinct workspace lifetimes.
     historyKey.current = { id: root?.id, lifetime: root?.lifetime, revision: historyKey.current.revision + 1 }
   }
+  const onKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
+    if (event.key !== 'Escape' || event.repeat || event.nativeEvent.isComposing || event.defaultPrevented) return
+    event.preventDefault()
+    event.stopPropagation()
+    useUi.getState().closeHistory()
+  }
   return (
-    <main aria-label={t('agent.history.title')} className="flex min-h-0 min-w-0 flex-1 flex-col bg-bg px-6 pt-6">
-      <div className="mx-auto flex min-h-0 w-full max-w-[920px] flex-1 flex-col">
-        <header className="shrink-0">
-          <button type="button" onClick={() => useUi.getState().setPage('workspace')}
-            className="mb-5 flex items-center gap-1.5 text-xs text-muted hover:text-fg">
-            <Icon name="chevron-right" size={14} className="rotate-180" />{t('agent.history.back')}
+    <aside
+      data-history-drawer
+      aria-label={t('agent.history.title')}
+      onKeyDown={onKeyDown}
+      className="flex min-h-0 min-w-0 flex-1 flex-col border-l border-line-soft bg-bg"
+    >
+      <div className="flex min-h-0 flex-1 flex-col px-4 pt-3">
+        <header className="flex shrink-0 items-start justify-between gap-2">
+          <div className="min-w-0">
+            <h1 className="truncate text-base font-semibold text-fg">{t('agent.history.title')}</h1>
+            {root ? <p className="mt-0.5 truncate text-xs text-muted" title={root.id}>{root.name}</p> : null}
+          </div>
+          <button
+            type="button"
+            aria-label={t('agent.history.close')}
+            data-tip={t('agent.history.close')}
+            onClick={() => useUi.getState().closeHistory()}
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[var(--r-control)] text-muted transition-colors duration-fast hover:bg-hover hover:text-fg"
+          >
+            <Icon name="close" size={14} />
           </button>
-          <h1 className="text-xl font-semibold text-fg">{t('agent.history.title')}</h1>
-          {root ? <p className="mt-1 truncate text-sm text-muted" title={root.id}>{root.name}</p> : null}
         </header>
         {root ? <HistoryList key={historyKey.current.revision} root={root.id} /> : (
           <p role="status" className="py-16 text-center text-sm text-muted">{t('agent.history.noProject')}</p>
         )}
       </div>
-    </main>
+    </aside>
   )
 }

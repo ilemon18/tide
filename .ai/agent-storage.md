@@ -30,26 +30,26 @@ tabs. Keep transcript v:1 compatible.
 
 - Open/page/apply/list/clone merge patches, preserve unknown/unloaded data and lock each file. Atomic writes
   reject invalid JSON or >8 MiB without damaging originals; failed close writes retry.
-- History is an active-project page, opened from the activity bar, chat header or argument-less /resume.
-  Fetch on entry; discard summaries/obsolete reads on exit, root lifetime change or disabling
-  agentHistoryEnabled. Its preference is independent of agentEnabled.
+- History is an active-project right-side drawer (chat header, /resume). Workspace stays
+  mounted; only the editor/terminal region narrows, file tree unchanged. Fetch on entry; discard
+  summaries/obsolete reads on exit, root lifetime change or disabling agentHistoryEnabled. Its preference is
+  independent of agentEnabled.
 - Rust authorizes the root, reads summaries without allocating bodies, filters trimmed case-insensitive
   literal title/ID matches, sorts updated-time/ID descending, then pages with filtered total/nextOffset.
   Keep one page of 15 (`AGENT_HISTORY_PAGE_SIZE` in src/store/agent.ts). Search resets to page one; IME-aware
   debounce belongs to AgentHistoryPage. Flush accepted open/closing-chat writes first; load bodies on selection.
 - Rows use AgentProviderIcon with unknown-provider fallback, New chat for empty titles and visible IDs.
   Restore locks duplicates, revalidates root/lifetime/page epoch, preserves native options/pending gates and
-  never sends. Page transitions invalidate old restores.
+  never sends. Drawer transitions invalidate restores; restore closes.
 - Restore focuses an existing target, else reuses the active same-root blank tab, then the last-focused blank,
   else follows the Agent split rule. isBlankChat rejects transcript/pages/session/summary/usage, drafts with
   text/attachments/mentions/commands/skills, queues and conflicting transactions. Recheck after loading;
   replace the tab reference, preserve pane/position/pinning and release the placeholder.
 - History deletion requires confirmation. Frontend/Rust reject running chats; Rust validates project ownership
-  under the document lock. The frontend blocks new operations, drains writes, invalidates old reads/save
-  callbacks, then clears transcript,
-  draft/queue/page/retry state and closes any open tab without another save. Flush tab references immediately.
-  Failed removal retains the record and tab for retry. Successful removal preserves keyword/page; refresh
-  the page and fall back to the last valid page when its final entry was removed.
+  under the document lock. The drawer removes the row optimistically and locks the chat while the frontend
+  drains writes, invalidates reads/save callbacks, clears transcript/draft/queue/page/retry state and closes
+  any open tab without another save. Failure restores only that row and keeps the record/tab retryable; success
+  preserves keyword/page and silently falls back one page only when its last row was removed.
 - Initial page: 80 records/512 KiB, then 40/load. Loaded window: 160 records/1 MiB; oversized record alone.
   Persist before eviction/navigation; retain cursors/anchor, scan pending cards across full history, flush
   agent/tabs.json on hide/unload. Only completed questions establish a persisted question gate; streamed

@@ -15,8 +15,8 @@ vi.mock('../i18n', () => ({ useT: () => (key: string, params?: { percent: number
 vi.mock('./Icon', () => ({ Icon: () => null }))
 import { AgentContextUsage } from './AgentContextUsage'
 import { useUi } from '../store/ui'
-beforeEach(() => { vi.clearAllMocks(); useUi.setState({ page: 'workspace' }) })
-afterEach(() => { cleanup(); useUi.setState({ page: 'workspace' }); vi.useRealTimers() })
+beforeEach(() => { vi.clearAllMocks(); useUi.setState({ historyOpen: false }) })
+afterEach(() => { cleanup(); useUi.setState({ historyOpen: false }); vi.useRealTimers() })
 it('uses the persisted zero context snapshot and supports popup click, Escape and focus restoration', () => {
   render(<AgentContextUsage chatId="chat" />)
   const button = screen.getByRole('button', { name: /0%/ })
@@ -56,17 +56,12 @@ it('uses the same token usage title for a new chat with no usage', () => {
 })
 
 
-it('does not consume Escape or restore hidden popup focus while the history page is visible', () => {
+it('closes the popup on Escape while the history drawer is open', () => {
   render(<AgentContextUsage chatId="chat" />)
   const button = screen.getByRole('button', { name: /0%/ })
   fireEvent.click(button)
-  useUi.setState({ page: 'history' })
-  const input = document.createElement('input')
-  document.body.append(input)
-  input.focus()
-  const escape = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
-  input.dispatchEvent(escape)
-  expect(escape.defaultPrevented).toBe(false)
-  expect(document.activeElement).toBe(input)
-  input.remove()
+  useUi.setState({ historyOpen: true })
+  fireEvent.keyDown(document, { key: 'Escape' })
+  expect(button.getAttribute('aria-expanded')).toBe('false')
+  expect(document.activeElement).toBe(button)
 })

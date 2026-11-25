@@ -59,10 +59,10 @@ CLIs own auth/models/tools; Rust owns processes; the agent store owns queues/UI.
 - Running sends enter FIFO queue, never process stdin. Success drains without erasing newer drafts;
   failure keeps session/queue. Completed unanswered questions and unresolved plans block sends/drain
   across pages; an incomplete or failed/cancelled streamed question does not establish a gate.
-- A queued card can explicitly interject: wait for the old launch, request cancellation, then wait for its
-  matching Done before launching the selected entry. Lock duplicate actions and automatic drain during the
-  transaction; preserve other entries' relative order, metadata and newer composer drafts. Cancel/launch
-  failure retains the selected entry and reports the error; pending question/plan gates still apply.
+- A queued card can interject: wait for the old launch, cancel, then wait for its Done before launching the
+  selection. Edit appends its text/metadata to the composer (existing command wins), removes the entry and
+  focuses the composer. Lock duplicate actions/drain; preserve order, metadata and newer drafts. Cancel/launch
+  failure retains the selection; pending question/plan gates still apply.
 - A chat tab with a running turn cannot be closed through the tab button, middle-click, context menu, bulk
   close, or shortcut. The tab store rejects non-force close requests before stopping the run; task teardown
   may use force cleanup. The guard lifts on Done, stop, error, or cancellation.
@@ -88,8 +88,9 @@ CLIs own auth/models/tools; Rust owns processes; the agent store owns queues/UI.
   stays a tree gesture. Items preserve source order, reconcile IDs and retain expansion.
 - Output folds show reply provider names (catalog, then Codex/Claude Code or ID); legacy replies use the chat
   provider. Retain expansion/copy. User bubbles show `agent.you`; copies omit speaker labels.
-- History opens on demand for the active project and validates roots on resume; native session IDs preserve
-  provider continuation. Its preference is independent from agentEnabled.
+- History opens for the active project in a non-modal right-side drawer; only the editor region narrows. It
+  validates roots on resume; native session IDs preserve provider continuation. Its preference is
+  independent from agentEnabled.
 - Tail reports activity/elapsed/confirmation waits; persist completion time and backend duration. Finished
   reopened turns show local HH:mm, live ones omit it. History expansion pauses following.
 - Tail status receives primitive fields and owns its one-second clock; streamed Markdown/tools never remount

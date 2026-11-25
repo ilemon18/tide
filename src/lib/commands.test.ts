@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from 'vitest'
 const { state, addContext } = vi.hoisted(() => ({
-  state: { page: 'workspace', agentEnabled: true, activeGroupId: 'primary', activeId: 'terminal', visible: true,
+  state: { historyOpen: false, agentEnabled: true, activeGroupId: 'primary', activeId: 'terminal', visible: true,
     tabs: [] as Array<{ id: string; kind: string; pinned?: boolean; dirty?: boolean }>,
     chats: {} as Record<string, { status: string }>, shortcutOverrides: {} as Record<string, string[]> }, addContext: vi.fn(),
 }))
@@ -21,7 +21,7 @@ import { terminalSelections } from './terminalSelection'
 import { buildCommands, commandAvailable } from './commands'
 import { registerCommandHandlers } from './commandRuntime'
 const disposers: Array<() => void> = []
-afterEach(() => { disposers.splice(0).forEach(dispose => dispose()); state.page = 'workspace'; state.agentEnabled = true; state.tabs = []; state.activeId = 'terminal'; state.chats = {}; vi.clearAllMocks() })
+afterEach(() => { disposers.splice(0).forEach(dispose => dispose()); state.historyOpen = false; state.agentEnabled = true; state.tabs = []; state.activeId = 'terminal'; state.chats = {}; vi.clearAllMocks() })
 
 it('retains editor and terminal source snapshots while the command palette takes focus', () => {
   let text = 'captured'
@@ -79,16 +79,19 @@ it('blocks bulk close commands when their target set contains a running chat', (
 })
 
 
-it('keeps hidden workspace commands unavailable while history owns find and navigation', () => {
-  state.page = 'history'
+it('keeps workspace commands available while the history drawer is open', () => {
+  state.historyOpen = true
+  state.tabs = [{ id: 'file', kind: 'file', pinned: false, dirty: false }]
+  state.activeId = 'file'
   const find = vi.fn()
-  disposers.push(registerCommandHandlers({ 'editor.find': { available: () => true, run: find } }))
-  for (const id of ['tab.closeCurrent', 'tab.closeAll', 'tab.next', 'view.splitRight', 'context.openOrLatest', 'file.save', 'terminal.clear', 'agent.context.add']) {
-    expect(commandAvailable(id)).toBe(false)
+  disposers.push(registerCommandHandlers({
+    'editor.find': { available: () => true, run: find },
+    'context.openOrLatest': { available: () => true, run: vi.fn() },
+    'terminal.clear': { available: () => true, run: vi.fn() },
+  }))
+  for (const id of ['editor.find', 'view.explorer', 'agent.ask', 'tab.closeCurrent', 'file.save', 'context.openOrLatest', 'terminal.clear']) {
+    expect(commandAvailable(id)).toBe(true)
   }
-  expect(commandAvailable('editor.find')).toBe(true)
-  expect(commandAvailable('view.explorer')).toBe(true)
-  expect(commandAvailable('agent.ask')).toBe(true)
   buildCommands().find(command => command.id === 'editor.find')!.run()
   expect(find).toHaveBeenCalledOnce()
 })

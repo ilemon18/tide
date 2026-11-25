@@ -10,7 +10,7 @@ const { state, initialChat, actions, settings } = vi.hoisted(() => {
     status: 'running', sessionId: null, error: null, createdAt: 0, updatedAt: 0,
     messages: [{ id: 'reply', role: 'assistant', at: 0, items: [{ id: 'text', type: 'text', text: 'Latest output' }] }],
   }
-  const actions = { stop: vi.fn(), markChatFocused: vi.fn(), loadProviders: vi.fn(), loadCatalog: vi.fn(), loadPage: vi.fn(), loadHistory: vi.fn(), clearHistory: vi.fn(), deleteChat: vi.fn().mockResolvedValue(true), resumeChat: vi.fn().mockResolvedValue(true), loadChat: vi.fn().mockResolvedValue(undefined), openChatTab: vi.fn(), sendMessage: vi.fn(), interjectQueued: vi.fn(), removeQueued: vi.fn() }
+  const actions = { stop: vi.fn(), markChatFocused: vi.fn(), loadProviders: vi.fn(), loadCatalog: vi.fn(), loadPage: vi.fn(), loadHistory: vi.fn(), clearHistory: vi.fn(), deleteChat: vi.fn().mockResolvedValue(true), resumeChat: vi.fn().mockResolvedValue(true), loadChat: vi.fn().mockResolvedValue(undefined), openChatTab: vi.fn(), sendMessage: vi.fn(), interjectQueued: vi.fn(), removeQueued: vi.fn(), editQueued: vi.fn().mockReturnValue(true) }
   const settings = { agentEnabled: true, agentHistoryEnabled: true, shortcutOverrides: {} }
   return { initialChat, actions, settings, state: {
     chats: { chat: initialChat }, pages: {} as Record<string, Partial<AgentChatPage>>,
@@ -22,7 +22,7 @@ const { state, initialChat, actions, settings } = vi.hoisted(() => {
   } }
 })
 const { ui, tabs, frames, observers, platform } = vi.hoisted(() => ({
-  ui: { page: 'workspace', setPage: vi.fn(), overlay: false, confirmReq: null as object | null, confirm: vi.fn<(options: unknown) => Promise<boolean>>(), toast: vi.fn() }, tabs: { activeId: 'chat:chat' }, platform: { mac: false },
+  ui: { historyOpen: false, openHistory: vi.fn(), closeHistory: vi.fn(), overlay: false, confirmReq: null as object | null, confirm: vi.fn<(options: unknown) => Promise<boolean>>(), toast: vi.fn() }, tabs: { activeId: 'chat:chat' }, platform: { mac: false },
   frames: new Map<number, FrameRequestCallback>(), observers: [] as Array<{ callback: () => void; targets: Element[] }>,
 }))
 const { composerBoundary, replyRendering } = vi.hoisted(() => ({
@@ -63,7 +63,6 @@ vi.mock('./AgentMessage', async () => {
 })
 vi.mock('./AgentContextUsage', () => ({ AgentContextUsage: () => null }))
 vi.mock('./AgentPickers', () => ({ ModelPicker: () => null }))
-vi.mock('./CopyButton', () => ({ CopyButton: () => null }))
 vi.mock('./Icon', () => ({ Icon: () => null }))
 import { AgentChat } from './AgentChat'
 beforeEach(() => {
@@ -82,7 +81,7 @@ beforeEach(() => {
     disconnect() {}
   })
   tabs.activeId = 'chat:chat'
-  ui.page = 'workspace'
+  ui.historyOpen = false
   ui.overlay = false
   ui.confirmReq = null
   ui.confirm.mockReset().mockResolvedValue(false)
@@ -105,13 +104,14 @@ beforeEach(() => {
   actions.resumeChat.mockClear()
   actions.loadChat.mockClear()
   actions.openChatTab.mockClear()
+  actions.editQueued.mockClear()
   actions.sendMessage.mockReset()
 })
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.useRealTimers() })
-it('navigates to the standalone history page without opening a dialog or loading history in the chat', () => {
+it('opens the history drawer without opening a dialog or loading history in the chat', () => {
   const { rerender } = render(<AgentChat chatId="chat" />)
   fireEvent.click(screen.getByRole('button', { name: 'agent.history.title' }))
-  expect(ui.setPage).toHaveBeenCalledWith('history')
+  expect(ui.openHistory).toHaveBeenCalledOnce()
   expect(screen.queryByRole('dialog')).toBeNull()
   expect(actions.loadHistory).not.toHaveBeenCalled()
   settings.agentHistoryEnabled = false
@@ -161,14 +161,24 @@ it.each(['Enter', 'click'])('keeps an empty composer mounted after the first sen
   expect(screen.queryByRole('heading', { name: 'agent.empty' })).toBeNull()
 })
 
-it('does not stop a hidden running Agent or handle its latest-message shortcut on the history page', () => {
-  const { rerender } = render(<AgentChat chatId="chat" />)
-  ui.page = 'history'
-  rerender(<AgentChat chatId="chat" />)
+it('keeps chat Escape available while the history drawer is open and focus is outside it', () => {
+  render(<AgentChat chatId="chat" />)
+  ui.historyOpen = true
   fireEvent.keyDown(window, { key: 'Escape' })
-  fireEvent.keyDown(window, { key: 'ArrowDown', ctrlKey: true })
+  expect(actions.stop).toHaveBeenCalledExactlyOnceWith('chat')
+})
+
+it('leaves Escape to the history drawer when its search field has focus', () => {
+  render(<AgentChat chatId="chat" />)
+  const drawer = document.createElement('div')
+  drawer.setAttribute('data-history-drawer', '')
+  const input = document.createElement('input')
+  drawer.append(input)
+  document.body.append(drawer)
+  input.focus()
+  fireEvent.keyDown(input, { key: 'Escape' })
   expect(actions.stop).not.toHaveBeenCalled()
-  expect(actions.loadPage).not.toHaveBeenCalled()
+  drawer.remove()
 })
 
 it('keeps the transcript before the composer without a separate running strip', () => {
@@ -616,6 +626,12 @@ it('shows a lighter queued card and interjects its selected message before resum
   const card = screen.getByText('Queued work').parentElement!
   expect(card.classList.contains('bg-panel')).toBe(true)
   expect(card.classList.contains('bg-panel-alt')).toBe(false)
+  const copy = screen.getByRole('button', { name: 'agent.copy.queued' })
+  const edit = screen.getByRole('button', { name: 'agent.queue.edit' })
+  expect(copy.className).not.toContain('opacity-0')
+  expect(edit.className).not.toContain('opacity-0')
+  fireEvent.click(edit)
+  expect(actions.editQueued).toHaveBeenCalledWith('chat', 'queued')
   const { el, metrics } = scrollMetrics(container)
   flushFrames()
   fireEvent.wheel(el, { deltaY: -100 })
@@ -627,6 +643,7 @@ it('shows a lighter queued card and interjects its selected message before resum
   state.interjecting.chat = 'queued'
   rerender(<AgentChat chatId="chat" />)
   expect((screen.getByRole('button', { name: 'agent.queue.send' }) as HTMLButtonElement).disabled).toBe(true)
+  expect((screen.getByRole('button', { name: 'agent.queue.edit' }) as HTMLButtonElement).disabled).toBe(true)
   expect((screen.getByRole('button', { name: 'agent.queue.remove' }) as HTMLButtonElement).disabled).toBe(true)
 })
 

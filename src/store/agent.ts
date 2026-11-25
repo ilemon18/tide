@@ -211,6 +211,8 @@ export function applyToolOutput(items: AgentItem[], toolId: string, text: string
 
 type Running = Record<string, number>
 export const AGENT_HISTORY_PAGE_SIZE = 15
+const historySummaryOrder = (a: AgentChatSummary, b: AgentChatSummary) =>
+  b.updatedAt - a.updatedAt || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0)
 export type AgentHistory = {
   chats: AgentChatSummary[]
   page: number
@@ -245,7 +247,7 @@ type AgentStore = {
 
   chatDefaults: ChatDefaults
   historyByRoot: Record<string, AgentHistory>
-  loadHistory: (root: string, options?: { page?: number; query?: string }) => Promise<void>
+  loadHistory: (root: string, options?: { page?: number; query?: string; silent?: boolean }) => Promise<void>
   clearHistory: () => void
   resumeChat: (id: string, root: string) => Promise<boolean>
   resumingChatId: string | null
@@ -273,6 +275,7 @@ type AgentStore = {
   answerQuestion: (chatId: string, itemId: string, answer: string) => Promise<boolean>
   resolvePlanAction: (chatId: string, itemId: string, action: AgentPlanAction, instructions?: string) => Promise<boolean>
   removeQueued: (chatId: string, id: string) => void
+  editQueued: (chatId: string, id: string) => boolean
   interjectQueued: (chatId: string, id: string) => Promise<boolean>
   stop: (chatId: string) => Promise<void>
   applyEvent: (payload: AgentEventPayload) => void
@@ -773,12 +776,15 @@ export const useAgent = create<AgentStore>((set, get) => {
       const query = (options.query ?? current?.query ?? '').trim()
       const requestedPage = options.page ?? current?.page ?? 1
       const pageNumber = Number.isFinite(requestedPage) ? Math.max(1, Math.floor(requestedPage)) : 1
+      const silent = options.silent === true
+      const keepCurrent = silent && current?.query === query
       const ticket = ++historyTicket
       const isCurrent = () => ticket === historyTicket && useSettings.getState().agentHistoryEnabled
       // Keep only one page for the project currently being browsed. New requests supersede in-flight reads.
       set({ historyByRoot: { [root]: {
-        chats: [], page: pageNumber, query, total: current?.query === query ? current.total : 0,
-        loaded: false, loading: true, error: false,
+        chats: keepCurrent ? current!.chats : [], page: pageNumber, query,
+        total: keepCurrent ? current!.total : 0,
+        loaded: keepCurrent ? current!.loaded : false, loading: !silent, error: false,
       } } })
       try {
         const ids = Object.values(get().chats).filter(chat => chat.root === root && !get().deletingChats[chat.id]).map(chat => chat.id)
@@ -802,14 +808,17 @@ export const useAgent = create<AgentStore>((set, get) => {
           result = await api.agentChatList(root, (targetPage - 1) * AGENT_HISTORY_PAGE_SIZE, AGENT_HISTORY_PAGE_SIZE, query)
           if (!isCurrent()) return
         }
+        const rootChats = result.chats.filter(chat => chat.root === root)
+        const chats = rootChats.filter(chat => !get().deletingChats[chat.id])
+        const hiddenDeleting = rootChats.length - chats.length
         set({ historyByRoot: { [root]: {
-          chats: result.chats.filter(chat => chat.root === root), page: targetPage, query, total: result.total,
+          chats, page: targetPage, query, total: Math.max(0, result.total - hiddenDeleting),
           loading: false, loaded: true, error: false,
         } } })
       } catch (error) {
         if (!isCurrent()) return
         const latest = get().historyByRoot[root]
-        if (latest) set({ historyByRoot: { [root]: { ...latest, loading: false, error: true } } })
+        if (latest) set({ historyByRoot: { [root]: { ...latest, loading: false, error: !(silent && latest.chats.length > 0) } } })
         useUi.getState().toast(errorText(error), 'error')
       }
     },
@@ -833,8 +842,8 @@ export const useAgent = create<AgentStore>((set, get) => {
       const workspace = useWorkspace.getState()
       const owner = workspace.roots.find(node => node.id === root)
       if (!owner) return false
-      const originPage = useUi.getState().page
-      const originEpoch = useUi.getState().pageEpoch
+      const originHistoryOpen = useUi.getState().historyOpen
+      const originHistoryEpoch = useUi.getState().historyEpoch
       const alreadyLoaded = !!get().chats[id]
       set({ resumingChatId: id })
       try {
@@ -853,7 +862,7 @@ export const useAgent = create<AgentStore>((set, get) => {
         const chat = get().chats[id]
         const currentRoot = useWorkspace.getState().roots.find(node => node.id === root)
         if (!chat || chat.root !== root || get().deletingChats[id] || currentRoot?.lifetime !== owner.lifetime ||
-          (originPage === 'history' && (useUi.getState().page !== 'history' || useUi.getState().pageEpoch !== originEpoch || activeRoot()?.id !== root))) return false
+          (originHistoryOpen && (!useUi.getState().historyOpen || useUi.getState().historyEpoch !== originHistoryEpoch || activeRoot()?.id !== root))) return false
         const tabs = useTabs.getState()
         if (tabs.tabs.some(tab => tab.id === chatTabId(id))) {
           tabs.openChat(id, root, chat.title)
@@ -864,7 +873,7 @@ export const useAgent = create<AgentStore>((set, get) => {
           if (blank && tabs.replaceChatTab(blank.id.slice(5), id, root, chat.title)) get().forgetChat(blank.id.slice(5))
           else tabs.openChatInRight(id, root, chat.title)
         }
-        useUi.getState().setPage('workspace')
+        useUi.getState().closeHistory()
         get().markChatFocused(id)
         set({ focusRequests: { ...get().focusRequests, [id]: (get().focusRequests[id] ?? 0) + 1 } })
         return true
@@ -883,14 +892,33 @@ export const useAgent = create<AgentStore>((set, get) => {
         useUi.getState().toast(t('agent.history.deleteRunning'), 'error')
         return false
       }
-      set({ deletingChats: { ...get().deletingChats, [id]: true } })
+
+      // Optimistic removal: the drawer row disappears before disk writes and the IPC delete settle.
+      const history = get().historyByRoot[root]
+      const historyWasLoading = Boolean(history?.loading)
+      const removedIndex = history?.chats.findIndex(item => item.id === id) ?? -1
+      const removed = removedIndex >= 0 ? history!.chats[removedIndex] : undefined
+      const originQuery = history?.query
+      const originPage = history?.page
+      if (history) historyTicket++
+      set({
+        deletingChats: { ...get().deletingChats, [id]: true },
+        loadingChats: { ...get().loadingChats, [id]: false },
+        pageLoading: { ...get().pageLoading, [id]: false },
+        ...(history ? { historyByRoot: { [root]: {
+          ...history,
+          chats: removed ? history.chats.filter(item => item.id !== id) : history.chats,
+          total: removed ? Math.max(0, history.total - 1) : history.total,
+          loading: false,
+          error: false,
+        } } } : {}),
+      })
       const epoch = chatEpochs.get(id)
       if (epoch) epoch.deleted = true
       chatEpochs.delete(id)
       const timer = timers.get(id)
       if (timer) clearTimeout(timer)
       timers.delete(id)
-      set({ loadingChats: { ...get().loadingChats, [id]: false }, pageLoading: { ...get().pageLoading, [id]: false } })
       let deleted = false
       try {
         // Previously accepted writes must settle before removal; new saves are blocked above.
@@ -902,11 +930,26 @@ export const useAgent = create<AgentStore>((set, get) => {
         get().forgetChat(id)
         await useTabs.getState().close(chatTabId(id), true)
         agentBridge.onChatDeleted()
-        if (get().historyByRoot[root]) {
-          await get().loadHistory(root)
+        const latest = get().historyByRoot[root]
+        if (latest && latest.chats.length === 0 && latest.page > 1) {
+          void get().loadHistory(root, { page: latest.page - 1, query: latest.query, silent: true })
+        } else if (historyWasLoading && latest) {
+          void get().loadHistory(root, { page: latest.page, query: latest.query, silent: true })
         }
         return true
       } catch (error) {
+        // Restore only the row this call removed; concurrent optimistic deletions stay removed.
+        if (!deleted && removed && originQuery !== undefined && originPage !== undefined) {
+          const current = get().historyByRoot[root]
+          if (current && current.query === originQuery && current.page === originPage &&
+            !current.chats.some(item => item.id === removed.id)) {
+            const chats = [...current.chats, removed].sort(historySummaryOrder)
+            set({ historyByRoot: { [root]: { ...current, chats, total: current.total + 1, loading: false, error: false } } })
+          }
+        } else if (!deleted && historyWasLoading) {
+          const current = get().historyByRoot[root]
+          if (current) void get().loadHistory(root, { page: current.page, query: current.query, silent: true })
+        }
         useUi.getState().toast(errorText(error), 'error')
         return false
       } finally {
@@ -1174,7 +1217,6 @@ export const useAgent = create<AgentStore>((set, get) => {
     openChatTab: (id) => {
       const chat = get().chats[id]
       if (!chat || get().deletingChats[id]) return
-      useUi.getState().setPage('workspace')
       useTabs.getState().openChat(id, chat.root, chat.title || '')
     },
 
@@ -1217,7 +1259,6 @@ export const useAgent = create<AgentStore>((set, get) => {
           : {}),
       })
       schedulePersist(chatId)
-      useUi.getState().setPage('workspace')
       useTabs.getState().openChatInRight(chatId, targetRoot, '')
       if (defaults.provider) void get().loadCatalog(defaults.provider)
       return chatId
@@ -1269,7 +1310,7 @@ export const useAgent = create<AgentStore>((set, get) => {
             if (!local.args) {
               if (!useSettings.getState().agentHistoryEnabled) throw new Error(t('agent.local.unavailable'))
               useWorkspace.getState().setActiveRoot(chat.root)
-              useUi.getState().setPage('history')
+              useUi.getState().openHistory()
               return
             }
             if (!await get().resumeChat(local.args, chat.root)) throw new Error(t('agent.missingChat'))
@@ -1486,6 +1527,40 @@ export const useAgent = create<AgentStore>((set, get) => {
       if (queue.length > 0) queues[chatId] = queue
       else delete queues[chatId]
       set({ queues })
+    },
+
+    editQueued: (chatId, id) => {
+      if (get().deletingChats[chatId] || get().interjecting[chatId] === id) return false
+      const queue = get().queues[chatId] ?? []
+      const item = queue.find((entry) => entry.id === id)
+      if (!item) return false
+      const current: AgentDraft = get().chatDrafts[chatId] ?? { text: '', mentions: [] }
+      const text = current.text.trim() && item.text.trim()
+        ? `${current.text.replace(/\s+$/, '')}\n\n${item.text.replace(/^\s+/, '')}`
+        : current.text.trim() ? current.text : item.text
+      const mentions = [...(current.mentions ?? []), ...(item.mentions ?? [])].filter((mention, index, all) =>
+        all.findIndex((entry) => entry.rel === mention.rel && entry.isDir === mention.isDir) === index)
+      const attachments = [...(current.attachments ?? []), ...(item.attachments ?? [])].filter((attachment, index, all) =>
+        all.findIndex((entry) => entry.id === attachment.id) === index)
+      const skills = [...(current.skills ?? []), ...(item.skills ?? [])].filter((skill, index, all) =>
+        all.findIndex((entry) => entry.path === skill.path) === index)
+      const command = current.command ?? item.command
+      const nextQueue = queue.filter((entry) => entry.id !== id)
+      const queues = { ...get().queues }
+      if (nextQueue.length > 0) queues[chatId] = nextQueue
+      else delete queues[chatId]
+      set({
+        queues,
+        chatDrafts: { ...get().chatDrafts, [chatId]: {
+          text,
+          mentions,
+          ...(attachments.length ? { attachments } : {}),
+          ...(command ? { command } : {}),
+          ...(skills.length ? { skills } : {}),
+        } },
+        focusRequests: { ...get().focusRequests, [chatId]: (get().focusRequests[chatId] ?? 0) + 1 },
+      })
+      return true
     },
 
     interjectQueued: async (chatId, id) => {

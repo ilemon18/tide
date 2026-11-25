@@ -15,7 +15,7 @@ const { state, actions, workspace, ui } = vi.hoisted(() => ({
   },
   actions: { loadHistory: vi.fn(), clearHistory: vi.fn(), resumeChat: vi.fn(), deleteChat: vi.fn() },
   workspace: { activeRootId: '/repo', roots: [{ id: '/repo', name: 'Example project', lifetime: Symbol('/repo') }] },
-  ui: { page: 'history', historySearchFocus: 0, setPage: vi.fn(), toast: vi.fn(), confirm: vi.fn() },
+  ui: { historyOpen: true, historySearchFocus: 0, closeHistory: vi.fn(), toast: vi.fn(), confirm: vi.fn() },
 }))
 
 vi.mock('../store/agent', () => ({
@@ -43,7 +43,7 @@ beforeEach(() => {
   state.resumingChatId = null
   workspace.roots = [{ id: '/repo', name: 'Example project', lifetime: Symbol('/repo') }]
   workspace.activeRootId = '/repo'
-  ui.page = 'history'
+  ui.historyOpen = true
   ui.historySearchFocus = 0
   ui.confirm.mockResolvedValue(false)
   actions.resumeChat.mockResolvedValue(true)
@@ -53,7 +53,7 @@ afterEach(() => { cleanup(); vi.clearAllTimers(); vi.useRealTimers() })
 
 it('shows the project and provider logo before the conversation name, and releases summaries on exit', () => {
   const { container, unmount } = render(<AgentHistoryPage />)
-  expect(screen.getByRole('main', { name: 'agent.history.title' })).toBeTruthy()
+  expect(screen.getByRole('complementary', { name: 'agent.history.title' })).toBeTruthy()
   expect(screen.getByText('Example project')).toBeTruthy()
   expect(actions.loadHistory).toHaveBeenCalledExactlyOnceWith('/repo', { page: 1, query: '' })
   const row = screen.getByRole('button', { name: 'agent.history.open Saved conversation' })
@@ -93,7 +93,7 @@ it('retains the page after a failed restore and allows selecting the conversatio
   render(<AgentHistoryPage />)
   const open = screen.getByRole('button', { name: 'agent.history.open Saved conversation' })
   await act(async () => { fireEvent.click(open) })
-  expect(ui.setPage).not.toHaveBeenCalled()
+  expect(ui.closeHistory).not.toHaveBeenCalled()
   expect(ui.toast).toHaveBeenCalledWith('agent.missingChat', 'error')
   await act(async () => { fireEvent.click(open) })
   expect(actions.resumeChat).toHaveBeenCalledTimes(2)
@@ -214,7 +214,7 @@ it('focuses and selects the page search when Find is requested', () => {
   const { rerender } = render(<AgentHistoryPage />)
   const input = screen.getByRole('searchbox') as HTMLInputElement
   fireEvent.change(input, { target: { value: 'keyword' } })
-  screen.getByRole('button', { name: 'agent.history.back' }).focus()
+  screen.getByRole('button', { name: 'agent.history.close' }).focus()
   ui.historySearchFocus++
   rerender(<AgentHistoryPage />)
   expect(document.activeElement).toBe(input)
@@ -245,11 +245,25 @@ it('shows no results for a keyword and supports retry after a list failure', () 
   expect(actions.loadHistory).toHaveBeenLastCalledWith('/repo')
 })
 
-it('explains the missing project without querying history, and offers workspace navigation', () => {
+it('explains the missing project without querying history and can close the drawer', () => {
   workspace.roots = []
   render(<AgentHistoryPage />)
   expect(screen.getByText('agent.history.noProject')).toBeTruthy()
   expect(actions.loadHistory).not.toHaveBeenCalled()
-  fireEvent.click(screen.getByRole('button', { name: 'agent.history.back' }))
-  expect(ui.setPage).toHaveBeenCalledWith('workspace')
+  fireEvent.click(screen.getByRole('button', { name: 'agent.history.close' }))
+  expect(ui.closeHistory).toHaveBeenCalledOnce()
+})
+
+it('closes the drawer from its close button and Escape, and restores the opener on unmount', () => {
+  const opener = document.createElement('button')
+  document.body.append(opener)
+  opener.focus()
+  const { unmount } = render(<AgentHistoryPage />)
+  fireEvent.click(screen.getByRole('button', { name: 'agent.history.close' }))
+  expect(ui.closeHistory).toHaveBeenCalledOnce()
+  fireEvent.keyDown(screen.getByRole('searchbox'), { key: 'Escape' })
+  expect(ui.closeHistory).toHaveBeenCalledTimes(2)
+  unmount()
+  expect(document.activeElement).toBe(opener)
+  opener.remove()
 })

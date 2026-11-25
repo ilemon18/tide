@@ -27,7 +27,8 @@ export function dispatchShortcut(event: KeyboardEvent): boolean {
   const field = target?.closest('input, textarea, [contenteditable="true"]')
   const editor = target?.closest('.cm-editor')
   if (field && !editor && !event.metaKey && !event.ctrlKey && !/^F[0-9]+$/.test(event.key)) return false
-  if (definition.scope === 'editor' && !(ui.page === 'history' && definition.id === 'editor.find')) {
+  const inHistoryDrawer = Boolean(target?.closest('[data-history-drawer]'))
+  if (definition.scope === 'editor' && !(inHistoryDrawer && definition.id === 'editor.find')) {
     if (terminal || (field && !editor)) return false
   }
   if (definition.scope === 'tree' && !target?.closest('[data-shortcut-tree]')) return false

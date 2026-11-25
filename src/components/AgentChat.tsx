@@ -46,9 +46,8 @@ export function AgentChat({ chatId }: { chatId: string }) {
   const providers = useAgent((s) => s.providers)
   const historyEnabled = useSettings((s) => s.agentHistoryEnabled)
   const enabled = useSettings((s) => s.agentEnabled)
-  const workspaceVisible = useUi(s => s.page !== 'history')
   const active = useTabs((s) => s.activeId === chatTabId(chatId))
-  const focused = workspaceVisible && active
+  const focused = active
   useEffect(() => {
     if (focused) useAgent.getState().markChatFocused(chatId)
   }, [focused, chatId])
@@ -128,7 +127,7 @@ export function AgentChat({ chatId }: { chatId: string }) {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== 'Escape' || e.repeat || e.isComposing || e.defaultPrevented) return
       const ui = useUi.getState()
-      if (ui.page === 'history' || ui.overlay || ui.confirmReq || ui.promptReq) return
+      if (ui.overlay || ui.confirmReq || ui.promptReq || document.activeElement?.closest('[data-history-drawer]')) return
       e.preventDefault()
       e.stopPropagation()
       void useAgent.getState().stop(chatId)
@@ -158,14 +157,15 @@ export function AgentChat({ chatId }: { chatId: string }) {
   useEffect(() => {
     if (!focused) return
     const unregister = registerCommandHandlers({
-      'context.openOrLatest': { available: () => useUi.getState().page !== 'history' && focused && !document.activeElement?.closest('[data-shortcut-tree]'), run: jumpToLatest },
+      'context.openOrLatest': { available: () => focused && !document.activeElement?.closest('[data-shortcut-tree]') && !document.activeElement?.closest('[data-history-drawer]'), run: jumpToLatest },
     })
     // A standalone chat also uses the shared configuration. App capture consumes this first when mounted.
     const handler = (event: KeyboardEvent) => {
-      if (document.activeElement?.closest('[data-shortcut-tree]') || event.defaultPrevented || event.repeat || event.isComposing || event.keyCode === 229 ||
+      if (document.activeElement?.closest('[data-shortcut-tree]') || document.activeElement?.closest('[data-history-drawer]') ||
+        event.defaultPrevented || event.repeat || event.isComposing || event.keyCode === 229 ||
         !matchesShortcut('context.openOrLatest', event)) return
       const ui = useUi.getState()
-      if (ui.page === 'history' || ui.overlay || ui.confirmReq || ui.promptReq) return
+      if (ui.overlay || ui.confirmReq || ui.promptReq) return
       event.preventDefault()
       void jumpToLatest()
     }
@@ -280,7 +280,7 @@ export function AgentChat({ chatId }: { chatId: string }) {
               aria-label={t('agent.history.title')}
               onClick={() => {
                 useWorkspace.getState().setActiveRoot(chat.root)
-                useUi.getState().setPage('history')
+                useUi.getState().openHistory()
               }}
               className="flex h-6 w-6 items-center justify-center rounded-[var(--r-control)] text-muted transition-colors duration-fast hover:bg-hover hover:text-fg"
             >
@@ -410,7 +410,7 @@ export function AgentChat({ chatId }: { chatId: string }) {
                 {queued.map((item) => (
                   <div
                     key={item.id}
-                    className="group/item flex flex-wrap items-center gap-1.5 rounded-[var(--r-row)] border border-line-soft bg-panel px-2 py-1 text-2xs text-muted"
+                    className="flex flex-wrap items-center gap-1.5 rounded-[var(--r-row)] border border-line-soft bg-panel px-2 py-1 text-2xs text-muted"
                   >
                     {item.attachments?.length ? <div className="w-full min-w-0"><AgentAttachments attachments={item.attachments} /></div> : null}
                     <Icon name="clock" size={11} className="shrink-0" />
@@ -455,8 +455,18 @@ export function AgentChat({ chatId }: { chatId: string }) {
                       label={t('agent.copy.queued')}
                       tip={t('agent.copy.queued')}
                       iconOnly
-                      className="h-4 w-4 opacity-0 group-hover/item:opacity-100 group-focus-within/item:opacity-100"
+                      className="h-4 w-4"
                     />
+                    <button
+                      type="button"
+                      aria-label={t('agent.queue.edit')}
+                      data-tip={t('agent.queue.edit')}
+                      disabled={interjecting === item.id}
+                      onClick={() => useAgent.getState().editQueued(chatId, item.id)}
+                      className="flex h-4 w-4 shrink-0 items-center justify-center rounded-[3px] text-muted/70 hover:bg-hover hover:text-fg disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      <Icon name="edit" size={10} />
+                    </button>
                     <button
                       type="button"
                       aria-label={t('agent.queue.remove')}

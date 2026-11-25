@@ -355,13 +355,11 @@ export function toggleSidebar(): void {
 
 /** Open (or focus) the settings tab. Settings is a normal editor tab, no dialog; pass section to land on a pane. */
 export function openSettings(section?: SettingsSectionId): void {
-  useUi.getState().setPage('workspace')
   if (section) useUi.getState().setSettingsSection(section)
   useTabs.getState().openSettings()
 }
 
 export function toggleTerminal(): void {
-  useUi.getState().setPage('workspace')
   useTerminal.getState().toggle()
 }
 

@@ -25,9 +25,10 @@ export type PromptRequest = {
 export type ActivityView = 'explorer' | 'search' | 'git' | 'structure' | 'tasks'
 
 type UiStore = {
-  page: 'workspace' | 'history'
-  pageEpoch: number
-  setPage: (page: 'workspace' | 'history') => void
+  historyOpen: boolean
+  historyEpoch: number
+  openHistory: () => void
+  closeHistory: () => void
   historySearchFocus: number
   focusHistorySearch: () => void
   activityView: ActivityView
@@ -68,16 +69,23 @@ type UiStore = {
 let nextToastId = 1
 
 export const useUi = create<UiStore>((set, get) => ({
-  page: 'workspace',
-  pageEpoch: 0,
-  setPage: (page) => set({ page, pageEpoch: get().pageEpoch + Number(page !== get().page), themeMenu: null, branchMenu: null }),
+  historyOpen: false,
+  historyEpoch: 0,
+  openHistory: () => {
+    if (get().historyOpen) {
+      set({ overlay: null, themeMenu: null, branchMenu: null })
+      return
+    }
+    set({ historyOpen: true, historyEpoch: get().historyEpoch + 1, overlay: null, themeMenu: null, branchMenu: null })
+  },
+  closeHistory: () => {
+    if (!get().historyOpen) return
+    set({ historyOpen: false, historyEpoch: get().historyEpoch + 1, overlay: null, themeMenu: null, branchMenu: null })
+  },
   historySearchFocus: 0,
   focusHistorySearch: () => set({ historySearchFocus: get().historySearchFocus + 1 }),
   activityView: 'explorer',
-  setActivityView: (activityView) => {
-    get().setPage('workspace')
-    set({ activityView })
-  },
+  setActivityView: (activityView) => set({ activityView }),
 
   toasts: [],
   toast: (text, kind = 'info') => {

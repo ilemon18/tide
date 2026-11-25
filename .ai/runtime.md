@@ -142,7 +142,8 @@ volume root so the command-line installer and app updates can locate it. The Fin
 - settings.json/session.json use app_config_dir and the Rust theme lock; chat storage follows
   [agent-storage.md](./agent-storage.md). `public/theme-boot.js` paints before React with CSP-safe external JS.
   Sidebar width is a per-window layout field: dragging updates it live and the splitter commits the latest value
-  immediately, while other windows keep their own layout state.
+  immediately, while other windows keep their own layout state. The Agent history drawer width is window-local
+  session state; it is not persisted or synced across windows.
 
 ## Change map and verification
 

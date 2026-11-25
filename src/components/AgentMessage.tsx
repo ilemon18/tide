@@ -107,6 +107,10 @@ const cardHeaderClass =
   'relative flex items-start gap-2.5 overflow-hidden border-b border-accent/10 bg-gradient-to-br from-accent/10 via-accent/5 to-transparent px-3.5 py-3'
 const cardIconClass =
   'relative flex h-8 w-8 shrink-0 items-center justify-center rounded-[11px] bg-gradient-to-br from-accent to-accent/75 text-accent-fg shadow-[0_8px_18px_-12px_var(--c-accent)]'
+const planShellClass = 'relative rounded-[6px] border border-line-soft'
+const planHeaderClass = 'flex items-start gap-2.5 px-3 py-2.5'
+const planOptionClass =
+  'flex w-full items-center gap-2 rounded-[4px] border border-line-soft px-2.5 py-2 text-left text-xs font-medium text-fg/85 transition-colors duration-fast hover:border-accent/35 hover:text-fg disabled:cursor-not-allowed disabled:opacity-55'
 const cardGlow = (
   <div
     aria-hidden
@@ -434,35 +438,25 @@ function PlanCard({
       action: 'implement-current',
       label: t('agent.plan.implementCurrent'),
       icon: 'play',
-      tone: 'primary',
     },
     {
       action: 'implement-fresh',
       label: t('agent.plan.implementFresh'),
       icon: 'rotate-ccw',
-      tone: 'soft',
     },
     {
       action: 'continue-planning',
       label: t('agent.plan.continuePlanning'),
       icon: 'message-circle',
-      tone: 'ghost',
     },
   ] as const
 
   return (
-    <div className={cardShellClass}>
-      <div
-        aria-hidden
-        className="absolute inset-x-0 top-0 z-10 h-0.5 bg-gradient-to-r from-accent via-accent/40 to-transparent"
-      />
-      <div className={cardHeaderClass}>
-        {cardGlow}
-        <span className={cardIconClass}>
-          <Icon name="list-check" size={14} />
-        </span>
+    <div className={planShellClass}>
+      <div className={planHeaderClass}>
+        <Icon name="list-check" size={13} className="mt-0.5 shrink-0 text-muted" />
         <div className="flex min-w-0 flex-1 flex-col gap-1">
-          <div className="text-2xs font-semibold tracking-wide text-accent">
+          <div className="text-2xs font-semibold tracking-wide text-muted">
             {t('agent.plan.header')}
           </div>
           {item.text ? (
@@ -474,50 +468,20 @@ function PlanCard({
       </div>
 
       {!resolved ? (
-        <div className="flex flex-col gap-2.5 p-3.5">
+        <div className="flex flex-col gap-1.5 px-3 pb-3 pt-0.5">
           {/* Codex plan_implementation.rs: keep official option copy/order; action IDs stay persisted. */}
-          <div className="flex flex-col gap-2">
-            {actions.map(({ action, label, icon, tone }) => {
-              const primary = tone === 'primary'
-              const soft = tone === 'soft'
-              return (
-                <button
-                  key={action}
-                  type="button"
-                  disabled={locked}
-                  onClick={() => handleAction(action)}
-                  className={`group/action flex items-center gap-2.5 rounded-[12px] px-3 py-2.5 text-left transition duration-fast hover:-translate-y-px active:translate-y-0 disabled:cursor-not-allowed disabled:translate-y-0 disabled:opacity-55 ${
-                    primary
-                      ? 'bg-gradient-to-r from-accent to-accent/80 text-accent-fg shadow-[0_10px_24px_-14px_var(--c-accent)] hover:brightness-105'
-                      : soft
-                        ? 'border border-accent/20 bg-accent/5 hover:border-accent/35 hover:bg-accent/10'
-                        : 'border border-line-soft bg-bg/55 hover:border-accent/25 hover:bg-hover'
-                  }`}
-                >
-                  <span
-                    aria-hidden
-                    className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-[8px] ${
-                      primary
-                        ? 'bg-accent-fg/15 text-accent-fg'
-                        : soft
-                          ? 'bg-panel text-accent ring-1 ring-inset ring-accent/15'
-                          : 'bg-panel text-muted ring-1 ring-inset ring-line-soft group-hover/action:text-accent'
-                    }`}
-                  >
-                    <Icon name={icon} size={12} />
-                  </span>
-                  <span className="min-w-0 flex-1 text-xs font-semibold">{label}</span>
-                  <Icon
-                    name="chevron-right"
-                    size={12}
-                    className={`shrink-0 transition-transform duration-fast group-hover/action:translate-x-0.5 ${
-                      primary ? 'opacity-75' : 'text-muted/70'
-                    }`}
-                  />
-                </button>
-              )
-            })}
-          </div>
+          {actions.map(({ action, label, icon }) => (
+            <button
+              key={action}
+              type="button"
+              disabled={locked}
+              onClick={() => handleAction(action)}
+              className={planOptionClass}
+            >
+              <Icon name={icon} size={12} className="shrink-0 text-muted" />
+              <span className="min-w-0 flex-1">{label}</span>
+            </button>
+          ))}
           <textarea
             value={instructions}
             onChange={event => setInstructions(event.target.value)}
@@ -525,14 +489,12 @@ function PlanCard({
             aria-label={t('agent.plan.instructions')}
             placeholder={t('agent.plan.instructions')}
             rows={2}
-            className="w-full resize-y rounded-[12px] border border-line-soft bg-bg/55 px-3 py-2 text-xs text-fg outline-none transition-colors duration-fast placeholder:text-muted/55 focus:border-accent/45 focus:bg-bg disabled:opacity-60"
+            className="mt-1 w-full resize-y rounded-[4px] border border-line-soft bg-transparent px-2.5 py-2 text-xs text-fg outline-none transition-colors duration-fast placeholder:text-muted/55 focus:border-accent/45 disabled:opacity-60"
           />
         </div>
       ) : (
-        <div className="flex items-center gap-2.5 bg-success/5 px-3.5 py-3 text-success">
-          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[10px] bg-success/10">
-            <Icon name="check-circle" size={14} />
-          </span>
+        <div className="flex items-center gap-2 px-3 py-2.5 text-success">
+          <Icon name="check-circle" size={13} className="shrink-0" />
           <span className="text-xs font-semibold">{t('agent.plan.resolved')}</span>
         </div>
       )}

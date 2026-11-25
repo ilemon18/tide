@@ -1,7 +1,7 @@
 import { dispatchShortcut } from './lib/shortcutDispatch'
 import { registerCommandHandlers } from './lib/commandRuntime'
 import { dragTerminalHeight, terminalAvailableHeight } from './lib/terminalLayout'
-import { Suspense, lazy, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { Suspense, lazy, useEffect, useRef, useState } from 'react'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
 import { listen } from '@tauri-apps/api/event'
 import { TitleBar } from './components/TitleBar'
@@ -70,39 +70,11 @@ export function App() {
   const sidebarWidth = useSettings((s) => s.sidebarWidth)
   const agentEnabled = useSettings((s) => s.agentEnabled)
   const historyEnabled = useSettings(s => s.agentHistoryEnabled)
-  const page = useUi(s => s.page)
-  const historyVisible = page === 'history' && historyEnabled
-  const workspaceFocus = useRef<{ element: HTMLElement; tabId: string | null } | null>(null)
-  useEffect(() => {
-    const rememberFocus = () => {
-      const element = document.activeElement
-      if (useUi.getState().page === 'workspace' && element instanceof HTMLElement && element.closest('[data-workspace]')) {
-        workspaceFocus.current = { element, tabId: useTabs.getState().activeId }
-      }
-    }
-    document.addEventListener('focusin', rememberFocus)
-    const unsubscribe = useUi.subscribe((next, previous) => {
-      // Capture before React hides/inerts the workspace. Activity-bar clicks retain its last focus.
-      if (next.page === 'history' && previous.page !== 'history') {
-        const element = document.activeElement
-        if (element instanceof HTMLElement && element.closest('[data-workspace]')) {
-          workspaceFocus.current = { element, tabId: useTabs.getState().activeId }
-        }
-      }
-    })
-    return () => { document.removeEventListener('focusin', rememberFocus); unsubscribe() }
-  }, [])
-  useLayoutEffect(() => {
-    if (!historyVisible) {
-      const previous = workspaceFocus.current
-      workspaceFocus.current = null
-      if (previous?.element.isConnected && previous.tabId === useTabs.getState().activeId) previous.element.focus()
-    }
-  }, [historyVisible])
+  const historyOpen = useUi(s => s.historyOpen) && historyEnabled
   useEffect(() => {
     if (!historyEnabled) {
       useAgent.getState().clearHistory()
-      if (useUi.getState().page === 'history') useUi.getState().setPage('workspace')
+      useUi.getState().closeHistory()
     }
   }, [historyEnabled])
   const patchSettings = useSettings((s) => s.patch)
@@ -112,6 +84,7 @@ export function App() {
   const terminalCount = useTerminal((s) => s.tabs.length)
   const activityView = useUi((s) => s.activityView)
   const setActivityView = useUi((s) => s.setActivityView)
+  const [historyWidth, setHistoryWidth] = useState(380)
   const [searchOpen, setSearchOpen] = useState(false)
   /** Bumped on every ⌘F: an already open find bar takes focus back (and selects) instead of ignoring the key */
   const editorRegionRef = useRef<HTMLDivElement>(null)
@@ -380,12 +353,13 @@ export function App() {
     } },
     'editor.find': {
       available: () => {
+        if (document.activeElement?.closest('[data-history-drawer]')) return true
         const tabs = useTabs.getState()
         const active = tabs.tabs.find(tab => tab.id === tabs.activeId)
-        return useUi.getState().page === 'history' || Boolean(active && (active.kind === 'file' || active.kind === 'untitled') && !active.preview)
+        return Boolean(active && (active.kind === 'file' || active.kind === 'untitled') && !active.preview)
       },
       run: () => {
-        if (useUi.getState().page === 'history') useUi.getState().focusHistorySearch()
+        if (document.activeElement?.closest('[data-history-drawer]')) useUi.getState().focusHistorySearch()
         else { setSearchOpen(true); setSearchFocus(n => n + 1) }
       },
     },
@@ -402,7 +376,7 @@ export function App() {
   useEffect(() => {
     if (!searchOpen) return
     const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && useUi.getState().page !== 'history' && !useUi.getState().overlay) setSearchOpen(false)
+      if (e.key === 'Escape' && !useUi.getState().overlay) setSearchOpen(false)
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
@@ -478,7 +452,7 @@ export function App() {
         <ActivityBar
           view={activityView}
           onChange={(v) => {
-            if (!historyVisible && activityView === v && sidebarVisible) {
+            if (activityView === v && sidebarVisible) {
               patchSettings({ sidebarVisible: false })
             } else {
               setActivityView(v)
@@ -489,8 +463,7 @@ export function App() {
           onOpenSettings={() => openSettings()}
         />
 
-        {historyVisible ? <ErrorBoundary label={t('agent.history.title')}><AgentHistoryPage /></ErrorBoundary> : null}
-        <div data-workspace inert={historyVisible} aria-hidden={historyVisible || undefined} className={historyVisible ? 'hidden' : 'flex min-h-0 min-w-0 flex-1'}>
+        <div data-workspace className="flex min-h-0 min-w-0 flex-1">
           {sidebarVisible ? (
             <>
               <aside
@@ -568,10 +541,24 @@ export function App() {
               </div>
             ) : null}
           </div>
+
+          {historyOpen ? (
+            <>
+              <Splitter direction="v" onDrag={(dx) => setHistoryWidth(width => clamp(width - dx, 300, 640))} />
+              <div
+                style={{ width: historyWidth, minWidth: 300, maxWidth: '60vw' }}
+                className="flex min-h-0 shrink-0 overflow-hidden"
+              >
+                <ErrorBoundary label={t('agent.history.title')}>
+                  <AgentHistoryPage />
+                </ErrorBoundary>
+              </div>
+            </>
+          ) : null}
         </div>
       </div>
 
-      <div hidden={historyVisible} className="shrink-0"><StatusBar /></div>
+      <div className="shrink-0"><StatusBar /></div>
 
       <Overlays />
       <ThemeMenu />

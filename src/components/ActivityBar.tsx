@@ -6,8 +6,6 @@ import { useTerminal } from '../store/terminal'
 import { toggleTerminal } from '../lib/actions'
 import { useT } from '../i18n'
 import { useTaskStore } from '../store/tasks'
-import { useUi } from '../store/ui'
-import { useSettings } from '../store/settings'
 
 export type ActivityView = 'explorer' | 'search' | 'git' | 'structure' | 'tasks'
 
@@ -55,8 +53,6 @@ function Item({
 
 export function ActivityBar({ view, onChange, tasksEnabled, onOpenSettings }: Props) {
   const t = useT()
-  const historyEnabled = useSettings(s => s.agentHistoryEnabled)
-  const historyVisible = useUi(s => s.page === 'history')
   const explorerTip = useShortcutTip('view.explorer', 'activity.explorerTip')
   const searchTip = useShortcutTip('view.search', 'activity.searchTip')
   const gitTip = useShortcutTip('view.git', 'activity.gitTip')
@@ -92,45 +88,43 @@ export function ActivityBar({ view, onChange, tasksEnabled, onOpenSettings }: Pr
         <Item
           icon="files"
           label={explorerTip}
-          active={!historyVisible && view === 'explorer'}
+          active={view === 'explorer'}
           onClick={() => onChange('explorer')}
         />
         <Item
           icon="search"
           label={searchTip}
-          active={!historyVisible && view === 'search'}
+          active={view === 'search'}
           onClick={() => onChange('search')}
         />
         <Item
           icon="git"
           label={gitTip}
-          active={!historyVisible && view === 'git'}
+          active={view === 'git'}
           badge={changeCount}
           onClick={() => onChange('git')}
         />
         <Item
           icon="structure"
           label={structureTip}
-          active={!historyVisible && view === 'structure'}
+          active={view === 'structure'}
           onClick={() => onChange('structure')}
         />
         {tasksEnabled ? (
           <Item
             icon="warning"
             label={tasksTip}
-            active={!historyVisible && view === 'tasks'}
+            active={view === 'tasks'}
             badge={problemCount}
             onClick={() => onChange('tasks')}
           />
         ) : null}
-        {historyEnabled ? <Item icon="clock" label={t('agent.history.title')} active={historyVisible}
-          onClick={() => useUi.getState().setPage(historyVisible ? 'workspace' : 'history')} /> : null}
       </div>
       <div className="flex flex-col items-center gap-1.5 pb-1">
         <Item
           icon="terminal-panel"
           label={terminalTip}
-          active={!historyVisible && terminalVisible}
+          active={terminalVisible}
           onClick={toggleTerminal}
         />
         <Item icon="settings" label={settingsTip} onClick={onOpenSettings} />

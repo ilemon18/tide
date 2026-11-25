@@ -5,7 +5,6 @@ import { IS_PRIMARY_WINDOW, useWorkspace } from '../store/workspace'
 import { useTabs } from '../store/tabs'
 import { useSettings } from '../store/settings'
 import { useAgent } from '../store/agent'
-import { useUi } from '../store/ui'
 import { Icon } from './Icon'
 import { UpdateBadge } from './UpdateBadge'
 import { newWindow, revealInExplorer } from '../lib/actions'
@@ -125,13 +124,9 @@ function ProjectBadge({ name, root }: { name: string; root: string }) {
       onClick={() => revealInExplorer(root, '', true)}
       data-tip={t('titlebar.projectTip', { name })}
       aria-label={t('titlebar.projectAria', { name })}
-      className="group relative flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-[6px] border border-accent/40 bg-transparent p-0 text-[10px] font-semibold uppercase leading-none tracking-[0.02em] text-accent transition duration-fast hover:-translate-y-px hover:border-accent/65 hover:bg-accent/10 hover:shadow-[0_5px_14px_-9px_var(--c-accent)] active:translate-y-0"
+      className="flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-[6px] border border-accent/40 bg-transparent p-0 text-[10px] font-semibold uppercase leading-none tracking-[0.02em] text-accent transition duration-fast hover:-translate-y-px hover:border-accent/65 hover:bg-accent/10 hover:shadow-[0_5px_14px_-9px_var(--c-accent)] active:translate-y-0"
     >
-      <span
-        aria-hidden
-        className="pointer-events-none absolute inset-x-1 top-0 h-px rounded-full bg-accent/45 opacity-60"
-      />
-      <span className="relative">{initials}</span>
+      {initials}
     </button>
   )
 }
@@ -149,8 +144,7 @@ export function TitleBar() {
   const agentTip = agentKeys ? t('titlebar.agentTip', { shortcut: agentKeys }) : t('commands.agent.ask')
   const windowTip = useShortcutTip('app.newWindow', 'titlebar.newWindowTip')
 
-  const historyVisible = useUi(s => s.page === 'history')
-  const active = historyVisible ? undefined : tabs.find((t) => t.id === activeId)
+  const active = tabs.find((t) => t.id === activeId)
   // Breadcrumbs follow the active tab's project so they can't disagree with activeRoot
   const root = roots.find((r) => r.id === active?.root) ?? roots.find(root => root.id === activeRootId) ?? roots[0]
 
@@ -222,7 +216,7 @@ export function TitleBar() {
         ) : null}
         <button
           data-tip={t('titlebar.welcomeTip')}
-          onClick={() => { useUi.getState().setPage('workspace'); useTabs.getState().openWelcome() }}
+          onClick={() => { useTabs.getState().openWelcome() }}
           className="flex h-6 w-6 items-center justify-center rounded-[var(--r-control)] text-muted transition-colors duration-fast hover:bg-hover hover:text-fg"
         >
           <Icon name="home" size={15} />
