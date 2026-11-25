@@ -92,6 +92,12 @@ export type GitDiscardResult = {
   error: CodedError | null
 }
 
+export type GitUndoResult = {
+  message: string
+  /** Post-reset status when it could be read; null tells the UI to run its normal refresh. */
+  status: GitStatus | null
+}
+
 export type GitStatus = {
   isRepo: boolean
   branch: string
@@ -165,6 +171,11 @@ export type Settings = {
   tasksEnabled: boolean
   /** Show the lazily loaded history list for this project */
   agentHistoryEnabled: boolean
+  /** Activity bar icons that can be hidden; Explorer and Search always stay visible */
+  activityBarWelcomeVisible: boolean
+  activityBarGitVisible: boolean
+  activityBarStructureVisible: boolean
+  activityBarTasksVisible: boolean
   /** Provider / model / effort new chats start with; empty = auto or the CLI default */
   agentDefaultProvider: string
   agentDefaultModel: string
@@ -552,8 +563,8 @@ export const api = {
   gitDiscard: (root: string, paths: string[], fromIndex = false) =>
     invoke<void>('git_discard', { root, paths, fromIndex }),
   gitCommit: (root: string, message: string) => invoke<string>('git_commit', { root, message }),
-  /** Undo the last commit (soft reset); returns that commit's message */
-  gitUndoCommit: (root: string) => invoke<string>('git_undo_commit', { root }),
+  /** Undo the last commit (soft reset); returns that commit's message and, when available, fresh status */
+  gitUndoCommit: (root: string) => invoke<GitUndoResult>('git_undo_commit', { root }),
   gitPull: (root: string) => invoke<string>('git_pull', { root }),
   gitPush: (root: string) => invoke<string>('git_push', { root }),
   gitFetch: (root: string) => invoke<string>('git_fetch', { root }),

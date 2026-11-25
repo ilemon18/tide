@@ -14,6 +14,7 @@ vi.mock('../store/settings', async () => {
     terminalFontSize: 13, terminalScrollback: 2000, terminalWebgl: false, agentEnabled: true, tasksEnabled: true,
     agentDefaultProvider: '', agentDefaultModel: '', agentDefaultEffort: '',
     agentDefaultPermissionMode: 'workspace-write', agentHistoryEnabled: true, autoUpdate: false,
+    activityBarWelcomeVisible: true, activityBarGitVisible: true, activityBarStructureVisible: true, activityBarTasksVisible: true,
     patch: vi.fn(),
   })) }
 })
@@ -48,6 +49,7 @@ vi.mock('./TideMark', () => ({ TideMark: () => <span /> }))
 vi.mock('./AgentProviderIcon', () => ({ AgentProviderIcon: () => <span /> }))
 
 import { SettingsView } from './SettingsView'
+import { ACTIVITY_BAR_ITEMS } from '../lib/activityBar'
 import { applyLocale, t } from '../i18n'
 import { useUi } from '../store/ui'
 import { useSettings } from '../store/settings'
@@ -77,6 +79,19 @@ it('exposes the project task toggle under General', () => {
   expect(toggle.getAttribute('aria-pressed')).toBe('true')
   fireEvent.click(toggle)
   expect(useSettings.getState().patch).toHaveBeenCalledExactlyOnceWith({ tasksEnabled: false })
+})
+
+
+it('exposes activity bar visibility toggles under General', () => {
+  render(<SettingsView />)
+  const card = screen.getByRole('heading', { name: t('settings.activityBar.card') }).closest('section')!
+  expect(within(card).getByText(t('settings.activityBar.hint'))).toBeTruthy()
+  for (const item of ACTIVITY_BAR_ITEMS) {
+    const toggle = within(card).getByRole('button', { name: t(item.labelKey) })
+    expect(toggle.getAttribute('aria-pressed')).toBe('true')
+  }
+  fireEvent.click(within(card).getByRole('button', { name: t('activity.welcomeTip') }))
+  expect(useSettings.getState().patch).toHaveBeenCalledExactlyOnceWith({ activityBarWelcomeVisible: false })
 })
 
 it('places the history preference under Agent and patches it when toggled', () => {

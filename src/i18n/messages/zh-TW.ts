@@ -161,6 +161,7 @@ export const zhTW: Messages = {
   'activity.terminal': '終端機',
   'activity.terminalTip': '終端機',
   'activity.settingsTip': '設定',
+  'activity.welcomeTip': '歡迎',
 
   'titlebar.projectTip': '專案：{name}',
   'titlebar.projectAria': '專案 {name}',
@@ -249,6 +250,9 @@ export const zhTW: Messages = {
   'settings.editor.insertFinalNewline': '補上結尾換行',
 
   'settings.memory.card': '記憶體',
+  'settings.activityBar.card': '活動列',
+  'settings.activityBar.hint': '檔案樹和搜尋一律顯示；雙擊左側活動列可快速切換這些圖示。',
+  'settings.activityBar.tasksDisabled': '請先啟用工作與問題。',
   'settings.memory.lightweight': '輕量模式',
   'settings.memory.lightweightHint': '暫停背景功能以釋放記憶體；返回時可能重新載入開啟的檔案。',
   'settings.memory.lightweightOn': '輕量模式已開啟：常駐文件更少，部分背景功能已暫停。',

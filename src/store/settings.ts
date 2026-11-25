@@ -22,7 +22,7 @@ import { DEFAULT_MONO_FONT } from '../lib/fonts'
 import { applyLocale, DEFAULT_LOCALE, isLocale } from '../i18n'
 import { applyMemoryProfileChange, setMemoryProfile } from '../lib/memoryBudget'
 
-export const SETTINGS_SCHEMA_VERSION = 15
+export const SETTINGS_SCHEMA_VERSION = 16
 export const AGENT_COMPOSER_MIN_HEIGHT = 90
 export const AGENT_COMPOSER_MAX_HEIGHT = 480
 
@@ -55,6 +55,10 @@ export const DEFAULT_SETTINGS: Settings = {
   agentEnabled: true,
   tasksEnabled: true,
   agentHistoryEnabled: true,
+  activityBarWelcomeVisible: true,
+  activityBarGitVisible: true,
+  activityBarStructureVisible: true,
+  activityBarTasksVisible: true,
   agentDefaultProvider: '',
   agentDefaultModel: '',
   agentDefaultEffort: '',
@@ -111,6 +115,10 @@ const SHARED_KEYS = [
   'agentEnabled',
   'tasksEnabled',
   'agentHistoryEnabled',
+  'activityBarWelcomeVisible',
+  'activityBarGitVisible',
+  'activityBarStructureVisible',
+  'activityBarTasksVisible',
   'agentDefaultProvider',
   'agentDefaultModel',
   'agentDefaultEffort',
@@ -205,6 +213,10 @@ function snapshot(s: SettingsStore): Settings {
     agentEnabled: s.agentEnabled,
     tasksEnabled: s.tasksEnabled,
     agentHistoryEnabled: s.agentHistoryEnabled,
+    activityBarWelcomeVisible: s.activityBarWelcomeVisible,
+    activityBarGitVisible: s.activityBarGitVisible,
+    activityBarStructureVisible: s.activityBarStructureVisible,
+    activityBarTasksVisible: s.activityBarTasksVisible,
     agentDefaultProvider: s.agentDefaultProvider,
     agentDefaultModel: s.agentDefaultModel,
     agentDefaultEffort: s.agentDefaultEffort,
@@ -261,8 +273,8 @@ function migrate(raw: Settings): Settings {
   if (!isLocale(next.locale)) next.locale = DEFAULT_LOCALE
 
   // v8 -> v9 adds ligatures, v9 -> v10 adds agentComposerHeight, v10 -> v11 adds
-  // agentDefaultPermissionMode, v11 -> v12 adds autoUpdate, and v12 -> v13 adds agentHistoryEnabled.
-  // DEFAULT_SETTINGS covers
+  // agentDefaultPermissionMode, v11 -> v12 adds autoUpdate, v12 -> v13 adds agentHistoryEnabled,
+  // v15 -> v16 adds the activity bar visibility switches. DEFAULT_SETTINGS covers
   // missing values for each of these additions.
   // Keep larger stored heights when the current window is short: the composer clamps them for display only.
   next.shortcutOverrides = normalizeOverrides(next.shortcutOverrides)
@@ -289,6 +301,10 @@ function migrate(raw: Settings): Settings {
   if (typeof next.agentEnabled !== 'boolean') next.agentEnabled = true
   if (typeof next.tasksEnabled !== 'boolean') next.tasksEnabled = true
   if (typeof next.agentHistoryEnabled !== 'boolean') next.agentHistoryEnabled = true
+  if (typeof next.activityBarWelcomeVisible !== 'boolean') next.activityBarWelcomeVisible = true
+  if (typeof next.activityBarGitVisible !== 'boolean') next.activityBarGitVisible = true
+  if (typeof next.activityBarStructureVisible !== 'boolean') next.activityBarStructureVisible = true
+  if (typeof next.activityBarTasksVisible !== 'boolean') next.activityBarTasksVisible = true
   if (typeof next.autoUpdate !== 'boolean') next.autoUpdate = false
   if (typeof next.agentDefaultProvider !== 'string') next.agentDefaultProvider = ''
   if (typeof next.agentDefaultModel !== 'string') next.agentDefaultModel = ''

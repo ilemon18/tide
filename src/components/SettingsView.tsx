@@ -14,6 +14,7 @@ import { Picker, effortLabel } from './AgentPickers'
 import { AgentProviderIcon } from './AgentProviderIcon'
 import { MONO_FONT_OPTIONS, monoStack } from '../lib/fonts'
 import { SETTINGS_SECTIONS, type SettingsSectionId } from '../lib/settingsSections'
+import { ACTIVITY_BAR_ITEMS } from '../lib/activityBar'
 import { Icon } from './Icon'
 import { TideMark } from './TideMark'
 import { formatVersion } from '../lib/version'
@@ -218,6 +219,29 @@ export function SettingsView() {
               onChange={(v) => set('lightweightMode', v)}
             />
           </Row>
+        </Card>
+
+        <Card title={t('settings.activityBar.card')}>
+          <div className="border-b border-line/60 px-4 py-2.5 text-xs leading-relaxed text-muted">
+            {t('settings.activityBar.hint')}
+          </div>
+          {ACTIVITY_BAR_ITEMS.map((item) => {
+            const tasksDisabled = item.id === 'tasks' && !settings.tasksEnabled
+            return (
+              <Row
+                key={item.id}
+                label={t(item.labelKey)}
+                hint={tasksDisabled ? t('settings.activityBar.tasksDisabled') : undefined}
+              >
+                <Toggle
+                  value={settings[item.settingKey]}
+                  disabled={tasksDisabled}
+                  onChange={(value) => set(item.settingKey, value)}
+                  ariaLabel={t(item.labelKey)}
+                />
+              </Row>
+            )
+          })}
         </Card>
 
         <Card title={t('settings.tasks.card')}>

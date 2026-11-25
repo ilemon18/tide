@@ -135,7 +135,9 @@ function processFsChanged(payload: FsChanged) {
   const gitStore = useGit.getState()
   // Don't call git for non-repo projects: a status run per save is a wasted subprocess. A .git hit must
   // probe once (signal of git init / rm -rf .git in a terminal); refresh() fixes isRepo via the result.
-  if (git || rescan || node.isGitRepo) gitStore.scheduleRefresh(root)
+  // Index mutations refresh their own authoritative status when the queue drains. Skipping the watcher's
+  // duplicate status here keeps rapid stage/unstage clicks from stacking full git status runs.
+  if ((git || rescan || node.isGitRepo) && !gitStore.isIndexPending(root)) gitStore.scheduleRefresh(root)
   if (git || rescan) gitStore.invalidateBranches(root)
 
   const ignoreRulesChanged = ignoreChanged || paths.some((rel) => rel === '.gitignore' || rel.endsWith('/.gitignore'))

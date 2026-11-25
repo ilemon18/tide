@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { api, errorText, type GitBranches, type GitStatus } from '../lib/ipc'
+import { api, errorText, type GitBranches, type GitFile, type GitStatus } from '../lib/ipc'
 import { useUi } from './ui'
 import { useWorkspace } from './workspace'
 import { t } from '../i18n'
@@ -8,6 +8,8 @@ type GitStore = {
   statuses: Record<string, GitStatus>
   loading: Record<string, boolean>
   busy: string | null
+  /** Number of queued Git index mutations per root. Index work is optimistic and coalesces its status refresh. */
+  indexPending: Record<string, number>
   lastRefresh: number
   /** Branch list (status bar dropdown), cached per workspace root */
   branches: Record<string, GitBranches>
@@ -20,6 +22,8 @@ type GitStore = {
   invalidateBranches: (root: string) => void
   setBusy: (busy: string | null) => void
   scheduleRefresh: (root?: string) => void
+  /** Whether a stage / unstage / discard is queued for this root (watchers skip their duplicate status run). */
+  isIndexPending: (root: string) => boolean
   /**
    * Drop a project's state and caches after it is switched away / closed. Otherwise the changed-file count
    * in Source Control includes the previous project's numbers and looks unrefreshed on switch.
@@ -56,6 +60,8 @@ let discardAllConfirmPending = false
 const optimisticDiscards = new Set<string>()
 /** Roots asked to force-refresh while a request is in flight; rerun once it finishes */
 const pendingForceBranches = new Set<string>()
+/** Per-root serial queue for index mutations: concurrent git add/restore calls would fight over index.lock. */
+const indexQueues = new Map<string, Promise<void>>()
 
 function signatureOf(s: GitStatus): string {
   const part = (files: { path: string; status: string }[]) =>
@@ -66,10 +72,107 @@ function signatureOf(s: GitStatus): string {
   return `${s.branch}|${s.ahead}|${s.behind}|${part(s.staged)}|${part(s.changes)}|${part(s.untracked)}|${part(s.conflicts)}|${op}|${s.error ?? ''}`
 }
 
+function sortFiles(files: GitFile[]): GitFile[] {
+  return files.sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0)
+}
+
+function mergeFiles(files: GitFile[]): GitFile[] {
+  return sortFiles([...new Map(files.map((file) => [file.path, file])).values()])
+}
+
+/** Predicted status after `git add`: changed/untracked rows move to staged. Conflicts need git's XY decision. */
+function stageStatus(status: GitStatus, paths: readonly string[]): GitStatus {
+  const selected = new Set(paths)
+  const staged = [...status.staged]
+  for (const file of [...status.changes, ...status.untracked]) {
+    if (!selected.has(file.path)) continue
+    staged.push({ path: file.path, status: file.status === '?' ? 'A' : file.status })
+  }
+  return {
+    ...status,
+    staged: mergeFiles(staged),
+    changes: status.changes.filter((file) => !selected.has(file.path)),
+    untracked: status.untracked.filter((file) => !selected.has(file.path)),
+  }
+}
+
+/** Predicted status after `git restore --staged`: staged rows move back to worktree changes. */
+function unstageStatus(status: GitStatus, paths: readonly string[]): GitStatus {
+  const selected = new Set(paths)
+  const changes = [...status.changes]
+  const untracked = [...status.untracked]
+  for (const file of status.staged) {
+    if (!selected.has(file.path)) continue
+    if (file.status === 'A') untracked.push({ path: file.path, status: '?' })
+    else changes.push({ path: file.path, status: file.status })
+  }
+  return {
+    ...status,
+    staged: status.staged.filter((file) => !selected.has(file.path)),
+    changes: mergeFiles(changes),
+    untracked: mergeFiles(untracked),
+  }
+}
+
+/** Predicted status after discarding worktree changes / deleting an untracked file. */
+function discardStatus(status: GitStatus, paths: readonly string[]): GitStatus {
+  const selected = new Set(paths)
+  return {
+    ...status,
+    changes: status.changes.filter((file) => !selected.has(file.path)),
+    untracked: status.untracked.filter((file) => !selected.has(file.path)),
+  }
+}
+
+function enqueueIndex(root: string, task: () => Promise<void>): Promise<void> {
+  const previous = indexQueues.get(root) ?? Promise.resolve()
+  const next = previous.catch(() => {}).then(task)
+  const tracked = next.catch(() => {})
+  indexQueues.set(root, tracked)
+  void tracked.finally(() => {
+    if (indexQueues.get(root) === tracked) indexQueues.delete(root)
+  })
+  return next
+}
+
+async function waitForIndexQueue(root: string): Promise<void> {
+  await (indexQueues.get(root) ?? Promise.resolve())
+}
+
+function beginIndex(root: string): void {
+  const pending = useGit.getState().indexPending
+  useGit.setState({ indexPending: { ...pending, [root]: (pending[root] ?? 0) + 1 } })
+}
+
+function finishIndex(root: string): void {
+  const state = useGit.getState()
+  const pending = state.indexPending
+  const count = Math.max(0, (pending[root] ?? 1) - 1)
+  const next = { ...pending }
+  if (count > 0) next[root] = count
+  else delete next[root]
+  useGit.setState({ indexPending: next })
+  // An exclusive operation owns the next authoritative refresh. Otherwise one status run settles the burst.
+  if (count === 0 && state.busy === null) {
+    signatures.delete(root)
+    void useGit.getState().refresh(root, true)
+  }
+}
+
+function applyOptimistic(root: string, transform: (status: GitStatus) => GitStatus): void {
+  if (!useWorkspace.getState().roots.some((node) => node.id === root)) return
+  const state = useGit.getState()
+  const status = state.statuses[root]
+  if (!status || status.error) return
+  signatures.delete(root)
+  useGit.setState({ statuses: { ...state.statuses, [root]: transform(status) } })
+}
+
 export const useGit = create<GitStore>((set, get) => ({
   statuses: {},
   loading: {},
   busy: null,
+  indexPending: {},
   lastRefresh: 0,
   branches: {},
   branchesLoading: {},
@@ -136,6 +239,8 @@ export const useGit = create<GitStore>((set, get) => ({
         }
         continue
       }
+      // The queue's final refresh is authoritative. Running status mid-burst would only race optimistic rows.
+      if ((get().indexPending[target] ?? 0) > 0) continue
       const pending = statusRefreshes.get(target)
       if (pending) {
         if (force) {
@@ -212,6 +317,8 @@ export const useGit = create<GitStore>((set, get) => ({
     }
   },
 
+  isIndexPending: (root) => (get().indexPending[root] ?? 0) > 0,
+
   forget: (root) => {
     const timer = timers.get(root)
     if (timer) {
@@ -221,6 +328,8 @@ export const useGit = create<GitStore>((set, get) => ({
     signatures.delete(root)
     pendingForceBranches.delete(root)
     optimisticDiscards.delete(root)
+    const indexPending = { ...get().indexPending }
+    delete indexPending[root]
 
     const statuses = { ...get().statuses }
     const loading = { ...get().loading }
@@ -232,7 +341,8 @@ export const useGit = create<GitStore>((set, get) => ({
       !(root in loading) &&
       !(root in branches) &&
       !(root in branchesLoading) &&
-      !(root in branchesAt)
+      !(root in branchesAt) &&
+      !(root in indexPending)
     ) {
       return
     }
@@ -241,7 +351,7 @@ export const useGit = create<GitStore>((set, get) => ({
     delete branches[root]
     delete branchesLoading[root]
     delete branchesAt[root]
-    set({ statuses, loading, branches, branchesLoading, branchesAt })
+    set({ statuses, loading, branches, branchesLoading, branchesAt, indexPending })
   },
 
   scheduleRefresh: (root) => {
@@ -259,29 +369,33 @@ export const useGit = create<GitStore>((set, get) => ({
 
   stage: async (root, paths) => {
     if (get().busy || paths.length === 0) return
-    set({ busy: 'stage' })
+    const targets = [...new Set(paths)]
+    applyOptimistic(root, (status) => stageStatus(status, targets))
+    beginIndex(root)
     try {
-      await api.gitStage(root, paths)
-      signatures.delete(root)
-      await get().refresh(root, true)
+      await enqueueIndex(root, async () => {
+        await api.gitStage(root, targets)
+      })
     } catch (e) {
       useUi.getState().toast(errorText(e), 'error')
     } finally {
-      set({ busy: null })
+      finishIndex(root)
     }
   },
 
   unstage: async (root, paths) => {
     if (get().busy || paths.length === 0) return
-    set({ busy: 'unstage' })
+    const targets = [...new Set(paths)]
+    applyOptimistic(root, (status) => unstageStatus(status, targets))
+    beginIndex(root)
     try {
-      await api.gitUnstage(root, paths)
-      signatures.delete(root)
-      await get().refresh(root, true)
+      await enqueueIndex(root, async () => {
+        await api.gitUnstage(root, targets)
+      })
     } catch (e) {
       useUi.getState().toast(errorText(e), 'error')
     } finally {
-      set({ busy: null })
+      finishIndex(root)
     }
   },
 
@@ -294,15 +408,17 @@ export const useGit = create<GitStore>((set, get) => ({
       danger: true,
     })
     if (!ok || get().busy) return
-    set({ busy: 'discard' })
+    const targets = [...new Set(paths)]
+    applyOptimistic(root, (status) => discardStatus(status, targets))
+    beginIndex(root)
     try {
-      await api.gitDiscard(root, paths)
-      signatures.delete(root)
-      await get().refresh(root, true)
+      await enqueueIndex(root, async () => {
+        await api.gitDiscard(root, targets)
+      })
     } catch (e) {
       useUi.getState().toast(errorText(e), 'error')
     } finally {
-      set({ busy: null })
+      finishIndex(root)
     }
   },
 
@@ -330,19 +446,33 @@ export const useGit = create<GitStore>((set, get) => ({
     }
     if (!ok || get().busy || !useWorkspace.getState().roots.some((node) => node.id === root)) return
 
+    // Block new index actions immediately, then let queued stage/unstage work settle before taking the
+    // authoritative snapshot for the bulk transaction.
+    set({ busy: 'discard' })
+    await waitForIndexQueue(root)
+    if (!useWorkspace.getState().roots.some((node) => node.id === root)) {
+      set({ busy: null })
+      return
+    }
+
     // Use the newest snapshot after the confirmation dialog. Keep it so an IPC-level failure can put
     // every row back immediately, before the forced refresh reports the real disk state.
     const snapshot = get().statuses[root]
-    if (!snapshot || snapshot.error) return
+    if (!snapshot || snapshot.error) {
+      set({ busy: null })
+      return
+    }
     const trackedPaths = snapshot.changes.map((file) => file.path)
     const untrackedPaths = snapshot.untracked.map((file) => file.path)
     const targets = [...trackedPaths, ...untrackedPaths]
-    if (targets.length === 0) return
+    if (targets.length === 0) {
+      set({ busy: null })
+      return
+    }
 
     optimisticDiscards.add(root)
     signatures.delete(root)
     set({
-      busy: 'discard',
       statuses: {
         ...get().statuses,
         [root]: { ...snapshot, changes: [], untracked: [] },
@@ -401,6 +531,7 @@ export const useGit = create<GitStore>((set, get) => ({
   commit: async (root, message) => {
     set({ busy: 'commit' })
     try {
+      await waitForIndexQueue(root)
       await api.gitCommit(root, message)
       signatures.delete(root)
       await get().refresh(root, true)
@@ -424,10 +555,18 @@ export const useGit = create<GitStore>((set, get) => ({
 
     set({ busy: 'undo' })
     try {
-      const message = await api.gitUndoCommit(root)
+      await waitForIndexQueue(root)
+      const result = await api.gitUndoCommit(root)
       signatures.delete(root)
-      await get().refresh(root, true)
-      return message
+      if (useWorkspace.getState().roots.some((node) => node.id === root)) {
+        if (result.status) {
+          signatures.set(root, signatureOf(result.status))
+          set({ statuses: { ...get().statuses, [root]: result.status } })
+        } else {
+          await get().refresh(root, true)
+        }
+      }
+      return result.message
     } catch (e) {
       useUi.getState().toast(errorText(e), 'error')
       return null
@@ -439,6 +578,7 @@ export const useGit = create<GitStore>((set, get) => ({
   continueOperation: async (root, message) => {
     set({ busy: 'continue' })
     try {
+      await waitForIndexQueue(root)
       await api.gitContinue(root, message.trim() ? message : null)
       signatures.delete(root)
       await get().refresh(root, true)
@@ -461,6 +601,7 @@ export const useGit = create<GitStore>((set, get) => ({
     if (!ok) return false
     set({ busy: 'abort' })
     try {
+      await waitForIndexQueue(root)
       await api.gitAbort(root)
       signatures.delete(root)
       await get().refresh(root, true)
@@ -483,6 +624,7 @@ export const useGit = create<GitStore>((set, get) => ({
     if (!ok) return false
     set({ busy: 'skip' })
     try {
+      await waitForIndexQueue(root)
       await api.gitSkip(root)
       signatures.delete(root)
       await get().refresh(root, true)
@@ -499,6 +641,7 @@ export const useGit = create<GitStore>((set, get) => ({
   resetConflict: async (root, rel) => {
     set({ busy: 'conflict-reset' })
     try {
+      await waitForIndexQueue(root)
       await api.gitConflictReset(root, rel)
       signatures.delete(root)
       await get().refresh(root, true)
@@ -512,6 +655,7 @@ export const useGit = create<GitStore>((set, get) => ({
   pull: async (root) => {
     set({ busy: 'pull' })
     try {
+      await waitForIndexQueue(root)
       const out = await api.gitPull(root)
       if (out.trim()) useUi.getState().toast(out, 'success')
       signatures.delete(root)
@@ -526,6 +670,7 @@ export const useGit = create<GitStore>((set, get) => ({
   push: async (root) => {
     set({ busy: 'push' })
     try {
+      await waitForIndexQueue(root)
       const out = await api.gitPush(root)
       if (out.trim()) useUi.getState().toast(out, 'success')
       await get().refresh(root, true)
@@ -539,6 +684,7 @@ export const useGit = create<GitStore>((set, get) => ({
   fetch: async (root) => {
     set({ busy: 'fetch' })
     try {
+      await waitForIndexQueue(root)
       // Sync remote branches only, no push and no worktree merge
       await api.gitFetch(root)
       signatures.delete(root)
@@ -561,6 +707,7 @@ export const useGit = create<GitStore>((set, get) => ({
       statuses: {},
       loading: {},
       busy: null,
+      indexPending: {},
       branches: {},
       branchesLoading: {},
       branchesAt: {},

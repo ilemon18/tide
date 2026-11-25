@@ -161,6 +161,7 @@ export const zhCN: Messages = {
   'activity.terminal': '终端',
   'activity.terminalTip': '终端',
   'activity.settingsTip': '设置',
+  'activity.welcomeTip': '欢迎',
 
   'titlebar.projectTip': '项目：{name}',
   'titlebar.projectAria': '项目 {name}',
@@ -249,6 +250,9 @@ export const zhCN: Messages = {
   'settings.editor.insertFinalNewline': '补末尾换行',
 
   'settings.memory.card': '内存',
+  'settings.activityBar.card': '活动栏',
+  'settings.activityBar.hint': '文件树和搜索始终显示；双击左侧活动栏可快速切换这些图标。',
+  'settings.activityBar.tasksDisabled': '请先启用任务与问题。',
   'settings.memory.lightweight': '轻量模式',
   'settings.memory.lightweightHint': '暂停后台功能以释放内存；返回时可能重新加载打开的文件。',
   'settings.memory.lightweightOn': '轻量模式已开启：常驻文档更少，部分后台功能已暂停。',

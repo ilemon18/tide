@@ -26,7 +26,7 @@ import { TooltipLayer } from './components/Tooltip'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { FileIconSprite } from './components/FileIconSprite'
 import { useSettings } from './store/settings'
-import { useTabs } from './store/tabs'
+import { WELCOME_TAB_ID, useTabs } from './store/tabs'
 import { IS_PRIMARY_WINDOW, useWorkspace } from './store/workspace'
 import { useUi } from './store/ui'
 import { useGit } from './store/git'
@@ -38,6 +38,7 @@ import {
   openWorkspace,
 } from './lib/actions'
 import { api, errorText, type RecentWorkspace, type Settings } from './lib/ipc'
+import { activityBarVisibility } from './lib/activityBar'
 import { installMemoryLifecycle } from './lib/memory'
 import {
   armEditorSession,
@@ -71,6 +72,10 @@ export function App() {
   const sidebarWidth = useSettings((s) => s.sidebarWidth)
   const agentEnabled = useSettings((s) => s.agentEnabled)
   const historyEnabled = useSettings(s => s.agentHistoryEnabled)
+  const activityBarWelcomeVisible = useSettings((s) => s.activityBarWelcomeVisible)
+  const activityBarGitVisible = useSettings((s) => s.activityBarGitVisible)
+  const activityBarStructureVisible = useSettings((s) => s.activityBarStructureVisible)
+  const activityBarTasksVisible = useSettings((s) => s.activityBarTasksVisible)
   const historyOpen = useUi(s => s.historyOpen) && historyEnabled
   useEffect(() => {
     if (!historyEnabled) {
@@ -413,9 +418,21 @@ export function App() {
 
   const hasRoots = useWorkspace((s) => s.roots.length > 0)
   const tasksEnabled = useSettings((s) => s.tasksEnabled)
+  // Visibility changes are deliberate UI changes: if that view is currently showing, fall back once.
+  // Using getState keeps command-palette/shortcut access to a hidden view working afterwards.
   useEffect(() => {
-    if (!tasksEnabled && activityView === 'tasks') setActivityView('explorer')
-  }, [tasksEnabled, activityView, setActivityView])
+    if (!activityBarGitVisible && useUi.getState().activityView === 'git') setActivityView('explorer')
+  }, [activityBarGitVisible, setActivityView])
+  useEffect(() => {
+    if (!activityBarStructureVisible && useUi.getState().activityView === 'structure') {
+      setActivityView('explorer')
+    }
+  }, [activityBarStructureVisible, setActivityView])
+  useEffect(() => {
+    if (!tasksEnabled || !activityBarTasksVisible) {
+      if (useUi.getState().activityView === 'tasks') setActivityView('explorer')
+    }
+  }, [tasksEnabled, activityBarTasksVisible, setActivityView])
   useEffect(() => {
     if (tasksEnabled) return
     const tasks = useTaskStore.getState()
@@ -466,6 +483,13 @@ export function App() {
               patchSettings({ sidebarVisible: true })
             }
           }}
+          welcomeActive={activeTabId === WELCOME_TAB_ID}
+          visibility={activityBarVisibility({
+            activityBarWelcomeVisible,
+            activityBarGitVisible,
+            activityBarStructureVisible,
+            activityBarTasksVisible,
+          })}
           tasksEnabled={tasksEnabled}
           onOpenSettings={() => openSettings()}
         />

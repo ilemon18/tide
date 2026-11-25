@@ -75,6 +75,15 @@ pub struct Settings {
     pub tasks_enabled: bool,
     /// Show the lazily loaded project agent history list
     pub agent_history_enabled: bool,
+    /// Activity bar icons that can be hidden; Explorer and Search always stay visible
+    #[serde(default = "default_true", deserialize_with = "deserialize_visibility")]
+    pub activity_bar_welcome_visible: bool,
+    #[serde(default = "default_true", deserialize_with = "deserialize_visibility")]
+    pub activity_bar_git_visible: bool,
+    #[serde(default = "default_true", deserialize_with = "deserialize_visibility")]
+    pub activity_bar_structure_visible: bool,
+    #[serde(default = "default_true", deserialize_with = "deserialize_visibility")]
+    pub activity_bar_tasks_visible: bool,
     /// Last chosen provider / model / effort: new chats start here (empty = auto / CLI default)
     pub agent_default_provider: String,
     pub agent_default_model: String,
@@ -92,6 +101,20 @@ pub struct Settings {
     /// Without it, config saved by a newer version is "reset" once an older version opens it.
     #[serde(flatten)]
     pub extra: serde_json::Map<String, serde_json::Value>,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+/// Visibility switches are on by default. Treat missing values through `default_true` and malformed values
+/// through this fallback so an old or damaged config never hides icons the user did not hide.
+fn deserialize_visibility<'de, D>(deserializer: D) -> Result<bool, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    Ok(value.as_bool().unwrap_or(true))
 }
 
 fn deserialize_tasks_enabled<'de, D>(deserializer: D) -> Result<bool, D::Error>
@@ -170,6 +193,10 @@ impl Default for Settings {
             agent_enabled: true,
             tasks_enabled: true,
             agent_history_enabled: true,
+            activity_bar_welcome_visible: true,
+            activity_bar_git_visible: true,
+            activity_bar_structure_visible: true,
+            activity_bar_tasks_visible: true,
             agent_default_provider: String::new(),
             agent_default_model: String::new(),
             agent_default_effort: String::new(),
@@ -434,6 +461,10 @@ mod compat {
         assert_eq!(settings.agent_composer_height, 90);
         assert_eq!(settings.agent_default_permission_mode, "workspace-write");
         assert!(settings.agent_history_enabled);
+        assert!(settings.activity_bar_welcome_visible);
+        assert!(settings.activity_bar_git_visible);
+        assert!(settings.activity_bar_structure_visible);
+        assert!(settings.activity_bar_tasks_visible);
         assert!(!settings.auto_save);
     }
 
@@ -479,6 +510,33 @@ mod compat {
         }
         let disabled: Settings = serde_json::from_str(r#"{"tasksEnabled":false}"#).unwrap();
         assert_eq!(serde_json::to_value(disabled).unwrap()["tasksEnabled"], false);
+    }
+
+    #[test]
+    fn activity_bar_visibility_defaults_on_and_tolerates_invalid_values() {
+        let legacy: Settings = serde_json::from_str(r#"{"schemaVersion":15}"#).unwrap();
+        assert!(legacy.activity_bar_welcome_visible);
+        assert!(legacy.activity_bar_git_visible);
+        assert!(legacy.activity_bar_structure_visible);
+        assert!(legacy.activity_bar_tasks_visible);
+        for invalid in [serde_json::json!(null), serde_json::json!(7), serde_json::json!("broken")] {
+            let settings: Settings = serde_json::from_value(serde_json::json!({
+                "activityBarWelcomeVisible": invalid,
+                "activityBarGitVisible": invalid,
+                "activityBarStructureVisible": invalid,
+                "activityBarTasksVisible": invalid,
+                "fontSize": 19,
+            })).unwrap();
+            assert!(settings.activity_bar_welcome_visible);
+            assert!(settings.activity_bar_git_visible);
+            assert!(settings.activity_bar_structure_visible);
+            assert!(settings.activity_bar_tasks_visible);
+            assert_eq!(settings.font_size, 19);
+        }
+        let hidden: Settings = serde_json::from_str(r#"{"activityBarGitVisible":false}"#).unwrap();
+        assert!(!hidden.activity_bar_git_visible);
+        let out = serde_json::to_value(hidden).unwrap();
+        assert_eq!(out["activityBarGitVisible"], false);
     }
 
     #[test]

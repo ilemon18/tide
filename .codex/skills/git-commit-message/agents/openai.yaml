@@ -1,0 +1,4 @@
+interface:
+  display_name: "Git Commit Message"
+  short_description: "Commit the generated subject line and show the body for reference"
+  default_prompt: "Use $git-commit-message to commit my uncommitted changes with a clean subject line."

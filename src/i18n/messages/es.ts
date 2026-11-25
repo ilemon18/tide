@@ -161,6 +161,7 @@ export const es: Messages = {
   'activity.terminal': 'Terminal',
   'activity.terminalTip': 'Terminal',
   'activity.settingsTip': 'Ajustes',
+  'activity.welcomeTip': 'Bienvenido',
 
   'titlebar.projectTip': 'Proyecto: {name}',
   'titlebar.projectAria': 'Proyecto {name}',
@@ -252,6 +253,9 @@ export const es: Messages = {
   'settings.editor.insertFinalNewline': 'Añadir salto final',
 
   'settings.memory.card': 'Memoria',
+  'settings.activityBar.card': 'Barra de actividades',
+  'settings.activityBar.hint': 'Explorador y Buscar siempre se muestran. Haz doble clic en la barra de actividades para cambiarlos rápidamente.',
+  'settings.activityBar.tasksDisabled': 'Activa primero Tareas y problemas.',
   'settings.memory.lightweight': 'Modo ligero',
   'settings.memory.lightweightHint':
     'Libera memoria pausando funciones en segundo plano. Los archivos abiertos pueden recargarse al volver.',

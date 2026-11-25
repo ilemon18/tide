@@ -53,7 +53,9 @@ pages and leaves scan caps to Rust read_dir. Permission/other failures stay dist
 - Rust owns debounce/batch limits. Refresh via fileIndex/workspace, Git via [git.md](./git.md), tabs via
   refreshFromDisk. Compare metadata before reads; bump matching diffEpoch to refresh diffs in place.
   Sync changed isRepo back to roots so terminal git init is noticed.
-- Fetch suppresses pure .git batches; mixed worktree paths still refresh. Explicit checkout/create uses
+- Fetch suppresses pure .git batches; mixed worktree paths still refresh. While a root's optimistic Git
+  index queue is pending, skip only the watcher's Git status request; the queue drain owns the authoritative
+  refresh. Explicit checkout/create uses
   beginBranchTransition plus a short post-success grace period to suppress duplicate .git refreshes;
   accumulate mixed worktree paths and replay once afterward. Rescan/ignore changes always refresh.
 - Git status changes never close a file tab. Only confirmed disk disappearance does; empty diffs may

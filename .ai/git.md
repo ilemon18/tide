@@ -3,6 +3,7 @@ summary: Git actions, diffs and conflicts
 scope:
   - .ai/git.md
   - src/store/git.ts
+  - src/store/git.test.ts
   - src/store/commitHover*.ts
   - src/components/CommitHoverCard*.tsx
   - src/components/DiffView.tsx
@@ -40,6 +41,11 @@ and subprocess policy. DiffView/diffScroll own positioning; editor/conflicts own
 
 ## Branches and refresh
 
+- Stage / unstage / single-file discard apply an optimistic row move immediately, queue per root so index
+  mutations never race `index.lock`, and coalesce the authoritative status into one refresh when the queue
+  drains. These operations do not take the global busy lock. Commit / pull / push / fetch / undo / operation
+  controls remain exclusive and wait for queued index work before mutating. A failed optimistic mutation
+  toasts and lets that forced status restore the real rows.
 - Branch dialog is 480px clamped to viewport with a scrolling list. Separate local/remote groups; empty
   search shows ten/group, current local pinned then newest commits (remote recency). Name search spans
   all cached branches, capped at 200 visible matches. Headings are visual; keyboard visits rows/create.
@@ -101,8 +107,11 @@ and subprocess policy. DiffView/diffScroll own positioning; editor/conflicts own
 ## Subprocess and path boundaries
 
 - Use git -C root, GIT_TERMINAL_PROMPT=0, GIT_OPTIONAL_LOCKS=0, disabled editors/pager, LC_ALL=C, closed stdin.
-  Read-only probes and checkout preflight get short deadlines; network gets proc.rs's longer timeout;
-  checkout itself never uses the short deadline.
+  A workspace root containing `.git` resolves toplevel/gitdir without spawning rev-parse; worktree/submodule
+  gitdir files are parsed, and only subdirectory/bare cases fall back to git. Read-only probes use a short
+  10ms wait poll; network gets proc.rs's longer timeout; checkout itself never uses the short deadline.
+- Undo last commit returns its message plus a fresh status when readable, avoiding a second status
+  round-trip; a null status makes the frontend fall back to refresh.
 - Shared component comparison equates Windows drive/verbatim and UNC/verbatim-UNC roots; never globally
   strip verbatim prefixes. Errors and relative IPC paths follow [context.md](./context.md).
 

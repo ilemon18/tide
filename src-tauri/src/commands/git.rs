@@ -159,7 +159,7 @@ fn run_bytes_with_deadline(
                     let _ = child.wait();
                     return Err(AppError::c(timeout_code));
                 }
-                std::thread::sleep(Duration::from_millis(60));
+                std::thread::sleep(Duration::from_millis(10));
             }
             Err(error) => {
                 let _ = child.kill();
@@ -214,14 +214,49 @@ fn run_with_timeout(root: &str, args: &[&str], timeout: Duration) -> AppResult<(
 }
 
 /// Repo top-level directory + the real git dir: for worktree / submodule the gitdir is not under
-/// `<top>/.git`, and state files like MERGE_MSG / CHERRY_PICK_HEAD live in the gitdir. One rev-parse
-/// gets both.
+/// `<top>/.git`, and state files like MERGE_MSG / CHERRY_PICK_HEAD live in the gitdir.
 struct RepoPaths {
     toplevel: String,
     gitdir: std::path::PathBuf,
 }
 
+/// Resolve the overwhelmingly common case without spawning `git rev-parse`: the workspace root is the repo
+/// top level (a real .git directory, or a worktree/submodule .git file). Anything else falls back to git.
+fn local_repo_paths(root: &str) -> Option<RepoPaths> {
+    let root_path = Path::new(root);
+    let dot_git = root_path.join(".git");
+    let meta = std::fs::metadata(&dot_git).ok()?;
+    if meta.is_dir() {
+        return Some(RepoPaths {
+            toplevel: root.to_string(),
+            gitdir: dot_git,
+        });
+    }
+    if !meta.is_file() {
+        return None;
+    }
+    let text = std::fs::read_to_string(&dot_git).ok()?;
+    let target = text.lines().next()?.strip_prefix("gitdir:")?.trim();
+    if target.is_empty() {
+        return None;
+    }
+    let mut gitdir = std::path::PathBuf::from(target);
+    if gitdir.is_relative() {
+        gitdir = root_path.join(gitdir);
+    }
+    if !gitdir.is_dir() {
+        return None;
+    }
+    Some(RepoPaths {
+        toplevel: root.to_string(),
+        gitdir,
+    })
+}
+
 fn repo_paths(root: &str) -> AppResult<Option<RepoPaths>> {
+    if let Some(paths) = local_repo_paths(root) {
+        return Ok(Some(paths));
+    }
     let (ok, stdout, _) =
         run_bytes_with_timeout(root, &["rev-parse", "--show-toplevel", "--absolute-git-dir"])?;
     if !ok {
@@ -1089,12 +1124,24 @@ fn friendly_commit_error(raw: &str) -> AppError {
     AppError::new(raw)
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitUndoResult {
+    pub message: String,
+    /// Post-reset status saves the frontend a second status round-trip; None falls back to a normal refresh.
+    pub status: Option<GitStatus>,
+}
+
 /// Undo the last commit: changes stay staged, and the full message of the undone commit is
 /// returned so the frontend can refill the commit box. For the only commit, delete the branch ref
 /// (back to unborn) and leave index and worktree untouched.
 #[tauri::command(async)]
-pub fn git_undo_commit(state: State<'_, AppState>, root: String) -> AppResult<String> {
+pub fn git_undo_commit(state: State<'_, AppState>, root: String) -> AppResult<GitUndoResult> {
     let root_path = state.authorize(&root)?;
+    undo_commit(&root_path)
+}
+
+fn undo_commit(root_path: &Path) -> AppResult<GitUndoResult> {
     let root_str = root_path.to_string_lossy().to_string();
 
     // No history rewriting while merge / rebase etc. is running; let the user finish it first
@@ -1145,7 +1192,8 @@ pub fn git_undo_commit(state: State<'_, AppState>, root: String) -> AppResult<St
     if !ok {
         return Err(AppError::new(text.trim().to_string()));
     }
-    Ok(message)
+    let status = read_status(root_path).ok();
+    Ok(GitUndoResult { message, status })
 }
 
 #[tauri::command(async)]
@@ -1771,7 +1819,7 @@ pub fn git_conflict_reset(
 
 #[cfg(test)]
 mod tests {
-    use super::{apply_discard_change, discard_changes, discard_changes_with, discard_paths, git_cmd, run_text, truncate_patch};
+    use super::{apply_discard_change, discard_changes, discard_changes_with, discard_paths, git_cmd, local_repo_paths, repo_paths, run_text, truncate_patch, undo_commit};
     use std::io::Write;
     use std::path::PathBuf;
     use std::process::Stdio;
@@ -1831,6 +1879,48 @@ mod tests {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.root);
         }
+    }
+
+    #[test]
+    fn local_repo_paths_handles_git_directory_and_gitdir_file() {
+        let repo = TestRepo::new();
+        let root = repo.root.to_str().unwrap();
+        let paths = local_repo_paths(root).unwrap();
+        assert_eq!(paths.toplevel, root);
+        assert_eq!(paths.gitdir, repo.root.join(".git"));
+
+        std::fs::remove_dir_all(repo.root.join(".git")).unwrap();
+        let gitdir = repo.root.join("actual-git-dir");
+        std::fs::create_dir(&gitdir).unwrap();
+        std::fs::write(repo.root.join(".git"), "gitdir: actual-git-dir\n").unwrap();
+        let linked = local_repo_paths(root).unwrap();
+        assert_eq!(linked.gitdir, gitdir);
+    }
+
+    #[test]
+    fn repo_paths_falls_back_for_a_workspace_subdirectory() {
+        let repo = TestRepo::new();
+        let subdir = repo.root.join("nested");
+        std::fs::create_dir(&subdir).unwrap();
+        assert!(local_repo_paths(subdir.to_str().unwrap()).is_none());
+        let paths = repo_paths(subdir.to_str().unwrap()).unwrap().unwrap();
+        assert_eq!(PathBuf::from(paths.toplevel), repo.root);
+    }
+
+    #[test]
+    fn undo_commit_returns_message_and_fresh_status() {
+        let repo = TestRepo::new();
+        repo.write("a.txt", "one\n");
+        repo.commit();
+        repo.write("a.txt", "two\n");
+        repo.commit();
+
+        let result = undo_commit(&repo.root).unwrap();
+        assert_eq!(result.message, "baseline");
+        let status = result.status.expect("post-reset status");
+        assert_eq!(status.staged.len(), 1);
+        assert_eq!(status.staged[0].path, "a.txt");
+        assert_eq!(repo.read("a.txt"), "two\n");
     }
 
     #[test]

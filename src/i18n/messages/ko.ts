@@ -161,6 +161,7 @@ export const ko: Messages = {
   'activity.terminal': '터미널',
   'activity.terminalTip': '터미널',
   'activity.settingsTip': '설정',
+  'activity.welcomeTip': '환영합니다',
 
   'titlebar.projectTip': '프로젝트: {name}',
   'titlebar.projectAria': '프로젝트 {name}',
@@ -251,6 +252,9 @@ export const ko: Messages = {
   'settings.editor.insertFinalNewline': '마지막 줄 개행 추가',
 
   'settings.memory.card': '메모리',
+  'settings.activityBar.card': '활동 표시줄',
+  'settings.activityBar.hint': '탐색기와 검색은 항상 표시됩니다. 활동 표시줄을 두 번 클릭하면 이 아이콘을 빠르게 전환할 수 있습니다.',
+  'settings.activityBar.tasksDisabled': '먼저 작업 및 문제를 활성화하세요.',
   'settings.memory.lightweight': '라이트 모드',
   'settings.memory.lightweightHint': '백그라운드 기능을 중지해 메모리를 확보합니다. 돌아오면 열린 파일을 다시 불러올 수 있습니다.',
   'settings.memory.lightweightOn':

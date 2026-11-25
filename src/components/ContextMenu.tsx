@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { Icon } from './Icon'
 
 export type MenuItem =
   | {
@@ -8,6 +9,10 @@ export type MenuItem =
       shortcut?: string
       danger?: boolean
       disabled?: boolean
+      /** Checkable item: state is exposed as an aria-pressed toggle. */
+      checked?: boolean
+      /** Keep the menu mounted after clicking, for checklists that hide several entries in a row. */
+      keepOpen?: boolean
       onClick: () => void
     }
   | { type: 'separator' }
@@ -72,9 +77,10 @@ export function ContextMenu({ x, y, items, onClose, maxHeight }: Props) {
             disabled={item.disabled}
             onClick={() => {
               if (item.disabled) return
-              onClose()
+              if (!item.keepOpen) onClose()
               item.onClick()
             }}
+            aria-pressed={item.checked}
             className={`mx-1 flex ${item.description ? 'min-h-6 max-w-[340px] py-1.5' : 'h-6'} w-[calc(100%_-_8px)] items-center justify-between gap-6 rounded-[var(--r-row)] px-2 text-left text-sm transition-colors duration-fast ${
               item.disabled
                 ? 'cursor-default text-muted/50'
@@ -82,7 +88,13 @@ export function ContextMenu({ x, y, items, onClose, maxHeight }: Props) {
             }`}
           >
             <span className="min-w-0"><span className="block truncate">{item.label}</span>{item.description ? <span className="block whitespace-normal text-xs text-muted">{item.description}</span> : null}</span>
-            {item.shortcut ? <span className="shrink-0 text-xs text-muted/70">{item.shortcut}</span> : null}
+            {item.checked !== undefined ? (
+              <span className="flex h-3 w-3 shrink-0 items-center justify-center text-accent">
+                {item.checked ? <Icon name="check" size={11} /> : null}
+              </span>
+            ) : item.shortcut ? (
+              <span className="shrink-0 text-xs text-muted/70">{item.shortcut}</span>
+            ) : null}
           </button>
         )
       })}

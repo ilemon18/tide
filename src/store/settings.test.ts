@@ -54,6 +54,51 @@ describe('Project task preferences', () => {
   })
 })
 
+
+describe('Activity bar visibility preferences', () => {
+  it('defaults missing and malformed switches on while preserving saved values', async () => {
+    expect(useSettings.getState()).toMatchObject({
+      activityBarWelcomeVisible: true,
+      activityBarGitVisible: true,
+      activityBarStructureVisible: true,
+      activityBarTasksVisible: true,
+    })
+    const legacy = { ...DEFAULT_SETTINGS, schemaVersion: 15 } as Partial<Settings>
+    delete legacy.activityBarWelcomeVisible
+    delete legacy.activityBarGitVisible
+    delete legacy.activityBarStructureVisible
+    delete legacy.activityBarTasksVisible
+    vi.mocked(api.loadSettings).mockResolvedValue({ ...legacy, fontSize: 18 } as Settings)
+    await useSettings.getState().load()
+    expect(useSettings.getState()).toMatchObject({
+      activityBarWelcomeVisible: true,
+      activityBarGitVisible: true,
+      activityBarStructureVisible: true,
+      activityBarTasksVisible: true,
+      schemaVersion: SETTINGS_SCHEMA_VERSION,
+      fontSize: 18,
+    })
+    vi.mocked(api.loadSettings).mockResolvedValue({
+      ...DEFAULT_SETTINGS,
+      activityBarGitVisible: 'broken',
+    } as unknown as Settings)
+    await useSettings.getState().load()
+    expect(useSettings.getState().activityBarGitVisible).toBe(true)
+    vi.mocked(api.loadSettings).mockResolvedValue({ ...DEFAULT_SETTINGS, activityBarGitVisible: false })
+    await useSettings.getState().load()
+    expect(useSettings.getState().activityBarGitVisible).toBe(false)
+  })
+
+  it('persists visibility and syncs it across windows without changing local layout', async () => {
+    useSettings.getState().patch({ activityBarStructureVisible: false })
+    await vi.advanceTimersByTimeAsync(400)
+    expect(api.saveSettings).toHaveBeenLastCalledWith(expect.objectContaining({ activityBarStructureVisible: false }))
+    useSettings.setState({ sidebarWidth: 345 })
+    useSettings.getState().applyExternal({ ...DEFAULT_SETTINGS, activityBarStructureVisible: true })
+    expect(useSettings.getState()).toMatchObject({ activityBarStructureVisible: true, sidebarWidth: 345 })
+  })
+})
+
 describe('Agent preference persistence', () => {
   it.each([
     { agentDefaultProvider: 'codex' },

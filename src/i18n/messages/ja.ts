@@ -161,6 +161,7 @@ export const ja: Messages = {
   'activity.terminal': 'ターミナル',
   'activity.terminalTip': 'ターミナル',
   'activity.settingsTip': '設定',
+  'activity.welcomeTip': 'ウェルカム',
 
   'titlebar.projectTip': 'プロジェクト: {name}',
   'titlebar.projectAria': 'プロジェクト {name}',
@@ -251,6 +252,9 @@ export const ja: Messages = {
   'settings.editor.insertFinalNewline': '最終行の改行を補う',
 
   'settings.memory.card': 'メモリ',
+  'settings.activityBar.card': 'アクティビティバー',
+  'settings.activityBar.hint': 'エクスプローラーと検索は常に表示されます。アクティビティバーをダブルクリックすると、これらのアイコンをすばやく切り替えられます。',
+  'settings.activityBar.tasksDisabled': '先にタスクと問題を有効にしてください。',
   'settings.memory.lightweight': '軽量モード',
   'settings.memory.lightweightHint': 'バックグラウンド機能を停止してメモリを解放。開いているファイルは戻ると再読み込みされる場合があります。',
   'settings.memory.lightweightOn':

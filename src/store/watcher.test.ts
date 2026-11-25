@@ -3,6 +3,7 @@ import type { FsChanged } from '../lib/ipc'
 
 const mocks = vi.hoisted(() => ({
   listen: vi.fn(), refreshTree: vi.fn(), refreshDirs: vi.fn(), scheduleRefresh: vi.fn(),
+  isIndexPending: vi.fn(() => false),
   invalidateBranches: vi.fn(), invalidateChain: vi.fn(), invalidateIndex: vi.fn(), refreshFromDisk: vi.fn(),
 }))
 vi.mock('@tauri-apps/api/event', () => ({ listen: mocks.listen }))
@@ -24,6 +25,7 @@ beforeEach(async () => {
   vi.useFakeTimers()
   vi.resetModules()
   vi.clearAllMocks()
+  mocks.isIndexPending.mockReturnValue(false)
   mocks.refreshDirs.mockResolvedValue(undefined)
   mocks.refreshTree.mockResolvedValue(undefined)
   mocks.refreshFromDisk.mockResolvedValue(undefined)
@@ -49,6 +51,12 @@ it('refreshes Git and diff state without touching the tree for add/commit metada
   expect(mocks.invalidateIndex).not.toHaveBeenCalled()
   await vi.advanceTimersByTimeAsync(400)
   expect(mocks.refreshFromDisk).toHaveBeenCalledWith('/repo', undefined)
+})
+
+it('skips the duplicate Git status while an optimistic index queue owns the refresh', () => {
+  mocks.isIndexPending.mockReturnValue(true)
+  emit(event())
+  expect(mocks.scheduleRefresh).not.toHaveBeenCalled()
 })
 
 it('refreshes affected directories when Git and worktree changes share a batch', async () => {

@@ -21,6 +21,8 @@ scope:
   - src/lib/useShortcut.ts
   - src/components/ShortcutSettings*.tsx
   - src/components/ActivityBar.tsx
+  - src/components/ActivityBar.test.tsx
+  - src/lib/activityBar.ts
   - src/components/StatusBar.tsx
   - src/lib/memory.ts
   - src/components/Welcome.tsx
@@ -59,7 +61,11 @@ App owns hydration/window coordination; the settings store and Rust theme comman
 
 - Welcome lists Open file first, then Open folder; Open file uses the native multi-file picker and opens
   in-project paths normally or exact external-file grants otherwise. File grants belong to the window and
-  are released on Destroyed.
+  are released on Destroyed. The activity bar's home icon reuses `openWelcome()`, so an already open
+  welcome tab is focused rather than duplicated.
+- Explorer and Search are always visible in the activity bar. Welcome, Source Control, Structure and Tasks
+  can be hidden from Settings → General or the double-click checklist. Visibility is cosmetic: commands and
+  shortcuts still open a hidden view; turning a currently visible view off falls back to Explorer once.
 - Mod+Shift+A opens Agent using the title-bar action, including from editors/terminals/text fields. Mod+A
   always remains native; dialogs/overlays block app shortcuts. Shared shortcut contracts are below.
 
@@ -143,8 +149,9 @@ volume root so the command-line installer and app updates can locate it. The Fin
   execution, diagnostics and process ownership follow [tasks.md](./tasks.md).
 - Settings → Agent no longer exposes permission defaults or a permission explanation card. Chat composer
   permission controls and the persisted permission field remain runtime contracts for existing and new chats.
-- Schema v11 adds agentDefaultPermissionMode=workspace-write, schema v12 adds autoUpdate=false, and schema
-  v13 adds agentHistoryEnabled=true; v14 adds shortcutOverrides={}; v15 adds tasksEnabled=true. Invalid
+- Schema v11 adds agentDefaultPermissionMode=workspace-write, schema v12 adds autoUpdate=false, schema
+  v13 adds agentHistoryEnabled=true; v14 adds shortcutOverrides={}; v15 adds tasksEnabled=true; v16 adds
+  the four activityBar*Visible switches=true. Invalid
   values fall back without resetting other settings. Provider/model/effort/permission and update preferences
   write immediately and sync windows; UI patches related fields together. Historical chats keep saved options;
   temporary plan options never become defaults.

@@ -168,6 +168,7 @@ export const en = {
   'activity.terminal': 'Terminal',
   'activity.terminalTip': 'Terminal',
   'activity.settingsTip': 'Settings',
+  'activity.welcomeTip': 'Welcome',
 
   // ---------------------------------------------------------------- Title bar
   'titlebar.projectTip': 'Project: {name}',
@@ -267,6 +268,9 @@ export const en = {
 
   // ---------------------------------------------------------------- Settings: memory
   'settings.memory.card': 'Memory',
+  'settings.activityBar.card': 'Activity bar',
+  'settings.activityBar.hint': 'Explorer and Search are always shown. Double-click the activity bar to change these quickly.',
+  'settings.activityBar.tasksDisabled': 'Enable tasks and Problems first.',
   'settings.memory.lightweight': 'Lightweight mode',
   'settings.memory.lightweightHint':
     'Frees memory by pausing background features. Open files may reload when you return.',
