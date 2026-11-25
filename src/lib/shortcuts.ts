@@ -36,18 +36,23 @@ export function isReservedShortcut(value: string, mac: boolean): boolean {
     identity === mod + '+' + key || (['z', 'v'].includes(key) && identity === mod + '+Shift+' + key)))
 }
 
-export function shortcutFromEvent(event: ShortcutEvent, mac: boolean): string | null {
-  if (['Meta', 'Control', 'Alt', 'Shift', 'AltGraph'].includes(event.key)) return null
-  // Option may produce a different printable letter on macOS. Preserve its physical shortcut key.
-  const key = event.altKey && /^Key[A-Z]$/.test(event.code ?? '')
-    ? event.code!.slice(3).toLowerCase() : shortcutKey(event)
+/** Canonical modifiers held by an event, in the same order normalizeShortcut stores them. */
+export function shortcutModifiers(event: ShortcutEvent, mac: boolean): string[] {
   const mods: string[] = []
   if (mac ? event.metaKey : event.ctrlKey) mods.push('Mod')
   if (mac && event.ctrlKey) mods.push('Ctrl')
   if (!mac && event.metaKey) mods.push('Meta')
   if (event.altKey) mods.push('Alt')
   if (event.shiftKey) mods.push('Shift')
-  return normalizeShortcut([...mods, key === ' ' ? 'space' : key].join('+'))
+  return mods
+}
+
+export function shortcutFromEvent(event: ShortcutEvent, mac: boolean): string | null {
+  if (['Meta', 'Control', 'Alt', 'Shift', 'AltGraph'].includes(event.key)) return null
+  // Option may produce a different printable letter on macOS. Preserve its physical shortcut key.
+  const key = event.altKey && /^Key[A-Z]$/.test(event.code ?? '')
+    ? event.code!.slice(3).toLowerCase() : shortcutKey(event)
+  return normalizeShortcut([...shortcutModifiers(event, mac), key === ' ' ? 'space' : key].join('+'))
 }
 
 export function normalizeOverrides(raw: unknown): ShortcutOverrides {
@@ -116,13 +121,26 @@ export function assignShortcuts(id: string, bindings: readonly string[], overrid
 const KEY_LABELS: Record<string, string> = { arrowdown: '↓', arrowup: '↑', arrowleft: '←', arrowright: '→',
   backspace: 'Backspace', delete: 'Delete', enter: 'Enter', tab: 'Tab', space: 'Space',
   pageup: 'PageUp', pagedown: 'PageDown', home: 'Home', end: 'End', insert: 'Insert' }
-export function formatBinding(value: string, mac: boolean): string {
+const MAC_MODIFIER_LABELS: Record<string, string> = { Mod: '⌘', Meta: '⌘', Ctrl: '⌃', Alt: '⌥', Shift: '⇧' }
+const OTHER_MODIFIER_LABELS: Record<string, string> = { Mod: 'Ctrl', Meta: 'Meta', Ctrl: 'Ctrl', Alt: 'Alt', Shift: 'Shift' }
+
+function modifierLabel(value: string, mac: boolean): string {
+  const labels = mac ? MAC_MODIFIER_LABELS : OTHER_MODIFIER_LABELS
+  return labels[value] ?? value
+}
+
+/** Format held modifiers alone, e.g. `⌘` then `⌘ ⇧`, while a recording is waiting for a final key. */
+export function formatModifiers(modifiers: readonly string[], mac: boolean): string {
+  return modifiers.map(modifier => modifierLabel(modifier, mac)).join(mac ? ' ' : ' + ')
+}
+
+export function formatBinding(value: string, mac: boolean, options?: { spaced?: boolean }): string {
   const parts = shortcutIdentity(value, mac).split('+')
   const key = parts.pop()!
-  const labels: Record<string, string> = mac
-    ? { Meta: '⌘', Ctrl: '⌃', Alt: '⌥', Shift: '⇧' }
-    : { Meta: 'Meta', Ctrl: 'Ctrl', Alt: 'Alt', Shift: 'Shift' }
-  return [...parts.map(part => labels[part] ?? part), KEY_LABELS[key] ?? key.toUpperCase()].join(mac ? '' : '+')
+  // Settings uses spaces between macOS glyphs so bindings such as ⌘⇧A stay readable. Elsewhere compact
+  // labels remain stable; Windows/Linux keep their familiar Ctrl+Shift+A spelling.
+  const separator = mac ? (options?.spaced ? ' ' : '') : '+'
+  return [...parts.map(part => modifierLabel(part, mac)), KEY_LABELS[key] ?? key.toUpperCase()].join(separator)
 }
 
 let recorder: { handler: (event: KeyboardEvent) => void; accepts: (event: KeyboardEvent) => boolean } | null = null

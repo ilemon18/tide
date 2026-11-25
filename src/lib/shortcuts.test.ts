@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { COMMANDS } from './commandRegistry'
-import { assignShortcuts, formatBinding, isReservedShortcut, normalizeOverrides, normalizeShortcut,
-  overridesEqual, resolveShortcuts, shortcutConflicts, shortcutFromEvent, shortcutIdentity } from './shortcuts'
+import { assignShortcuts, formatBinding, formatModifiers, isReservedShortcut, normalizeOverrides,
+  normalizeShortcut, overridesEqual, resolveShortcuts, shortcutConflicts, shortcutFromEvent,
+  shortcutIdentity, shortcutModifiers } from './shortcuts'
 
 describe.each([true, false])('shortcut ownership (mac=%s)', mac => {
   it('uses Shift+A for Agent and leaves select-all to native controls', () => {
@@ -63,5 +64,15 @@ it('rejects unmodified typing and formats platform-appropriate labels', () => {
     expect(normalizeShortcut(value)).toBeNull()
   }
   expect(formatBinding('Mod+Shift+a', true)).toBe('⌘⇧A')
+  expect(formatBinding('Mod+Shift+a', true, { spaced: true })).toBe('⌘ ⇧ A')
   expect(formatBinding('Mod+Shift+a', false)).toBe('Ctrl+Shift+A')
+})
+
+it('formats partial modifier previews for the recording field', () => {
+  const command = { key: 'Meta', metaKey: true, ctrlKey: false, altKey: false, shiftKey: false }
+  expect(formatModifiers(shortcutModifiers(command, true), true)).toBe('⌘')
+  const commandShift = { ...command, key: 'Shift', shiftKey: true }
+  expect(formatModifiers(shortcutModifiers(commandShift, true), true)).toBe('⌘ ⇧')
+  expect(formatModifiers(shortcutModifiers({ ...command, metaKey: false, ctrlKey: true }, false), false))
+    .toBe('Ctrl')
 })

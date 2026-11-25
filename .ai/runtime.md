@@ -68,8 +68,10 @@ App owns hydration/window coordination; the settings store and Rust theme comman
   actions; the configured Find command targets history search, including from its input. Global navigation
   and appearance commands remain available. Hidden Agent Escape/latest handlers and popup listeners must
   not consume history input or stop background turns.
-- One window/project. Only `IS_PRIMARY_WINDOW` persists session/chat state; secondaries use the window URL
-  project without overwriting primary state. `app:open-file` has no listener; do not assume consumption.
+- One window/project. Every focused project window may persist the project-layout session, so the last
+  active project is restored after the main window was closed; blank windows do not overwrite it on focus.
+  Only `IS_PRIMARY_WINDOW` persists editor/chat session state. `app:open-file` has no listener; do not
+  assume consumption.
 - macOS retains traffic-light inset; Windows/Linux use TitleBar's custom drag/control region. Every window
   command needs its `core:window:allow-*` capability in `src-tauri/capabilities/default.json`.
 - macOS main-window close hides instead of quitting: Rust prevents close, allows a short frontend
@@ -103,13 +105,15 @@ volume root so the command-line installer and app updates can locate it. The Fin
   dispatch until that turn stops or completes.
 - Saving a recording transfers the stroke and persists explicit removals for all previous owners in one
   patch, including hidden actions. Keep other aliases. Single reset transfers default strokes the same way;
-  global reset clears overrides. Recording captures before dispatch, Escape cancels, modifier-only/repeat/
-  composition events never save. Plain/Shift-only typing and native select/copy/paste/cut/undo/redo keys
-  cannot be assigned. Only explicit Save commits; no extra conflict confirmation.
-- Adding/editing a shortcut opens a centered portal dialog with action/scope, original binding and a focused
-  recording field. Capture candidate strokes only in that field; Escape cancels throughout the dialog.
-  Tab/Shift+Tab cycle through enabled dialog controls, buttons keep native activation, app actions remain
-  blocked and closing/unmounting releases listeners and restores focus to the connected trigger or edited binding.
+  global reset asks for confirmation before clearing overrides. Recording captures before dispatch, Escape
+  cancels, modifier-only/repeat/composition events never save. Modifier keydowns preview their icons while a
+  stroke is incomplete. Plain/Shift-only typing and native select/copy/paste/cut/undo/redo keys cannot be
+  assigned. Only explicit Save commits; no extra conflict confirmation.
+- Adding/editing a shortcut opens a centered portal dialog with the action, original binding and a focused
+  recording field. Settings uses spaced macOS glyphs (`⌘ ⇧ A`); other hints keep compact labels. Capture
+  candidate strokes only in that field; Escape cancels throughout the dialog. Tab/Shift+Tab cycle through
+  enabled dialog controls, buttons keep native activation, app actions remain blocked and closing/unmounting
+  releases listeners and restores focus to the connected trigger or edited binding.
 - v14 shortcutOverrides defaults to {}; absent id means defaults, [] explicitly unbinds. Normalize damaged
   entries without resetting other settings; retain unknown ids but never execute them. Compare key content,
   preserve override order for deterministic duplicate recovery, save immediately and share across windows.

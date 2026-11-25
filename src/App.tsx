@@ -340,7 +340,12 @@ export function App() {
 
   // Incremental git refresh on window focus
   useEffect(() => {
-    const onFocus = () => void useGit.getState().refresh()
+    const onFocus = () => {
+      // The last focused project window owns what startup reopens, including secondary windows after
+      // the original main window was closed. Blank windows must not erase the saved project.
+      if (useWorkspace.getState().activeRootId) useWorkspace.getState().flushSession()
+      void useGit.getState().refresh()
+    }
     window.addEventListener('focus', onFocus)
     return () => window.removeEventListener('focus', onFocus)
   }, [])

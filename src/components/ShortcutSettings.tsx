@@ -6,8 +6,8 @@ import { useT, type MessageKey } from '../i18n'
 import { COMMANDS, commandDefinition, type ShortcutScope } from '../lib/commandRegistry'
 import { isMac } from '../lib/paths'
 import {
-  assignShortcuts, captureShortcutRecording, formatBinding, isReservedShortcut, resolveShortcuts,
-  shortcutConflicts, shortcutFromEvent, startShortcutRecording,
+  assignShortcuts, captureShortcutRecording, formatBinding, formatModifiers, isReservedShortcut,
+  resolveShortcuts, shortcutConflicts, shortcutFromEvent, shortcutModifiers, startShortcutRecording,
 } from '../lib/shortcuts'
 
 const SCOPE_KEYS: Record<ShortcutScope, MessageKey> = {
@@ -15,8 +15,9 @@ const SCOPE_KEYS: Record<ShortcutScope, MessageKey> = {
   terminal: 'shortcuts.scope.terminal', context: 'shortcuts.scope.context',
 }
 
-type Recording = { id: string; original: string | null; candidate: string | null; invalid: boolean }
+type Recording = { id: string; original: string | null; candidate: string | null; modifiers: string[]; invalid: boolean }
 const buttonClass = 'rounded border border-line px-2 py-1 text-xs text-muted hover:bg-hover hover:text-fg disabled:opacity-40'
+const bindingOptions = { spaced: true } as const
 
 export function ShortcutSettings() {
   const t = useT()
@@ -39,10 +40,15 @@ export function ShortcutSettings() {
     recordingInput.current?.focus()
     const stop = startShortcutRecording(event => {
       if (event.key === 'Escape') { setRecording(null); return }
-      if (event.repeat || ['Meta', 'Control', 'Alt', 'Shift', 'AltGraph'].includes(event.key)) return
+      if (event.repeat) return
+      if (['Meta', 'Control', 'Alt', 'Shift', 'AltGraph'].includes(event.key)) {
+        // Show Command / Shift / Option / Control immediately, even before a final key arrives.
+        setRecording(previous => previous && { ...previous, modifiers: shortcutModifiers(event, mac) })
+        return
+      }
       const key = shortcutFromEvent(event, mac)
       const invalid = !key || isReservedShortcut(key, mac) || event.isComposing || event.keyCode === 229
-      setRecording(previous => previous && { ...previous, candidate: invalid ? null : key, invalid })
+      setRecording(previous => previous && { ...previous, candidate: invalid ? null : key, modifiers: [], invalid })
     }, event => event.key === 'Escape' || (document.activeElement === recordingInput.current &&
       !(event.key === 'Tab' && !event.metaKey && !event.ctrlKey && !event.altKey)))
     // Also work when this surface is mounted by itself. App dispatch calls the same recorder first.
@@ -65,7 +71,7 @@ export function ShortcutSettings() {
 
   const beginRecording = (id: string, index: number | null, trigger: HTMLButtonElement) => {
     recordingTrigger.current = trigger
-    setRecording({ id, original: index === null ? null : resolved[id][index], candidate: null, invalid: false })
+    setRecording({ id, original: index === null ? null : resolved[id][index], candidate: null, modifiers: [], invalid: false })
   }
 
   const replace = (id: string, keys: readonly string[], reset = false) => {
@@ -88,12 +94,28 @@ export function ShortcutSettings() {
     replace(recording.id, next)
     setRecording(null)
   }
+  const resetAll = async () => {
+    if (Object.keys(useSettings.getState().shortcutOverrides ?? {}).length === 0) return
+    const confirmed = await useUi.getState().confirm({
+      title: t('shortcuts.resetAllTitle'),
+      message: t('shortcuts.resetAllMessage'),
+      confirmText: t('shortcuts.resetAllConfirm'),
+      danger: true,
+    })
+    if (!confirmed) return
+    setRecording(null)
+    useSettings.getState().patch({ shortcutOverrides: {} })
+  }
   const q = query.trim().toLowerCase()
   const commands = COMMANDS.filter(command => !q || [command.id, t(command.titleKey), t(command.groupKey),
-    ...(resolved[command.id] ?? []).flatMap(key => [key, formatBinding(key, mac)])]
+    ...(resolved[command.id] ?? []).flatMap(key => [key, formatBinding(key, mac),
+      formatBinding(key, mac, bindingOptions)])]
     .some(text => text.toLowerCase().includes(q)))
   const groups = [...new Set(commands.map(command => command.groupKey))]
   const conflicts = recording?.candidate ? shortcutConflicts(recording.id, [recording.candidate], overrides, mac) : []
+  const preview = recording?.candidate
+    ? formatBinding(recording.candidate, mac, bindingOptions)
+    : formatModifiers(recording?.modifiers ?? [], mac)
 
   return (
     <div className="space-y-4">
@@ -101,12 +123,9 @@ export function ShortcutSettings() {
         <input aria-label={t('shortcuts.search')} placeholder={t('shortcuts.search')} value={query}
           onChange={event => setQuery(event.target.value)}
           className="min-w-0 flex-1 rounded border border-line bg-panel px-3 py-2 text-sm outline-none focus:border-accent" />
-        <button className={buttonClass} onClick={() => {
-          setRecording(null)
-          useSettings.getState().patch({ shortcutOverrides: {} })
-        }}>{t('shortcuts.resetAll')}</button>
+        <button className={buttonClass} disabled={Object.keys(overrides).length === 0}
+          onClick={() => void resetAll()}>{t('shortcuts.resetAll')}</button>
       </div>
-      <p className="text-xs leading-relaxed text-muted">{t('shortcuts.help')}</p>
       {recording && createPortal(
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/35 p-4"
           onMouseDown={event => { if (event.target === event.currentTarget) setRecording(null) }}>
@@ -122,17 +141,16 @@ export function ShortcutSettings() {
             <div className="px-4 pb-4 pt-4">
               <h2 id={titleId} className="text-md font-semibold text-fg">{t('shortcuts.recordTitle')}</h2>
               <p className="mt-2 text-sm text-fg">{t(commandDefinition(recording.id)!.titleKey)}</p>
-              <p className="mt-1 text-xs text-muted">{t(SCOPE_KEYS[commandDefinition(recording.id)!.scope])}</p>
               {recording.original && <p className="mt-2 text-xs text-muted">{t('shortcuts.currentBinding', {
-                keys: formatBinding(recording.original, mac),
+                keys: formatBinding(recording.original, mac, bindingOptions),
               })}</p>}
-              <input ref={recordingInput} readOnly aria-label={t('shortcuts.recordTitle')} aria-describedby={hintId}
-                aria-invalid={recording.invalid} value={recording.candidate ? formatBinding(recording.candidate, mac) : ''}
-                placeholder={t('shortcuts.unbound')} spellCheck={false}
+              <input ref={recordingInput} readOnly aria-label={t('shortcuts.recordTitle')}
+                aria-describedby={recording.invalid ? hintId : undefined} aria-invalid={recording.invalid} value={preview}
+                placeholder={t('shortcuts.recordHint')} spellCheck={false}
                 className="mt-4 w-full rounded border border-line bg-bg px-3 py-4 text-center font-mono text-lg outline-none placeholder:font-sans placeholder:text-sm focus:border-accent" />
-              <p id={hintId} className={`mt-2 text-xs leading-relaxed ${recording.invalid ? 'text-warning' : 'text-muted'}`} aria-live="polite">
-                {t(recording.invalid ? 'shortcuts.invalid' : 'shortcuts.recordHint')}
-              </p>
+              {recording.invalid && <p id={hintId} className="mt-2 text-xs leading-relaxed text-warning" aria-live="polite">
+                {t('shortcuts.invalid')}
+              </p>}
               {conflicts.length > 0 && <p className="mt-3 text-xs text-warning" role="status">{t('shortcuts.conflict', {
                 commands: conflicts.map(id => t(commandDefinition(id)!.titleKey)).join(', '),
               })}</p>}
@@ -161,9 +179,9 @@ export function ShortcutSettings() {
                   <div className="flex flex-wrap items-center gap-2">
                     {!keys.length && <span className="text-xs text-muted">{t('shortcuts.unbound')}</span>}
                     {keys.map((key, index) => <span key={key} className="flex items-center rounded border border-line">
-                      <button data-binding-index={index} className="px-2 py-1 font-mono text-xs hover:bg-hover" aria-label={t('shortcuts.editBinding', { keys: formatBinding(key, mac) })}
-                        onClick={event => beginRecording(command.id, index, event.currentTarget)}>{formatBinding(key, mac)}</button>
-                      <button className="border-l border-line px-2 py-1 text-xs text-muted hover:text-danger" aria-label={t('shortcuts.removeBinding', { keys: formatBinding(key, mac) })}
+                      <button data-binding-index={index} className="px-2 py-1 font-mono text-xs hover:bg-hover" aria-label={t('shortcuts.editBinding', { keys: formatBinding(key, mac, bindingOptions) })}
+                        onClick={event => beginRecording(command.id, index, event.currentTarget)}>{formatBinding(key, mac, bindingOptions)}</button>
+                      <button className="border-l border-line px-2 py-1 text-xs text-muted hover:text-danger" aria-label={t('shortcuts.removeBinding', { keys: formatBinding(key, mac, bindingOptions) })}
                         onClick={() => replace(command.id, keys.filter((_, i) => i !== index))}>×</button>
                     </span>)}
                     <button data-add-binding className={buttonClass} onClick={event => beginRecording(command.id, null, event.currentTarget)}>{t('shortcuts.add')}</button>

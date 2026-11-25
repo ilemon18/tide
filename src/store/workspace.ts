@@ -275,8 +275,9 @@ export const useWorkspace = create<WorkspaceStore>((set, get) => {
   }
 
   const saveSession = () => {
-    // With several windows only the main one writes the session, so they don't overwrite each other
-    if (!IS_PRIMARY_WINDOW) return
+    // One project per window. Every project window may write the project-layout session, so the last
+    // focused project survives even when the main window was closed first. Editor/chat sessions stay
+    // primary-only; recent entries are ignored by the backend save_session command.
     const { roots, recent, activeRootId } = get()
     // Which folders are open, per root: the explorer comes back in its previous shape. Bounded, since each
     // entry costs a directory read on the next start
