@@ -387,6 +387,7 @@ export const zhCN: Messages = {
   'dialog.delete.title': '删除',
   'dialog.delete.message': '确定删除「{name}」吗？此操作无法撤销。',
   'dialog.openFolder.title': '打开文件夹',
+  'dialog.openFile.title': '打开文件',
   'dialog.saveAs.title': '另存为',
 
   'toast.projectInOtherWindow': '这个项目已经在另一个窗口打开，已帮你切过去',
@@ -397,7 +398,6 @@ export const zhCN: Messages = {
   'toast.oneProjectPerWindow': '一个窗口只能打开一个项目，已打开第一个',
   'toast.binaryFile': '这是一个二进制文件，Tide 只能编辑 UTF-8 文本',
   'toast.fileGone': '文件已不存在：{name}',
-  'toast.saveOutsideProject': '请把文件保存在当前项目内',
   'toast.savedAs': '已保存为 {name}',
   'toast.wordWrapUnavailable': '大文件不换行',
   'toast.formatDisabled': '格式化已关闭，可在设置 → 编辑器 → 格式化里打开',
@@ -413,6 +413,8 @@ export const zhCN: Messages = {
 
   'tab.untitledName': '未命名-{count}',
   'tab.untitledFileName': '未命名-{count}',
+  'tabs.newTextFile': '新建文本文件',
+  'tabs.openFile': '打开文件…',
   'tabs.close': '关闭',
   'tabs.closeOthers': '关闭其他',
   'tabs.closeLeft': '关闭左侧',
@@ -456,6 +458,7 @@ export const zhCN: Messages = {
   'projects.openInNewWindowTip': '在新窗口打开',
   'projects.removeRecentTip': '从最近打开中移除',
 
+  'welcome.openFile': '打开文件',
   'welcome.openFolder': '打开文件夹',
   'welcome.quickOpen': '快速打开文件',
   'welcome.newWindow': '新建窗口',
@@ -528,6 +531,7 @@ export const zhCN: Messages = {
   'commands.group.project': '项目',
   'commands.group.git': 'Git',
   'commands.folder.open': '打开文件夹…',
+  'commands.file.open': '打开文件…',
   'commands.folder.close': '关闭项目',
   'commands.folder.new': '新建文件夹…',
   'commands.app.newWindow': '新建窗口',
@@ -700,6 +704,7 @@ export const zhCN: Messages = {
   'error.path.empty': '路径不能为空',
   'error.path.outsideWorkspace': '路径超出了工作区范围：{path}',
   'error.fs.notAFolder': '目标不是文件夹',
+  'error.fs.notAFile': '目标不是文件：{path}',
   'error.fs.notADirectory': '不是目录：{path}',
   'error.fs.folderAsText': '这是文件夹，不能作为文本打开：{path}',
   'error.fs.folderAsImage': '这是文件夹，不能作为图片打开：{path}',

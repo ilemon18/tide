@@ -252,6 +252,8 @@ type CreateFileOpts = {
   inlineBlame: boolean
   /** git reports the file unmerged: attach conflict decorations and buttons */
   conflicted?: boolean
+  /** Import-link extension; false for external files (their root is the file, not a project) */
+  importLinks?: boolean
   blame?: BlameResult | null
   /** Where the caret goes: the remembered position (restored tab / cache rebuild), 1-based */
   cursor?: { line: number; col: number }
@@ -282,7 +284,10 @@ export async function createFileState(opts: CreateFileOpts): Promise<EditorState
         ? [conflictExtension, conflictRulerExtension]
         : [],
       // Not in the read-only preview: the viewport scan also costs per line. Skipped in lightweight mode too
-      opts.tier !== 'preview' && feature.importLinks() && supportsImportLinks(opts.rel)
+      opts.tier !== 'preview' &&
+      opts.importLinks !== false &&
+      feature.importLinks() &&
+      supportsImportLinks(opts.rel)
         ? importLinkExtension(() => ({ root: opts.root, rel: slot.rel }))
         : [],
       themeCompartment.of(currentThemeExtension()),

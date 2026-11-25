@@ -386,6 +386,7 @@ export const zhTW: Messages = {
   'dialog.delete.title': '刪除',
   'dialog.delete.message': '確定要刪除「{name}」嗎？此操作無法復原。',
   'dialog.openFolder.title': '開啟資料夾',
+  'dialog.openFile.title': '開啟檔案',
   'dialog.saveAs.title': '另存新檔',
 
   'toast.projectInOtherWindow': '這個專案已在另一個視窗開啟，已幫你切換過去',
@@ -396,7 +397,6 @@ export const zhTW: Messages = {
   'toast.oneProjectPerWindow': '一個視窗只能開啟一個專案，已開啟第一個',
   'toast.binaryFile': '這是二進位檔案，Tide 只能編輯 UTF-8 文字',
   'toast.fileGone': '檔案已不存在：{name}',
-  'toast.saveOutsideProject': '請將檔案儲存在目前專案內',
   'toast.savedAs': '已儲存為 {name}',
   'toast.wordWrapUnavailable': '大型檔案不換行',
   'toast.formatDisabled': '格式化已關閉，可在設定 → 編輯器 → 格式化裡開啟',
@@ -412,6 +412,8 @@ export const zhTW: Messages = {
 
   'tab.untitledName': '未命名-{count}',
   'tab.untitledFileName': '未命名-{count}',
+  'tabs.newTextFile': '新增文字檔',
+  'tabs.openFile': '開啟檔案…',
   'tabs.close': '關閉',
   'tabs.closeOthers': '關閉其他',
   'tabs.closeLeft': '關閉左側',
@@ -455,6 +457,7 @@ export const zhTW: Messages = {
   'projects.openInNewWindowTip': '在新視窗開啟',
   'projects.removeRecentTip': '從最近開啟中移除',
 
+  'welcome.openFile': '開啟檔案',
   'welcome.openFolder': '開啟資料夾',
   'welcome.quickOpen': '快速開啟檔案',
   'welcome.newWindow': '新增視窗',
@@ -527,6 +530,7 @@ export const zhTW: Messages = {
   'commands.group.project': '專案',
   'commands.group.git': 'Git',
   'commands.folder.open': '開啟資料夾…',
+  'commands.file.open': '開啟檔案…',
   'commands.folder.close': '關閉專案',
   'commands.folder.new': '新增資料夾…',
   'commands.app.newWindow': '新增視窗',
@@ -699,6 +703,7 @@ export const zhTW: Messages = {
   'error.path.empty': '路徑不能為空',
   'error.path.outsideWorkspace': '路徑超出工作區範圍：{path}',
   'error.fs.notAFolder': '目標不是資料夾',
+  'error.fs.notAFile': '目標不是檔案：{path}',
   'error.fs.notADirectory': '不是目錄：{path}',
   'error.fs.folderAsText': '這是資料夾，無法以文字開啟：{path}',
   'error.fs.folderAsImage': '這是資料夾，無法以圖片開啟：{path}',

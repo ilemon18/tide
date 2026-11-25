@@ -423,6 +423,7 @@ export const en = {
   'dialog.delete.title': 'Delete',
   'dialog.delete.message': 'Delete “{name}”? This cannot be undone.',
   'dialog.openFolder.title': 'Open folder',
+  'dialog.openFile.title': 'Open file',
   'dialog.saveAs.title': 'Save as',
 
   // ---------------------------------------------------------------- Toasts
@@ -434,7 +435,6 @@ export const en = {
   'toast.oneProjectPerWindow': 'A window holds one project; opened the first one',
   'toast.binaryFile': 'This is a binary file. Tide can only edit UTF-8 text.',
   'toast.fileGone': 'File no longer exists: {name}',
-  'toast.saveOutsideProject': 'Save the file inside the open project',
   'toast.savedAs': 'Saved as {name}',
   'toast.wordWrapUnavailable': 'Large files do not wrap',
   'toast.formatDisabled': 'Formatting is off. Turn it on in Settings → Editor → Formatting.',
@@ -453,6 +453,8 @@ export const en = {
   // ---------------------------------------------------------------- Tabs
   'tab.untitledName': 'Untitled-{count}',
   'tab.untitledFileName': 'Untitled-{count}',
+  'tabs.newTextFile': 'New text file',
+  'tabs.openFile': 'Open file…',
   'tabs.close': 'Close',
   'tabs.closeOthers': 'Close others',
   'tabs.closeLeft': 'Close to the left',
@@ -500,6 +502,7 @@ export const en = {
   'projects.removeRecentTip': 'Remove from recent',
 
   // ---------------------------------------------------------------- Welcome page
+  'welcome.openFile': 'Open file',
   'welcome.openFolder': 'Open folder',
   'welcome.quickOpen': 'Quick open file',
   'welcome.newWindow': 'New window',
@@ -576,6 +579,7 @@ export const en = {
   'commands.group.project': 'Project',
   'commands.group.git': 'Git',
   'commands.folder.open': 'Open folder…',
+  'commands.file.open': 'Open file…',
   'commands.folder.close': 'Close project',
   'commands.folder.new': 'New folder…',
   'commands.app.newWindow': 'New window',
@@ -760,6 +764,7 @@ export const en = {
   'error.path.empty': 'The path cannot be empty',
   'error.path.outsideWorkspace': 'Path is outside the workspace: {path}',
   'error.fs.notAFolder': 'That is not a folder',
+  'error.fs.notAFile': 'Not a file: {path}',
   'error.fs.notADirectory': 'Not a directory: {path}',
   'error.fs.folderAsText': 'This is a folder and cannot be opened as text: {path}',
   'error.fs.folderAsImage': 'This is a folder and cannot be opened as an image: {path}',

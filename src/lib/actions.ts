@@ -1,8 +1,8 @@
 import { open as openDialog } from '@tauri-apps/plugin-dialog'
 import { api, errorText } from './ipc'
-import { basename, dirname } from './paths'
+import { basename, dirname, relFromAbsolute } from './paths'
 import { activeRoot, useWorkspace } from '../store/workspace'
-import { useTabs } from '../store/tabs'
+import { useTabs, type TabGroupId } from '../store/tabs'
 import { useGit } from '../store/git'
 import { useTerminal } from '../store/terminal'
 import { useBlame } from '../store/blame'
@@ -102,6 +102,40 @@ export async function openFolderDialog(): Promise<void> {
     })
     if (typeof picked === 'string' && picked) {
       await openWorkspace(picked)
+    }
+  } catch (e) {
+    useUi.getState().toast(errorText(e), 'error')
+  }
+}
+
+/** Open one or more files. Files inside a project root open as normal project tabs; everything else
+ * gets an exact single-file grant and stays editable as an external tab in the same window. */
+export async function openFileDialog(options?: { groupId?: TabGroupId }): Promise<void> {
+  try {
+    const picked = await openDialog({
+      directory: false,
+      multiple: true,
+      title: t('dialog.openFile.title'),
+    })
+    const paths = Array.isArray(picked) ? picked : picked ? [picked] : []
+    const seen = new Set<string>()
+    for (const path of paths) {
+      if (!path || seen.has(path)) continue
+      seen.add(path)
+      const inside = useWorkspace
+        .getState()
+        .roots.map((root) => ({ root: root.id, rel: relFromAbsolute(root.id, path) }))
+        .find((candidate) => Boolean(candidate.rel))
+      if (inside?.rel) {
+        await useTabs
+          .getState()
+          .openFile(inside.root, inside.rel, {
+            groupId: options?.groupId,
+            temporary: false,
+          })
+      } else {
+        await useTabs.getState().openExternalFile(path, { groupId: options?.groupId })
+      }
     }
   } catch (e) {
     useUi.getState().toast(errorText(e), 'error')

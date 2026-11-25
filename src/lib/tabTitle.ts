@@ -15,7 +15,15 @@ export function tabTitle(tab: Pick<Tab, 'kind' | 'name' | 'seq'>): string {
 }
 
 /** Full tab tooltip (including pinned state) */
-export function tabTooltip(tab: Pick<Tab, 'kind' | 'rel' | 'name' | 'pinned' | 'seq'>): string {
-  const base = tab.kind === 'file' ? tab.rel : tab.kind === 'chat' ? tab.name || t('agent.newChat') : tabTitle(tab)
+export function tabTooltip(
+  tab: Pick<Tab, 'kind' | 'rel' | 'name' | 'pinned' | 'seq' | 'root' | 'external'>,
+): string {
+  const base = tab.external
+    ? tab.root
+    : tab.kind === 'file'
+      ? tab.rel
+      : tab.kind === 'chat'
+        ? tab.name || t('agent.newChat')
+        : tabTitle(tab)
   return tab.pinned ? `${base}${t('tabs.pinnedSuffix')}` : base
 }

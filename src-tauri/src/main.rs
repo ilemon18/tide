@@ -310,6 +310,7 @@ fn main() {
             // file system
             commands::fs::open_folder,
             commands::fs::close_folder,
+            commands::fs::grant_file,
             commands::fs::read_dir,
             commands::fs::resolve_dir_chain,
             commands::fs::read_text_file,

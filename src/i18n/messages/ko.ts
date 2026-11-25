@@ -395,6 +395,7 @@ export const ko: Messages = {
   'dialog.delete.title': '삭제',
   'dialog.delete.message': '“{name}”을(를) 삭제할까요? 되돌릴 수 없습니다.',
   'dialog.openFolder.title': '폴더 열기',
+  'dialog.openFile.title': '파일 열기',
   'dialog.saveAs.title': '다른 이름으로 저장',
 
   'toast.projectInOtherWindow':
@@ -406,7 +407,6 @@ export const ko: Messages = {
   'toast.oneProjectPerWindow': '창 하나에는 프로젝트 하나만 열 수 있습니다. 첫 번째를 열었습니다',
   'toast.binaryFile': '바이너리 파일입니다. Tide는 UTF-8 텍스트만 편집할 수 있습니다.',
   'toast.fileGone': '파일이 더 이상 존재하지 않습니다: {name}',
-  'toast.saveOutsideProject': '파일을 열린 프로젝트 안에 저장하세요',
   'toast.savedAs': '{name} 파일로 저장했습니다',
   'toast.wordWrapUnavailable': '큰 파일은 줄 바꿈하지 않습니다',
   'toast.formatDisabled': '서식이 꺼져 있습니다. 설정 → 편집기 → 서식에서 켤 수 있습니다.',
@@ -423,6 +423,8 @@ export const ko: Messages = {
 
   'tab.untitledName': '제목 없음-{count}',
   'tab.untitledFileName': '제목 없음-{count}',
+  'tabs.newTextFile': '새 텍스트 파일',
+  'tabs.openFile': '파일 열기…',
   'tabs.close': '닫기',
   'tabs.closeOthers': '다른 탭 닫기',
   'tabs.closeLeft': '왼쪽 탭 닫기',
@@ -467,6 +469,7 @@ export const ko: Messages = {
   'projects.openInNewWindowTip': '새 창에서 열기',
   'projects.removeRecentTip': '최근 목록에서 제거',
 
+  'welcome.openFile': '파일 열기',
   'welcome.openFolder': '폴더 열기',
   'welcome.quickOpen': '파일 빠른 열기',
   'welcome.newWindow': '새 창',
@@ -539,6 +542,7 @@ export const ko: Messages = {
   'commands.group.project': '프로젝트',
   'commands.group.git': 'Git',
   'commands.folder.open': '폴더 열기…',
+  'commands.file.open': '파일 열기…',
   'commands.folder.close': '프로젝트 닫기',
   'commands.folder.new': '새 폴더…',
   'commands.app.newWindow': '새 창',
@@ -715,6 +719,7 @@ export const ko: Messages = {
   'error.path.empty': '경로는 비울 수 없습니다',
   'error.path.outsideWorkspace': '경로가 작업 공간 범위를 벗어났습니다: {path}',
   'error.fs.notAFolder': '대상이 폴더가 아닙니다',
+  'error.fs.notAFile': '파일이 아닙니다: {path}',
   'error.fs.notADirectory': '디렉터리가 아닙니다: {path}',
   'error.fs.folderAsText': '폴더는 텍스트로 열 수 없습니다: {path}',
   'error.fs.folderAsImage': '폴더는 이미지로 열 수 없습니다: {path}',

@@ -57,6 +57,9 @@ App owns hydration/window coordination; the settings store and Rust theme comman
 
 ## Windows and startup
 
+- Welcome lists Open file first, then Open folder; Open file uses the native multi-file picker and opens
+  in-project paths normally or exact external-file grants otherwise. File grants belong to the window and
+  are released on Destroyed.
 - Mod+Shift+A opens Agent using the title-bar action, including from editors/terminals/text fields. Mod+A
   always remains native; dialogs/overlays block app shortcuts. Shared shortcut contracts are below.
 
@@ -86,7 +89,9 @@ App owns hydration/window coordination; the settings store and Rust theme comman
 
 ## macOS distribution
 
-`src-tauri/tauri.conf.json` owns DMG window dimensions and native icon coordinates: Tide on the left,
+`scripts/make-icon.mjs` renders the visible artwork inside the macOS 824/1024 icon grid; do not make it
+full-bleed or the Dock icon looks oversized on some macOS versions. `src-tauri/tauri.conf.json` owns DMG
+window dimensions and native icon coordinates: Tide on the left,
 Applications on the right, aligned horizontally. The background is generated from those coordinates;
 asset generation, release automation and guards follow [checks.md](./checks.md). Keep `Tide.app` at the
 volume root so the command-line installer and app updates can locate it. The Finder drop link targets

@@ -1,6 +1,6 @@
 import { useShortcut } from '../lib/useShortcut'
 import { useWorkspace } from '../store/workspace'
-import { newWindow, openFolderDialog, openWorkspace } from '../lib/actions'
+import { newWindow, openFileDialog, openFolderDialog, openWorkspace } from '../lib/actions'
 import { Icon } from './Icon'
 import { FileIcon } from './FileIcon'
 import { TideMark } from './TideMark'
@@ -11,6 +11,7 @@ import { useT } from '../i18n'
 export function Welcome() {
   const t = useT()
   const folderKeys = useShortcut('folder.open')
+  const fileKeys = useShortcut('file.open')
   const quickKeys = useShortcut('view.quickOpen')
   const windowKeys = useShortcut('app.newWindow')
   const commandKeys = useShortcut('view.commands')
@@ -30,6 +31,14 @@ export function Welcome() {
         </div>
 
         <div className="grid grid-cols-2 gap-2">
+          <button
+            onClick={() => void openFileDialog()}
+            className="flex items-center gap-2 rounded-[7px] border border-line bg-panel px-3 py-2 text-left text-sm hover:border-accent/60 hover:bg-hover"
+          >
+            <Icon name="files" size={16} className="text-accent" />
+            <span className="flex-1">{t('welcome.openFile')}</span>
+            {fileKeys ? <span className="text-xs text-muted">{fileKeys}</span> : null}
+          </button>
           <button
             onClick={() => void openFolderDialog()}
             className="flex items-center gap-2 rounded-[7px] border border-line bg-panel px-3 py-2 text-left text-sm hover:border-accent/60 hover:bg-hover"
@@ -57,7 +66,7 @@ export function Welcome() {
           </button>
           <button
             onClick={() => setOverlay('commands')}
-            className="flex items-center gap-2 rounded-[7px] border border-line bg-panel px-3 py-2 text-left text-sm hover:border-accent/60 hover:bg-hover"
+            className="col-span-2 flex items-center gap-2 rounded-[7px] border border-line bg-panel px-3 py-2 text-left text-sm hover:border-accent/60 hover:bg-hover"
           >
             <Icon name="command" size={16} className="text-accent" />
             <span className="flex-1">{t('welcome.commandPalette')}</span>

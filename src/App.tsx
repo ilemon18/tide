@@ -44,6 +44,7 @@ import {
   flushEditorSession,
   installEditorSession,
   restoreEditorSession,
+  restoreExternalTabs,
 } from './lib/editorSession'
 import { useSearch } from './store/search'
 import { flushBeforeInstall, startUpdateWatcher } from './store/update'
@@ -153,6 +154,7 @@ export function App() {
         }
         if (!cancelled) await restoreEditorSession()
         if (!cancelled) useTabs.getState().restoreUntitledDrafts()
+        if (!cancelled) await restoreExternalTabs()
       } finally {
         // Chat tabs are restored on every startup path (launch args / saved project / blank):
         // they are filtered by the roots that are actually open.

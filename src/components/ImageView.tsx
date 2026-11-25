@@ -68,7 +68,7 @@ export function ImageView({ tab, svgText }: Props) {
         if (!alive) return
         // Binary IPC normally yields ArrayBuffer; some runtime paths yield Uint8Array, cover both
         const buffer = bytes instanceof ArrayBuffer ? bytes : new Uint8Array(bytes as unknown as number[])
-        objectUrl = URL.createObjectURL(new Blob([buffer], { type: imageMime(tab.rel) }))
+        objectUrl = URL.createObjectURL(new Blob([buffer], { type: imageMime(tab.external ? tab.name : tab.rel) }))
         setUrl(objectUrl)
         setLoading(false)
       })

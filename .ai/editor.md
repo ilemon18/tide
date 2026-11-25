@@ -14,6 +14,8 @@ scope:
   - src/lib/editorSession.ts
   - src/lib/markdown.ts
   - src/lib/untitledDrafts.ts
+  - src/lib/externalTabs.ts
+  - src/lib/externalTabs.test.ts
   - src/lib/tabTitle.ts
   - src/components/EditorContextActions*.tsx
 keywords:
@@ -44,13 +46,25 @@ EditorHost selects tab kinds; markdown helpers own contained links and images.
   CodeMirror always uses LF; every save path must restore CRLF. Writes follow the context atomic contract.
 - Indent/newline are per-file (indentSize/useTabs/eol); settings.tabSize is fallback. Untitled tabs have
   state without paths: takeUntitledSeed seeds text, untitledDrafts mirrors it, Save As assigns the path.
+  Save As accepts any existing directory. A target inside a root reopens as a project file; an outside
+  target becomes an external tab, with the same atomic write path and no project-tree refresh.
+- Files outside every project open as `external: true`, `root = normalized absolute file path`, `rel = ''`.
+  The backend `grant_file` registers exactly that file (canonical parent + final name, symlink or directory
+  rejected); it never grants the parent directory. External tabs skip tree reveal, active-root switching,
+  blame, conflicts, import links and project search, but keep language detection from `tab.name`, editing,
+  auto-save, formatting and images. Their cursor session lives in localStorage (`lib/externalTabs.ts`),
+  not the Rust project session. Project switch still closes them with `closeEverything`.
+- Double-clicking tab-strip whitespace opens the blank-tab menu (New text file / Open file…); tabs keep
+  their own double-click promotion. Open File is the first Welcome action and a palette command (`file.open`,
+  no default stroke so Mod+O stays Open Folder).
 - Hydrate project/root/chain/tabs as one gate behind the themed startup frame. Restore metadata first;
   load content/state on activation. Missing eol is safe only while there is no state to save. Restore
   file/cursor state only within the same project; virtual/chat tabs never enter file-layout persistence.
 
 ## Tab and pane contracts
 
-- Kinds: file/diff/image/welcome/settings/untitled/chat. Diff/image have no EditorState. Welcome/settings
+- Kinds: file/diff/image/welcome/settings/untitled/chat. `external` is a flag on file/image, not a kind.
+  Diff/image have no EditorState. Welcome/settings
   are rootless, unpersisted, absent from closedTabs and state caches. Chat history: [agent-storage.md](./agent-storage.md).
 - A kind change updates editor/openState.ts, tabs.activate, lib/editorSession.ts's persisted filter and
   TabBar icon/title; chat also updates lib/agentSession.ts and AgentChat wiring in EditorHost.

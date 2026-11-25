@@ -11,6 +11,7 @@ vi.mock('../store/tabs', async () => {
     useTabs: create(() => ({
       tabs: [] as Tab[], groups: [] as TabGroup[], activeGroupId: 'primary', splitOrientation: null,
       closeIn: vi.fn(), setActiveGroup: vi.fn(), activate: vi.fn(),
+      openUntitled: vi.fn(), promoteTab: vi.fn(),
     })),
     groupTabs: (tabs: Tab[], group?: TabGroup) =>
       (group?.order ?? []).flatMap((id) => tabs.filter((tab) => tab.id === id)),
@@ -25,16 +26,18 @@ vi.mock('../i18n', () => ({ t: (key: string) => key, useT: () => (key: string) =
 vi.mock('./EditorContextActions', () => ({ EditorContextActions: () => null }))
 vi.mock('./AgentProviderIcon', () => ({ AgentProviderIcon: () => <span data-provider-icon /> }))
 vi.mock('./FileIcon', () => ({ FileIcon: () => <span data-file-icon /> }))
-const { contextMenu } = vi.hoisted(() => ({ contextMenu: { current: null as { items: Array<{ label: string; disabled?: boolean }> } | null } }))
-vi.mock('./ContextMenu', () => ({ ContextMenu: (props: { items: Array<{ label: string; disabled?: boolean }> }) => {
+const { contextMenu } = vi.hoisted(() => ({ contextMenu: { current: null as { items: Array<{ label: string; disabled?: boolean; onClick?: () => void }> } | null } }))
+vi.mock('./ContextMenu', () => ({ ContextMenu: (props: { items: Array<{ label: string; disabled?: boolean; onClick?: () => void }> }) => {
   contextMenu.current = props
   return null
 } }))
 vi.mock('../lib/groupDrop', () => ({ groupUnderPointer: vi.fn(), highlightPane: vi.fn(), insertionIndex: vi.fn() }))
+vi.mock('../lib/actions', () => ({ openFileDialog: vi.fn() }))
 
 import { useTabs } from '../store/tabs'
 import { useAgent } from '../store/agent'
 import { TabBar } from './TabBar'
+import { openFileDialog } from '../lib/actions'
 
 const tab = (id: string, kind: Tab['kind'] = 'chat', pinned = false): Tab => ({
   id, kind, pinned, root: '/repo', rel: kind === 'file' ? 'example.ts' : '', name: 'Example',
@@ -148,4 +151,27 @@ it('blocks middle-click on a running Agent while keeping ordinary file closes av
   const file = container.querySelector<HTMLElement>('[data-tab-id="example"]')!
   fireEvent.pointerDown(file, { button: 1 })
   expect(useTabs.getState().closeIn).toHaveBeenCalledWith('example', 'primary')
+})
+
+it('opens the blank tab-bar menu on an empty-area double-click and creates a grouped Untitled', () => {
+  const { container } = render(<TabBar groupId="primary" />)
+  const strip = container.querySelector<HTMLElement>('[data-tab-strip="true"]')!
+  fireEvent.doubleClick(strip, { clientX: 40, clientY: 10 })
+  expect(contextMenu.current?.items.map((item) => item.label)).toEqual([
+    'tabs.newTextFile',
+    'tabs.openFile',
+  ])
+  act(() => contextMenu.current!.items[0].onClick!())
+  expect(useTabs.getState().openUntitled).toHaveBeenCalledWith({ groupId: 'primary' })
+  act(() => contextMenu.current!.items[1].onClick!())
+  expect(openFileDialog).toHaveBeenCalledWith({ groupId: 'primary' })
+})
+
+it('keeps tab double-click as promotion without opening the blank menu', () => {
+  const { container } = render(<TabBar groupId="primary" />)
+  contextMenu.current = null
+  const item = container.querySelector<HTMLElement>('[data-tab-id="example"]')!
+  fireEvent.doubleClick(item, { clientX: 40, clientY: 10 })
+  expect(useTabs.getState().promoteTab).toHaveBeenCalledWith('example')
+  expect(contextMenu.current).toBeNull()
 })

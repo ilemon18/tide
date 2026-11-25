@@ -7,6 +7,7 @@ import {
   closeWorkspaceDialog,
   newEntry,
   newWindow,
+  openFileDialog,
   openFolderDialog,
   openSettings,
   openTerminalHere,
@@ -86,6 +87,7 @@ export function buildCommands(includeUnavailable = false, captureSources = true)
 
   const actions: { id: string; run: Command['run'] }[] = [
     { id: 'folder.open', run: () => openFolderDialog() },
+    { id: 'file.open', run: () => openFileDialog() },
     { id: 'app.newWindow', run: () => newWindow() },
     { id: 'folder.close', run: () => closeWorkspaceDialog() },
     { id: 'file.new', run: () => { useTabs.getState().openUntitled() } },

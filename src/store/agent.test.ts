@@ -1733,3 +1733,51 @@ it('keeps tool results after an intervening permission card and later text in ev
   expect(items.map(item => item.id)).toEqual(['cmd', 'p', 'cmd-output-3', 'comment', 'cmd-output-5'])
   expect(items.filter(item => item.type === 'tool-output').map(item => item.text).join('')).toBe('first second')
 })
+
+describe('new chat model refresh', () => {
+  it('forces a catalog check and repairs a model that the CLI removed', async () => {
+    Object.assign(settings, {
+      agentDefaultProvider: 'codex',
+      agentDefaultModel: 'old-model',
+      agentDefaultEffort: 'high',
+    })
+    useAgent.setState({
+      providers: [
+        {
+          id: 'codex',
+          name: 'Codex',
+          installed: true,
+          supported: true,
+          command: 'codex',
+          version: '1',
+          supportsFork: true,
+        },
+      ],
+      chatDefaults: { provider: 'codex', model: 'old-model', effort: 'high' },
+      catalogs: {
+        codex: {
+          provider: 'codex',
+          models: [{ id: 'old-model', label: 'Old', efforts: ['low', 'high'], defaultEffort: '' }],
+          efforts: ['low', 'high'],
+          defaultModel: '',
+        },
+      },
+    })
+    vi.mocked(api.agentModels).mockResolvedValueOnce({
+      provider: 'codex',
+      models: [{ id: 'new-model', label: 'New', efforts: ['low', 'high'], defaultEffort: 'low' }],
+      efforts: ['low', 'high'],
+      defaultModel: 'new-model',
+    })
+    const id = useAgent.getState().newChat()
+    expect(id).toBeTruthy()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(api.agentModels).toHaveBeenCalledWith('codex', true)
+    expect(useAgent.getState().chatDefaults).toMatchObject({
+      provider: 'codex',
+      model: 'new-model',
+      effort: 'high',
+    })
+    expect(useAgent.getState().chats[id!].model).toBe('new-model')
+  })
+})

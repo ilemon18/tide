@@ -41,6 +41,13 @@ export type FilePayload = {
 
 export type SavedFile = { size: number; mtime: number }
 export type FileStat = { size: number; mtime: number }
+/** One external file selected by the native dialog and granted to this window. */
+export type ExternalFileInfo = {
+  path: string
+  size: number
+  mtime: number
+  exists: boolean
+}
 
 export type FileHit = { path: string }
 /** Quick-open file index; truncated = hit the limit, so the index is incomplete */
@@ -503,6 +510,8 @@ export const api = {
   // ---- File system ----
   openFolder: (path: string) => invoke<WorkspaceInfo>('open_folder', { path }),
   closeFolder: (root: string) => invoke<void>('close_folder', { root }),
+  /** Authorize one file outside every workspace; later commands use it as `root` with `rel: ''`. */
+  grantFile: (path: string) => invoke<ExternalFileInfo>('grant_file', { path }),
   readDir: (root: string, rel: string, offset: number, limit: number) =>
     invoke<DirPage>('read_dir', { root, rel, offset, limit }),
   /** Deepest folder of a single-child chain starting at `rel` (folder compaction in the tree) */

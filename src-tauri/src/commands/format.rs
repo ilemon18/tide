@@ -92,6 +92,15 @@ pub struct FormatResult {
 
 fn resolve_file(state: &AppState, root: &str, rel: &str) -> AppResult<(PathBuf, PathBuf)> {
     let root_path = state.authorize(root)?;
+    // An external file is its own authorized root (rel is only the language/extension hint).
+    // The workspace for tool discovery is its parent directory.
+    if root_path.is_file() {
+        let workspace = root_path
+            .parent()
+            .map(Path::to_path_buf)
+            .ok_or_else(|| AppError::c("fs.targetInvalid"))?;
+        return Ok((workspace, root_path));
+    }
     let file = resolve_in_root(&root_path, rel)?;
     assert_inside(&root_path, &file)?;
     Ok((root_path, file))

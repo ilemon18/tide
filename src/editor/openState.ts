@@ -40,7 +40,10 @@ async function buildFromDisk(tab: Tab): Promise<EditorState | null> {
     // A lazily restored tab can outlive its file (deleted / renamed while Tide was closed): drop the tab with a
     // readable message instead of leaving a blank pane and a raw backend error
     if (errorCode(e) === 'io.notFound' && useTabs.getState().tabs.some((t) => t.id === tab.id)) {
-      useUi.getState().toast(t('toast.fileGone', { name: tab.rel }), 'error')
+      useUi.getState().toast(
+        t('toast.fileGone', { name: tab.external ? tab.root : tab.rel }),
+        'error',
+      )
       void useTabs.getState().close(tab.id, true)
     }
     throw e
@@ -62,11 +65,14 @@ async function buildFromDisk(tab: Tab): Promise<EditorState | null> {
   return createFileState({
     id: tab.id,
     root: tab.root,
-    rel: tab.rel,
+    // Language detection needs the file name; external tabs keep rel empty for path resolution.
+    rel: tab.external ? tab.name : tab.rel,
     content: payload.content,
     tier,
     readOnly: tier === 'preview' || tab.readOnly,
-    conflicted: await isConflictedFile(tab.root, tab.rel, payload.content),
+    conflicted:
+      !tab.external && (await isConflictedFile(tab.root, tab.rel, payload.content)),
+    importLinks: !tab.external,
     tabSize: meta.indentSize ?? settings.tabSize,
     useTabs: Boolean(meta.useTabs),
     wordWrap: tab.wordWrap ?? settings.wordWrap,

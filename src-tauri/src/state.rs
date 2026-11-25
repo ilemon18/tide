@@ -36,6 +36,9 @@ pub enum RootRelease {
 #[derive(Default)]
 pub struct AppState {
     grants: Mutex<RootGrants>,
+    /// Exact external-file grants, per window. A file opened outside every workspace gets its
+    /// own entry instead of granting the whole parent directory; reads/writes must match exactly.
+    file_grants: Mutex<HashMap<String, HashSet<PathBuf>>>,
     /// Projects whose window exists but the frontend has not called `open_folder` yet. A window
     /// takes a few hundred ms to load, and in that gap another window clicking the same project
     /// must still switch to this not-yet-registered window.
@@ -105,6 +108,18 @@ impl AppState {
             *count += 1;
         }
         Ok((canon, *count, newly))
+    }
+
+    /// Grant one exact file for a window. The parent must exist; the file may be missing so
+    /// "Save As" can name a new target. Returns the normalized absolute path.
+    pub fn register_file(&self, owner: &str, path: &Path) -> AppResult<PathBuf> {
+        let target = paths::normalize_file_target(path).map_err(|e| file_target_error(path, e))?;
+        self.file_grants
+            .lock()
+            .entry(owner.to_string())
+            .or_default()
+            .insert(target.clone());
+        Ok(target)
     }
 
     /// Release a window's hold on a directory.
@@ -190,6 +205,8 @@ impl AppState {
     pub fn release_window(&self, owner: &str) {
         // Also clear reservations without a grant, or a dead window keeps holding projects
         self.pending.lock().retain(|_, value| value != owner);
+        // External files have no watcher/refcount: the window owns them outright.
+        self.file_grants.lock().remove(owner);
         let zero = {
             let mut grants = self.grants.lock();
             let Some(paths) = grants.owners.remove(owner) else {
@@ -226,16 +243,32 @@ impl AppState {
         }
     }
 
-    /// Validate and return the canonicalized workspace root
+    /// Validate and return the canonicalized workspace root, or the exact path of a granted
+    /// external file. Missing paths are only valid when they match a registered file grant (the
+    /// "Save As" target that does not exist yet).
     pub fn authorize(&self, root: &str) -> AppResult<PathBuf> {
         if root.is_empty() {
             return Err(AppError::c("workspace.notOpen"));
         }
-        let canon = paths::canon(Path::new(root)).map_err(|_| AppError::c("workspace.inaccessible"))?;
-        if !self.grants.lock().counts.contains_key(&canon) {
-            return Err(AppError::c("workspace.notAuthorized"));
+        let requested = Path::new(root);
+        let canon = match paths::canon(requested) {
+            Ok(path) => path,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                let target = paths::normalize_file_target(requested)
+                    .map_err(|e| file_target_error(requested, e))?;
+                if self.file_grants.lock().values().any(|paths| paths.contains(&target)) {
+                    return Ok(target);
+                }
+                return Err(AppError::c("workspace.notAuthorized"));
+            }
+            Err(_) => return Err(AppError::c("workspace.inaccessible")),
+        };
+        if self.grants.lock().counts.contains_key(&canon)
+            || self.file_grants.lock().values().any(|paths| paths.contains(&canon))
+        {
+            return Ok(canon);
         }
-        Ok(canon)
+        Err(AppError::c("workspace.notAuthorized"))
     }
 
     pub fn kill_all_watchers(&self) {
@@ -302,6 +335,19 @@ impl AppState {
     }
 }
 
+fn file_target_error(path: &Path, error: paths::FileTargetError) -> AppError {
+    match error {
+        paths::FileTargetError::Relative | paths::FileTargetError::Invalid => {
+            AppError::p("path.invalid", [("path", path.display().to_string())])
+        }
+        paths::FileTargetError::NotFile => {
+            AppError::p("fs.notAFile", [("path", path.display().to_string())])
+        }
+        paths::FileTargetError::Symlink => AppError::c("fs.symlinkUnsupported"),
+        paths::FileTargetError::Io(err) => AppError::io(path, err),
+    }
+}
+
 /// Join a relative path onto root; reject absolute paths and `..` to block traversal.
 pub fn resolve_in_root(root: &Path, rel: &str) -> AppResult<PathBuf> {
     let mut out = root.to_path_buf();
@@ -356,5 +402,19 @@ mod tests {
         let root = std::fs::canonicalize(std::env::temp_dir()).unwrap();
         let path = root.join("tide-assert-inside-test");
         super::assert_inside(&root, &path).unwrap();
+    }
+
+    #[test]
+    fn file_grants_authorize_exact_missing_targets() {
+        let state = super::AppState::default();
+        let root = std::env::temp_dir();
+        let missing = root.join("tide-file-grant-test-not-created.txt");
+        let _ = std::fs::remove_file(&missing);
+        let granted = state.register_file("w1", &missing).unwrap();
+        assert_eq!(state.authorize(granted.to_string_lossy().as_ref()).unwrap(), granted);
+        let sibling = root.join("tide-file-grant-test-sibling.txt");
+        assert!(state.authorize(sibling.to_string_lossy().as_ref()).is_err());
+        state.release_window("w1");
+        assert!(state.authorize(granted.to_string_lossy().as_ref()).is_err());
     }
 }

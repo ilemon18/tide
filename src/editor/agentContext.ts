@@ -10,7 +10,9 @@ export function captureEditorContext(state: EditorState, tab: Tab, root: string,
     const end = state.doc.lineAt(range.to)
     return {
       id: agentUid('context'), kind: 'editor-selection' as const, sourceRoot: root, capturedAt,
-      label: tab.name, rel: tab.kind === 'untitled' ? null : tab.rel, unsaved: tab.dirty || tab.kind === 'untitled',
+      label: tab.external ? tab.root : tab.name,
+      rel: tab.kind === 'untitled' || tab.external ? null : tab.rel,
+      unsaved: tab.dirty || tab.kind === 'untitled',
       startLine: start.number, startColumn: range.from - start.from + 1,
       endLine: end.number, endColumn: range.to - end.from + 1,
       text: state.sliceDoc(range.from, range.to),

@@ -47,7 +47,11 @@ export function StatusBar() {
   const [toolStatus, setToolStatus] = useState<FormatToolStatus | null>(null)
   const formatterTab = active && active.kind === 'file' && !active.preview ? active : null
   const formatterRoot = formatterTab?.root ?? null
-  const formatterRel = formatterTab?.rel ?? null
+  const formatterRel = formatterTab
+    ? formatterTab.external
+      ? formatterTab.name
+      : formatterTab.rel
+    : null
   // The "auto" mode resolves a concrete tool by extension first, then asks the backend if it is usable
   const resolvedTool = formatterRel ? resolveTool(formatterRel, settings.formatTool) : null
   const formatMode = settings.formatMode
@@ -199,7 +203,9 @@ export function StatusBar() {
                   ? t('app.svgPreview')
                   : active?.kind === 'untitled'
                     ? t('status.plainText')
-                    : languageLabel(active?.rel ?? '')}
+                    : languageLabel(
+                        active?.external ? (active?.name ?? '') : (active?.rel ?? ''),
+                      )}
       </span>
 
       <button

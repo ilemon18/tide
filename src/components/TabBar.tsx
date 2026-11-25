@@ -24,6 +24,7 @@ import { useAgent } from '../store/agent'
 import { AgentProviderIcon } from './AgentProviderIcon'
 import { AgentTabStatus } from './AgentTabStatus'
 import { EditorContextActions } from './EditorContextActions'
+import { openFileDialog } from '../lib/actions'
 
 const GAP = 2
 /** Position estimate only, until the intrinsic tab width has been measured. */
@@ -108,7 +109,7 @@ const TabItem = memo(function TabItem({
       ) : (
         // Use the real relative path so file and diff tabs resolve the same file icon.
         <FileIcon
-          name={basename(tab.rel)}
+          name={basename(tab.rel) || tab.name}
           size={14}
           className={`shrink-0 ${tab.kind === 'diff' ? 'opacity-70' : ''}`}
         />
@@ -151,6 +152,7 @@ const TabItem = memo(function TabItem({
 
 export function TabBar({ groupId }: { groupId: TabGroupId }) {
   const closeKeys = useShortcut('tab.close')
+  const newFileKeys = useShortcut('file.new')
   const rightKeys = useShortcut('view.splitRight')
   const downKeys = useShortcut('view.splitDown')
   const splitTip = useShortcutTip('view.splitRight', 'tabs.splitTip')
@@ -189,6 +191,7 @@ export function TabBar({ groupId }: { groupId: TabGroupId }) {
   const [drag, setDrag] = useState<DragState | null>(null)
   const dragRef = useRef<DragState | null>(null)
   const [menu, setMenu] = useState<MenuState | null>(null)
+  const [blankMenu, setBlankMenu] = useState<{ x: number; y: number } | null>(null)
   /** Tab ghost that follows the pointer when dragging across panes (null = dragging inside its own strip) */
   const [ghost, setGhost] = useState<{ x: number; y: number } | null>(null)
 
@@ -540,6 +543,13 @@ export function TabBar({ groupId }: { groupId: TabGroupId }) {
           groupFocused ? '' : 'opacity-95'
         }`}
         onPointerDown={() => setActiveGroup(groupId)}
+        onDoubleClick={(event) => {
+          const target = event.target as HTMLElement
+          // Tabs keep their own double-click (promote); buttons handle their own clicks.
+          if (target.closest('[data-tab-id]') || target.closest('button')) return
+          event.preventDefault()
+          setBlankMenu({ x: event.clientX, y: event.clientY })
+        }}
       >
         <div
           ref={stripRef}
@@ -617,6 +627,26 @@ export function TabBar({ groupId }: { groupId: TabGroupId }) {
       {menu ? (
         <ContextMenu x={menu.x} y={menu.y} items={menuItems} onClose={() => setMenu(null)} />
       ) : null}
+      {blankMenu ? (
+        <ContextMenu
+          x={blankMenu.x}
+          y={blankMenu.y}
+          items={[
+            {
+              label: t('tabs.newTextFile'),
+              shortcut: newFileKeys || undefined,
+              onClick: () => {
+                useTabs.getState().openUntitled({ groupId })
+              },
+            },
+            {
+              label: t('tabs.openFile'),
+              onClick: () => void openFileDialog({ groupId }),
+            },
+          ]}
+          onClose={() => setBlankMenu(null)}
+        />
+      ) : null}
 
       {/* Ghost that follows the pointer while dragging across panes: mount on body, or the tab strip's
           overflow would clip it */}
@@ -640,7 +670,7 @@ export function TabBar({ groupId }: { groupId: TabGroupId }) {
                     ) : tab.kind === 'untitled' ? (
                       <Icon name="pen" size={14} className="shrink-0 text-muted" />
                     ) : (
-                      <FileIcon name={basename(tab.rel)} size={14} className="shrink-0" />
+                      <FileIcon name={basename(tab.rel) || tab.name} size={14} className="shrink-0" />
                     )}
                     <span className="truncate">{tabTitle(tab)}</span>
                     {tab.kind === 'chat' ? <AgentTabStatus chatId={tab.id.slice('chat:'.length)} /> : null}

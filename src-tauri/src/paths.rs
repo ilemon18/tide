@@ -118,6 +118,57 @@ pub fn rel_in(root: &Path, path: &Path) -> Option<String> {
     Some(out)
 }
 
+/// Why a selected path cannot be granted as a single external file.
+#[derive(Debug)]
+pub enum FileTargetError {
+    /// The frontend must pass an absolute path; a relative path depends on an unspecified cwd.
+    Relative,
+    /// `.` / `..`, an empty name, or a path that names a directory
+    Invalid,
+    /// The path exists and is a directory
+    NotFile,
+    /// The final component is a symlink; reads never follow links on the user's behalf
+    Symlink,
+    /// The parent directory does not exist / cannot be canonicalized
+    Io(std::io::Error),
+}
+
+/// Normalize a file selected for editing outside the workspace.
+///
+/// The parent directory must already exist (a save dialog can only name a file inside a real
+/// directory). The final component is kept verbatim but never followed: an existing symlink or
+/// directory is rejected. A missing file is allowed so "Save As" can create it; callers register
+/// the returned path before the first write.
+pub fn normalize_file_target(path: &Path) -> Result<PathBuf, FileTargetError> {
+    if !path.is_absolute() {
+        return Err(FileTargetError::Relative);
+    }
+    let mut last = None;
+    for component in path.components() {
+        match component {
+            Component::RootDir | Component::Prefix(_) => {}
+            Component::Normal(segment) => last = Some(segment.to_os_string()),
+            Component::CurDir | Component::ParentDir => return Err(FileTargetError::Invalid),
+        }
+    }
+    let Some(name) = last else {
+        return Err(FileTargetError::Invalid);
+    };
+    if name.is_empty() {
+        return Err(FileTargetError::Invalid);
+    }
+    let parent = path.parent().filter(|p| !p.as_os_str().is_empty()).ok_or(FileTargetError::Invalid)?;
+    let parent = canon(parent).map_err(FileTargetError::Io)?;
+    let target = parent.join(&name);
+    match std::fs::symlink_metadata(&target) {
+        Ok(meta) if meta.file_type().is_symlink() => Err(FileTargetError::Symlink),
+        Ok(meta) if !meta.is_file() => Err(FileTargetError::NotFile),
+        Ok(_) => Ok(target),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(target),
+        Err(e) => Err(FileTargetError::Io(e)),
+    }
+}
+
 /// File / directory name validity. Windows rules are far stricter than POSIX; letting a bad
 /// name through only turns into a vague IO error at the syscall, so reject it at the entry point.
 /// Returns a reason code: empty | chars | reserved | trailing
@@ -270,6 +321,27 @@ mod tests {
         let unc_root = Path::new(r"\\server\share\a");
         let verbatim_unc = Path::new(r"\\?\UNC\server\share\a\file.ts");
         assert_eq!(rel_in(unc_root, verbatim_unc), Some("file.ts".into()));
+    }
+
+    #[test]
+    fn file_targets_require_absolute_existing_parents() {
+        let root = std::env::temp_dir();
+        let missing = root.join("tide-normalize-file-target-missing.txt");
+        let _ = std::fs::remove_file(&missing);
+        assert!(matches!(
+            normalize_file_target(Path::new("relative.txt")),
+            Err(FileTargetError::Relative)
+        ));
+        assert!(matches!(
+            normalize_file_target(&root.join("..").join("escape.txt")),
+            Err(FileTargetError::Invalid)
+        ));
+        assert!(matches!(
+            normalize_file_target(&root),
+            Err(FileTargetError::Invalid) | Err(FileTargetError::NotFile)
+        ));
+        let normalized = normalize_file_target(&missing).unwrap();
+        assert_eq!(normalized, root.join("tide-normalize-file-target-missing.txt"));
     }
 
     #[test]

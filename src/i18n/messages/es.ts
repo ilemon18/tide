@@ -401,6 +401,7 @@ export const es: Messages = {
   'dialog.delete.title': 'Eliminar',
   'dialog.delete.message': '¿Eliminar «{name}»? No se puede deshacer.',
   'dialog.openFolder.title': 'Abrir carpeta',
+  'dialog.openFile.title': 'Abrir archivo',
   'dialog.saveAs.title': 'Guardar como',
 
   'toast.projectInOtherWindow':
@@ -412,7 +413,6 @@ export const es: Messages = {
   'toast.oneProjectPerWindow': 'Una ventana admite un proyecto; se ha abierto el primero',
   'toast.binaryFile': 'Es un archivo binario. Tide solo puede editar texto UTF-8.',
   'toast.fileGone': 'El archivo ya no existe: {name}',
-  'toast.saveOutsideProject': 'Guarda el archivo dentro del proyecto abierto',
   'toast.savedAs': 'Guardado como {name}',
   'toast.wordWrapUnavailable': 'Los archivos grandes no se ajustan',
   'toast.formatDisabled':
@@ -431,6 +431,8 @@ export const es: Messages = {
 
   'tab.untitledName': 'Sin título-{count}',
   'tab.untitledFileName': 'Sin título-{count}',
+  'tabs.newTextFile': 'Nuevo archivo de texto',
+  'tabs.openFile': 'Abrir archivo…',
   'tabs.close': 'Cerrar',
   'tabs.closeOthers': 'Cerrar las demás',
   'tabs.closeLeft': 'Cerrar a la izquierda',
@@ -475,6 +477,7 @@ export const es: Messages = {
   'projects.openInNewWindowTip': 'Abrir en una ventana nueva',
   'projects.removeRecentTip': 'Quitar de recientes',
 
+  'welcome.openFile': 'Abrir archivo',
   'welcome.openFolder': 'Abrir carpeta',
   'welcome.quickOpen': 'Apertura rápida de archivo',
   'welcome.newWindow': 'Nueva ventana',
@@ -548,6 +551,7 @@ export const es: Messages = {
   'commands.group.project': 'Proyecto',
   'commands.group.git': 'Git',
   'commands.folder.open': 'Abrir carpeta…',
+  'commands.file.open': 'Abrir archivo…',
   'commands.folder.close': 'Cerrar proyecto',
   'commands.folder.new': 'Nueva carpeta…',
   'commands.app.newWindow': 'Nueva ventana',
@@ -724,6 +728,7 @@ export const es: Messages = {
   'error.path.empty': 'La ruta no puede estar vacía',
   'error.path.outsideWorkspace': 'La ruta está fuera del espacio de trabajo: {path}',
   'error.fs.notAFolder': 'Eso no es una carpeta',
+  'error.fs.notAFile': 'No es un archivo: {path}',
   'error.fs.notADirectory': 'No es un directorio: {path}',
   'error.fs.folderAsText': 'Es una carpeta y no se puede abrir como texto: {path}',
   'error.fs.folderAsImage': 'Es una carpeta y no se puede abrir como imagen: {path}',

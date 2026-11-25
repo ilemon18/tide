@@ -132,6 +132,18 @@ pub struct FileStat {
     pub mtime: i64,
 }
 
+/// One file the user picked outside a workspace. `path` is normalized (canonical parent + name)
+/// and registered for this window, so later read/write/stat calls can use it as `root` with an
+/// empty `rel`.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExternalFileInfo {
+    pub path: String,
+    pub size: u64,
+    pub mtime: i64,
+    pub exists: bool,
+}
+
 fn mtime_of(meta: Option<&fs::Metadata>) -> i64 {
     meta.and_then(|m| m.modified().ok())
         .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
@@ -451,6 +463,25 @@ pub fn resolve_dir_chain(
     Ok(deepest)
 }
 
+/// Grant one external file selected by the native dialog. Unlike `open_folder`, the parent
+/// directory is not added to the workspace table: every later command still has to name this
+/// exact path, so opening `~/notes.md` cannot turn `~` into a readable project root.
+#[tauri::command(async)]
+pub fn grant_file(
+    window: tauri::Window,
+    state: State<'_, AppState>,
+    path: String,
+) -> AppResult<ExternalFileInfo> {
+    let target = state.register_file(window.label(), Path::new(&path))?;
+    let meta = fs::symlink_metadata(&target).ok().filter(|meta| meta.file_type().is_file());
+    Ok(ExternalFileInfo {
+        exists: meta.is_some(),
+        size: meta.as_ref().map(|m| m.len()).unwrap_or(0),
+        mtime: mtime_of(meta.as_ref()),
+        path: target.to_string_lossy().to_string(),
+    })
+}
+
 /// Lightweight stat: compare mtime / size first and skip reading when unchanged
 #[tauri::command(async)]
 pub fn stat_file(state: State<'_, AppState>, root: String, rel: String) -> AppResult<FileStat> {
@@ -546,7 +577,11 @@ pub fn write_text_file(
 ) -> AppResult<SavedFile> {
     let root_path = state.authorize(&root)?;
     let path = resolve_in_root(&root_path, &rel)?;
-    assert_inside(&root_path, &path)?;
+    // External files are authorized as one exact path: `root == path` and the grant already
+    // rejected symlinks/directories. Directory roots still go through containment.
+    if path != root_path {
+        assert_inside(&root_path, &path)?;
+    }
 
     if path.exists() && fs::metadata(&path).map(|m| m.is_dir()).unwrap_or(false) {
         return Err(AppError::c("fs.targetIsFolder"));

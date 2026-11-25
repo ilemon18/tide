@@ -394,6 +394,7 @@ export const ja: Messages = {
   'dialog.delete.title': '削除',
   'dialog.delete.message': '「{name}」を削除しますか？元に戻せません。',
   'dialog.openFolder.title': 'フォルダーを開く',
+  'dialog.openFile.title': 'ファイルを開く',
   'dialog.saveAs.title': '名前を付けて保存',
 
   'toast.projectInOtherWindow':
@@ -405,7 +406,6 @@ export const ja: Messages = {
   'toast.oneProjectPerWindow': '1 つのウィンドウで開けるプロジェクトは 1 つです。最初のものを開きました',
   'toast.binaryFile': 'バイナリファイルです。Tide は UTF-8 テキストのみ編集できます',
   'toast.fileGone': 'ファイルはもう存在しません: {name}',
-  'toast.saveOutsideProject': 'ファイルは開いているプロジェクト内に保存してください',
   'toast.savedAs': '{name} として保存しました',
   'toast.wordWrapUnavailable': '大きなファイルは折り返しません',
   'toast.formatDisabled': '整形はオフです。設定 → エディター → 整形 で有効にできます',
@@ -422,6 +422,8 @@ export const ja: Messages = {
 
   'tab.untitledName': '無題-{count}',
   'tab.untitledFileName': '無題-{count}',
+  'tabs.newTextFile': '新しいテキストファイル',
+  'tabs.openFile': 'ファイルを開く…',
   'tabs.close': '閉じる',
   'tabs.closeOthers': '他のタブを閉じる',
   'tabs.closeLeft': '左側のタブを閉じる',
@@ -466,6 +468,7 @@ export const ja: Messages = {
   'projects.openInNewWindowTip': '新しいウィンドウで開く',
   'projects.removeRecentTip': '最近使った項目から削除',
 
+  'welcome.openFile': 'ファイルを開く',
   'welcome.openFolder': 'フォルダーを開く',
   'welcome.quickOpen': 'ファイルをクイックオープン',
   'welcome.newWindow': '新しいウィンドウ',
@@ -538,6 +541,7 @@ export const ja: Messages = {
   'commands.group.project': 'プロジェクト',
   'commands.group.git': 'Git',
   'commands.folder.open': 'フォルダーを開く…',
+  'commands.file.open': 'ファイルを開く…',
   'commands.folder.close': 'プロジェクトを閉じる',
   'commands.folder.new': '新規フォルダー…',
   'commands.app.newWindow': '新しいウィンドウ',
@@ -714,6 +718,7 @@ export const ja: Messages = {
   'error.path.empty': 'パスを空にできません',
   'error.path.outsideWorkspace': 'パスがワークスペースの外にあります: {path}',
   'error.fs.notAFolder': 'フォルダーではありません',
+  'error.fs.notAFile': 'ファイルではありません: {path}',
   'error.fs.notADirectory': 'ディレクトリではありません: {path}',
   'error.fs.folderAsText': 'フォルダーはテキストとして開けません: {path}',
   'error.fs.folderAsImage': 'フォルダーは画像として開けません: {path}',

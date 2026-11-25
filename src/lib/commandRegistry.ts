@@ -12,6 +12,7 @@ export type CommandDefinition = {
 /** Stable metadata remains available when an action is hidden or unavailable. */
 export const COMMANDS: readonly CommandDefinition[] = [
   {id: 'folder.open', groupKey: 'commands.group.file', titleKey: 'commands.folder.open', scope: 'app', defaults: ['Mod+o']},
+  {id: 'file.open', groupKey: 'commands.group.file', titleKey: 'commands.file.open', scope: 'app', defaults: []},
   {id: 'app.newWindow', groupKey: 'commands.group.file', titleKey: 'commands.app.newWindow', scope: 'app', defaults: ['Mod+Shift+n']},
   {id: 'folder.close', groupKey: 'commands.group.file', titleKey: 'commands.folder.close', scope: 'app', defaults: ['Mod+Shift+q']},
   {id: 'file.new', groupKey: 'commands.group.file', titleKey: 'commands.file.new', scope: 'app', defaults: ['Mod+n']},

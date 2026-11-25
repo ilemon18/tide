@@ -110,6 +110,12 @@ export type Tab = {
   indentSize?: number
   /** Source uses tab indentation */
   useTabs?: boolean
+  /**
+   * A file opened outside every workspace root. `root` is then the normalized absolute file path
+   * and `rel` is empty; the backend grants exactly this file, not its parent directory. External
+   * tabs do not reveal in the tree, load blame, or participate in project search/git.
+   */
+  external?: boolean
 }
 
 /** Closed tab: ⌘⇧T restores them one by one */
@@ -180,8 +186,13 @@ export const SETTINGS_TAB_ID = 'settings:prefs'
 
 /** After open / switch, make the explorer expand and select the file (reveal only, no view switch) */
 function revealInTree(tab: Tab) {
-  if (tab.kind === 'diff' || tab.kind === 'welcome' || !tab.root) return
+  if (tab.kind === 'diff' || tab.kind === 'welcome' || tab.external || !tab.root) return
   useWorkspace.getState().requestTreeReveal({ root: tab.root, rel: tab.rel, isDir: false })
+}
+
+/** Formatter/language hint: external tabs keep the file name although `rel` is empty. */
+function tabFileRel(tab: Tab) {
+  return tab.external ? tab.name : tab.rel
 }
 
 /** Swap a view to a new state while keeping its caret and scroll position */
@@ -276,6 +287,11 @@ type TabsStore = {
   /** Manually formatting the current file (status bar spinner) */
   formatting: boolean
 
+  /** Open a file outside every workspace; the backend grants exactly this path. */
+  openExternalFile: (
+    path: string,
+    options?: { groupId?: TabGroupId; index?: number; quiet?: boolean },
+  ) => Promise<void>
   openFile: (
     root: string,
     rel: string,
@@ -308,8 +324,8 @@ type TabsStore = {
    * New unsaved buffer (⌘N). No file on disk: ⌘S opens a save dialog. Optional text restores a draft
    * left behind by a previous run (see lib/untitledDrafts).
    */
-  openUntitled: (options?: { text?: string; seq?: number }) => string
-  /** ⌘S on an untitled buffer: pick a path inside the project, write it, then reopen as a normal file */
+  openUntitled: (options?: { text?: string; seq?: number; groupId?: TabGroupId }) => string
+  /** ⌘S on an untitled buffer: pick any path, write it, then reopen as a project or external file */
   saveAs: (id: string) => Promise<boolean>
   /** Reopen untitled buffers saved for hot exit by a previous run (main window only) */
   restoreUntitledDrafts: () => void
@@ -495,11 +511,13 @@ async function prewarmMirrorState(tab: Tab): Promise<void> {
         canonical = await createFileState({
           id: tab.id,
           root: tab.root,
-          rel: tab.rel,
+          rel: tabFileRel(tab),
           content: payload.content,
           tier,
           readOnly: tier === 'preview' || tab.readOnly,
-          conflicted: await isConflictedFile(tab.root, tab.rel, payload.content),
+          conflicted:
+            !tab.external && (await isConflictedFile(tab.root, tab.rel, payload.content)),
+          importLinks: !tab.external,
           tabSize: tab.indentSize ?? settings.tabSize,
           useTabs: tab.useTabs,
           wordWrap: tab.wordWrap ?? settings.wordWrap,
@@ -839,6 +857,113 @@ export const useTabs = create<TabsStore>((set, get) => ({
   diffEpoch: {},
   formatting: false,
 
+  openExternalFile: async (path, options) => {
+    let info
+    try {
+      info = await api.grantFile(path)
+    } catch (e) {
+      if (!options?.quiet) useUi.getState().toast(errorText(e), 'error')
+      return
+    }
+    const id = fileTabId(info.path, '')
+    const groupId = resolveGroupId(options?.groupId)
+    const request = beginOpenRequest(groupId, id)
+    set({ opening: true })
+    try {
+      const existing = get().tabs.find((t) => t.id === id)
+      if (existing) {
+        // External files are explicit opens, never preview replacements.
+        if (existing.temporary) get().promoteTab(id)
+        const groups =
+          options?.index === undefined
+            ? openInGroup(get().groups, groupId, id)
+            : insertInGroup(get().groups, groupId, id, options.index)
+        set({ activeId: id, activeGroupId: groupId, groups })
+        return
+      }
+
+      forgetScrollForTab(id)
+      const name = basename(info.path)
+      if (isImagePath(name)) {
+        const tab: Tab = {
+          id,
+          root: info.path,
+          kind: 'image',
+          rel: '',
+          name,
+          dirty: false,
+          readOnly: true,
+          tier: 'preview',
+          pinned: false,
+          temporary: false,
+          external: true,
+          size: info.size,
+          mtime: info.mtime,
+        }
+        commitOpenedTab(tab, groupId, options?.index, false, request.token)
+        return
+      }
+
+      const payload = await api.readFile(info.path, '')
+      if (!isCurrentOpenRequest(request)) return
+      if (payload.binary) {
+        if (!options?.quiet) useUi.getState().toast(t('toast.binaryFile'), 'error')
+        return
+      }
+      const tier = tierFor(payload.size)
+      const settings = useSettings.getState()
+      const readOnly = tier === 'preview'
+      const meta = detectTextMeta(payload.content)
+      // `rel` is only the language hint here: the tab's real rel stays empty so the backend keeps
+      // resolving `root` as the exact file, never parent/child paths.
+      await createFileState({
+        id,
+        root: info.path,
+        rel: name,
+        content: payload.content,
+        tier,
+        readOnly,
+        conflicted: false,
+        importLinks: false,
+        tabSize: meta.indentSize ?? settings.tabSize,
+        useTabs: meta.useTabs,
+        wordWrap: settings.wordWrap,
+        inlineBlame: false,
+      })
+      if (!isCurrentOpenRequest(request)) {
+        discardPreparedTab(id, request.token)
+        return
+      }
+      const tab: Tab = {
+        id,
+        root: info.path,
+        kind: 'file',
+        rel: '',
+        name,
+        dirty: false,
+        readOnly,
+        tier,
+        pinned: false,
+        temporary: false,
+        external: true,
+        size: payload.size,
+        mtime: payload.mtime,
+        eol: meta.eol,
+        indentSize: meta.indentSize,
+        useTabs: meta.useTabs,
+      }
+      if (!commitOpenedTab(tab, groupId, options?.index, false, request.token)) return
+      // Deliberately no setActiveRoot / revealInTree / blame: the file is outside every project.
+    } catch (e) {
+      if (!get().tabs.some((tab) => tab.id === id)) discardPreparedTab(id, request.token)
+      if (!options?.quiet && isCurrentOpenRequest(request)) {
+        useUi.getState().toast(errorText(e), 'error')
+      }
+    } finally {
+      finishOpenRequest(request)
+    }
+  },
+
   openFile: async (root, rel, options) => {
     const id = fileTabId(root, rel)
     const groupId = resolveGroupId(options?.groupId)
@@ -1158,7 +1283,7 @@ export const useTabs = create<TabsStore>((set, get) => ({
   },
 
   openUntitled: (options) => {
-    const groupId = resolveGroupId(undefined)
+    const groupId = resolveGroupId(options?.groupId)
     untitledCounter += 1
     const seq = options?.seq ?? untitledCounter
     const id = `untitled:${seq}`
@@ -1200,17 +1325,14 @@ export const useTabs = create<TabsStore>((set, get) => ({
   saveAs: async (id) => {
     const tab = get().tabs.find((t) => t.id === id)
     if (!tab || tab.kind !== 'untitled') return false
-    const root = activeRoot()
-    if (!root) {
-      useUi.getState().toast(t('toast.openFolderFirst'), 'info')
-      return false
-    }
     const text = getEditorState(id)?.doc.toString() ?? ''
     const suggested = t('tab.untitledFileName', { count: tab.seq ?? 1 })
+    const current = activeRoot()
     let picked: string | null = null
     try {
       picked = await saveDialog({
-        defaultPath: `${root.id}/${suggested}`,
+        // No project: let the native dialog start at its own last location.
+        ...(current ? { defaultPath: `${current.id}/${suggested}` } : {}),
         title: t('dialog.saveAs.title'),
       })
     } catch (e) {
@@ -1218,26 +1340,44 @@ export const useTabs = create<TabsStore>((set, get) => ({
       return false
     }
     if (!picked) return false
-    const rel = relFromAbsolute(root.id, picked)
-    if (!rel) {
-      useUi.getState().toast(t('toast.saveOutsideProject'), 'error')
-      return false
+
+    const inside = useWorkspace
+      .getState()
+      .roots.map((root) => ({ root: root.id, rel: relFromAbsolute(root.id, picked!) }))
+      .find((candidate) => Boolean(candidate.rel))
+    if (inside?.rel) {
+      try {
+        const dir = dirname(inside.rel)
+        // Nested target folder: create_dir_all, and an existing folder is not an error
+        if (dir) await api.createEntry(inside.root, dir, 'dir').catch(() => {})
+        await api.writeFile(inside.root, inside.rel, text)
+      } catch (e) {
+        useUi.getState().toast(errorText(e), 'error')
+        return false
+      }
+      // The buffer becomes a normal file: close it and open the file from disk (language pack, EOL, blame)
+      await get().close(id, true)
+      await useWorkspace.getState().refreshDir(inside.root, dirname(inside.rel)).catch(() => {})
+      useFileIndex.getState().invalidate(inside.root)
+      await get().openFile(inside.root, inside.rel, { temporary: false })
+      useUi.getState().toast(t('toast.savedAs', { name: inside.rel }), 'success')
+      return true
     }
+
+    // Outside every project: grant exactly this file, write through the same root/rel contract,
+    // then keep it open as an external tab that saves in place from now on.
+    let externalPath: string
     try {
-      const dir = dirname(rel)
-      // Nested target folder: create_dir_all, and an existing folder is not an error
-      if (dir) await api.createEntry(root.id, dir, 'dir').catch(() => {})
-      await api.writeFile(root.id, rel, text)
+      const granted = await api.grantFile(picked)
+      await api.writeFile(granted.path, '', text)
+      externalPath = granted.path
     } catch (e) {
       useUi.getState().toast(errorText(e), 'error')
       return false
     }
-    // The buffer becomes a normal file: close it and open the file from disk (language pack, EOL, blame)
     await get().close(id, true)
-    await useWorkspace.getState().refreshDir(root.id, dirname(rel)).catch(() => {})
-    useFileIndex.getState().invalidate(root.id)
-    await get().openFile(root.id, rel, { temporary: false })
-    useUi.getState().toast(t('toast.savedAs', { name: rel }), 'success')
+    await get().openExternalFile(externalPath)
+    useUi.getState().toast(t('toast.savedAs', { name: basename(externalPath) }), 'success')
     return true
   },
 
@@ -1422,13 +1562,30 @@ export const useTabs = create<TabsStore>((set, get) => ({
       if (tab.root) useWorkspace.getState().setActiveRoot(tab.root)
       return
     }
-    // Welcome / settings / untitled have no file to reveal: do not touch the project or tree
+    // Welcome / settings / untitled have no file to reveal: do not touch the project or tree.
     if (
       tab.kind === 'welcome' ||
       tab.kind === 'settings' ||
       tab.kind === 'untitled'
     )
       return
+    // External files belong to no project either (their root is a file path, not a workspace).
+    // Restored tabs start at line 1, so re-apply the remembered caret on activation.
+    if (tab.external) {
+      const cursor = get().cursors[id]
+      if (cursor) {
+        set({
+          reveal: {
+            tabId: id,
+            line: cursor.line,
+            col: cursor.col,
+            nonce: Date.now(),
+            caret: true,
+          },
+        })
+      }
+      return
+    }
     useWorkspace.getState().setActiveRoot(tab.root)
     revealInTree(tab)
     // A cache hit is a no-op; a tab whose blame was invalidated by a background reload refetches when activated
@@ -1778,6 +1935,28 @@ export const useTabs = create<TabsStore>((set, get) => ({
     if (!last) return
     set({ closedTabs: closed.slice(0, -1) })
     const { tab } = last
+    if (tab.external) {
+      try {
+        // Re-grant after a restart / window recreation; a moved or deleted file stays closed.
+        const info = await api.grantFile(tab.root)
+        await get().openExternalFile(info.path, { groupId: last.groupId })
+        const reopened = get().tabs.find((t) => t.id === fileTabId(info.path, ''))
+        if (reopened && last.cursor) {
+          set({
+            reveal: {
+              tabId: reopened.id,
+              line: last.cursor.line,
+              col: last.cursor.col,
+              nonce: Date.now(),
+              caret: true,
+            },
+          })
+        }
+      } catch (e) {
+        useUi.getState().toast(errorText(e), 'error')
+      }
+      return
+    }
     try {
       await api.statFile(tab.root, tab.rel)
     } catch {
@@ -2225,7 +2404,7 @@ export const useTabs = create<TabsStore>((set, get) => ({
     // never rewrites files here.
     if (settings.formatMode === 'onSave' && !tab.readOnly && state.doc.length <= FORMAT_MAX_CHARS) {
       try {
-        const result = await formatWithSelectedTool(tab.root, tab.rel, state.doc.toString())
+        const result = await formatWithSelectedTool(tab.root, tabFileRel(tab), state.doc.toString())
         if (saveCancelled()) return false
         if (result.error && !opts?.quiet) useUi.getState().toast(result.error, 'error')
         if (result.changed && result.text) replaceDocText(id, result.text)
@@ -2277,7 +2456,7 @@ export const useTabs = create<TabsStore>((set, get) => ({
       signals.onSaved(tab.root, tab.rel)
       // Auto-save skips blame: the content is not committed yet and results barely change,
       // but each run costs a new cache entry + a git subprocess
-      if (!opts?.quiet) {
+      if (!opts?.quiet && !tab.external) {
         useBlame.getState().invalidate(id)
         const updated = get().tabs.find((t) => t.id === id)
         if (updated) useBlame.getState().scheduleFetch(updated)
@@ -2301,7 +2480,7 @@ export const useTabs = create<TabsStore>((set, get) => ({
     const ui = useUi.getState()
     set({ formatting: true })
     try {
-      const result = await formatWithSelectedTool(tab.root, tab.rel, state.doc.toString())
+      const result = await formatWithSelectedTool(tab.root, tabFileRel(tab), state.doc.toString())
       if (result.source === 'none') {
         ui.toast(t('toast.formatDisabled'), 'info')
         return false

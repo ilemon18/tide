@@ -299,6 +299,8 @@ const writeQueues = new Map<string, Promise<void>>()
 const resetLocks = new Map<string, Promise<boolean>>()
 /** Catalog requests can overlap on a forced rescan: only the newest response may win */
 const catalogTickets = new Map<string, number>()
+/** A forced refresh requested while a load is in flight runs once after it settles. */
+const catalogForceQueued = new Set<string>()
 /** Identifies the active provider scan so only its response may finish the loading state */
 let providerTicket = 0
 let historyTicket = 0
@@ -1034,7 +1036,13 @@ export const useAgent = create<AgentStore>((set, get) => {
 
     loadCatalog: async (provider, force = false) => {
       if (!provider) return
-      if (!force && (get().catalogs[provider] || get().catalogLoading[provider])) return
+      // A new chat asks for a forced check. Coalesce concurrent requests, but remember that a
+      // refresh is still owed: one more run happens after the current request settles.
+      if (get().catalogLoading[provider]) {
+        if (force) catalogForceQueued.add(provider)
+        return
+      }
+      if (!force && get().catalogs[provider]) return
       const ticket = (catalogTickets.get(provider) ?? 0) + 1
       catalogTickets.set(provider, ticket)
       set({ catalogLoading: { ...get().catalogLoading, [provider]: true } })
@@ -1045,6 +1053,37 @@ export const useAgent = create<AgentStore>((set, get) => {
           catalogs: { ...get().catalogs, [provider]: catalog },
           catalogLoading: { ...get().catalogLoading, [provider]: false },
         })
+        // A forced refresh exists to notice removed models. Only repair session defaults when the
+        // catalog is trustworthy (non-empty); a failed CLI probe must not wipe the user's choice.
+        const defaults = get().chatDefaults
+        if (
+          defaults.provider === provider &&
+          defaults.model &&
+          catalog.models.length > 0 &&
+          !catalog.models.some((model) => model.id === defaults.model)
+        ) {
+          const stale = defaults.model
+          const fallback =
+            catalog.models.find((model) => model.id === catalog.defaultModel) ??
+            catalog.models[0]
+          const effort = fallback.efforts.includes(defaults.effort)
+            ? defaults.effort
+            : fallback.defaultEffort || fallback.efforts[0] || ''
+          set({
+            chatDefaults: { ...defaults, model: fallback.id, effort },
+            // Blank chats have not sent anything yet: switch them to the surviving model too.
+            chats: Object.fromEntries(
+              Object.entries(get().chats).map(([id, chat]): [string, AgentChat] =>
+                chat.provider === provider &&
+                chat.status === 'idle' &&
+                chat.messages.length === 0 &&
+                chat.model === stale
+                  ? [id, { ...chat, model: fallback.id, effort, updatedAt: Date.now() }]
+                  : [id, chat],
+              ),
+            ),
+          })
+        }
       } catch {
         if (catalogTickets.get(provider) !== ticket) return
         set({
@@ -1059,6 +1098,10 @@ export const useAgent = create<AgentStore>((set, get) => {
           },
           catalogLoading: { ...get().catalogLoading, [provider]: false },
         })
+      } finally {
+        if (catalogForceQueued.delete(provider)) {
+          void get().loadCatalog(provider, true)
+        }
       }
     },
 
@@ -1260,7 +1303,9 @@ export const useAgent = create<AgentStore>((set, get) => {
       })
       schedulePersist(chatId)
       useTabs.getState().openChatInRight(chatId, targetRoot, '')
-      if (defaults.provider) void get().loadCatalog(defaults.provider)
+      // Every new chat checks the installed CLI for model changes; the catalog request is
+      // backgrounded so the tab still opens immediately.
+      if (defaults.provider) void get().loadCatalog(defaults.provider, true)
       return chatId
     },
 

@@ -42,7 +42,10 @@ keywords:
 
 ## Ownership
 
-CLIs own auth/models/tools; Rust owns processes; the agent store owns queues/UI. Input/plans:
+CLIs own auth/models/tools; Rust owns processes; the agent store owns queues/UI. Every new chat forces
+`loadCatalog(provider, true)` in the background: concurrent requests coalesce with one owed force run,
+and a non-empty refreshed catalog repairs session defaults (and blank idle chats) whose model disappeared.
+An empty/failed probe never clears the saved model. Input/plans:
 [agent-composer.md](./agent-composer.md). History: [agent-storage.md](./agent-storage.md).
 
 ## Turns and events

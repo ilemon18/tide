@@ -7,6 +7,10 @@ import { dirname } from 'node:path'
 
 const SIZE = 1024
 const SS = 4 // Supersampling factor, keeps edges smooth
+// macOS draws app icons on its own grid: the visible artwork should occupy ~824 of the 1024
+// canvas. A full-bleed icon looks oversized in the Dock on several macOS versions.
+const PAD = 100 / SIZE
+const ART = 1 - PAD * 2
 
 const CRC_TABLE = (() => {
   const t = new Uint32Array(256)
@@ -89,13 +93,16 @@ for (let py = 0; py < SIZE; py++) {
     let backHits = 0
     let frontHits = 0
     for (let sx = 0; sx < SS; sx++) {
-      const x = (px + (sx + 0.5) / SS) / SIZE
+      const gx = (px + (sx + 0.5) / SS) / SIZE
+      const x = (gx - PAD) / ART
+      if (x < 0 || x > 1) continue
       // Both waves share one sin call for the same subpixel column
       const s = Math.sin(2 * Math.PI * (x + WAVE.phase))
       const backY = WAVE.back.base + WAVE.back.amp * s
       const frontY = WAVE.front.base + WAVE.front.amp * s
       for (let sy = 0; sy < SS; sy++) {
-        const y = (py + (sy + 0.5) / SS) / SIZE
+        const y = ((py + (sy + 0.5) / SS) / SIZE - PAD) / ART
+        if (y < 0 || y > 1) continue
         if (inRoundedRect(x, y, radius)) bgHits++
         if (inBand(y, backY, WAVE.back.thickness)) backHits++
         if (inBand(y, frontY, WAVE.front.thickness)) frontHits++
@@ -106,7 +113,9 @@ for (let py = 0; py < SIZE; py++) {
     const backA = (backHits / total) * WAVE.back.alpha
     const frontA = frontHits / total
 
-    const t = Math.min(1, Math.max(0, (px / SIZE) * 0.4 + (py / SIZE) * 0.6))
+    const cx = Math.min(1, Math.max(0, (px / SIZE - PAD) / ART))
+    const cy = Math.min(1, Math.max(0, (py / SIZE - PAD) / ART))
+    const t = Math.min(1, Math.max(0, cx * 0.4 + cy * 0.6))
     let r = Math.round(BG_FROM[0] + (BG_TO[0] - BG_FROM[0]) * t)
     let g = Math.round(BG_FROM[1] + (BG_TO[1] - BG_FROM[1]) * t)
     let b = Math.round(BG_FROM[2] + (BG_TO[2] - BG_FROM[2]) * t)
