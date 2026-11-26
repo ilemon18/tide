@@ -150,7 +150,14 @@ const TabItem = memo(function TabItem({
   )
 })
 
-export function TabBar({ groupId }: { groupId: TabGroupId }) {
+export function TabBar({
+  groupId,
+  showEmptyBar = false,
+}: {
+  groupId: TabGroupId
+  /** Render the 36px strip even with zero tabs, so an empty project pane can open the blank menu. */
+  showEmptyBar?: boolean
+}) {
   const closeKeys = useShortcut('tab.close')
   const newFileKeys = useShortcut('file.new')
   const rightKeys = useShortcut('view.splitRight')
@@ -531,10 +538,64 @@ export function TabBar({ groupId }: { groupId: TabGroupId }) {
     void closeIn(id, groupId)
   }, [closeIn, groupId, isRunningTabId])
 
-  // Keep the empty state after every hook so opening the first tab cannot change the hook count.
-  if (tabs.length === 0) return null
+  // One menu for the tab-strip whitespace: double-click (click count 2) and right-click both land here.
+  // Tabs and their controls own their gestures, so ignore anything inside them.
+  const openBlankMenu = useCallback((event: React.MouseEvent<HTMLElement>) => {
+    const target = event.target as HTMLElement
+    if (target.closest('[data-tab-id]') || target.closest('button')) return
+    event.preventDefault()
+    setBlankMenu({ x: event.clientX, y: event.clientY })
+  }, [])
+
+  const onBlankClick = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    // WKWebView does not always dispatch dblclick; the click count is reliable and keeps the
+    // first click from opening the menu.
+    if (event.detail === 2) openBlankMenu(event)
+  }, [openBlankMenu])
+
+  const blankItems: MenuItem[] = [
+    {
+      label: t('tabs.newTextFile'),
+      shortcut: newFileKeys || undefined,
+      onClick: () => {
+        useTabs.getState().openUntitled({ groupId })
+      },
+    },
+    {
+      label: t('tabs.openFile'),
+      onClick: () => void openFileDialog({ groupId }),
+    },
+  ]
 
   const groupFocused = activeGroupId === groupId
+
+  // Keep the empty state after every hook so opening the first tab cannot change the hook count.
+  if (tabs.length === 0) {
+    if (!showEmptyBar) return null
+    return (
+      <>
+        <div
+          className={`flex h-[36px] shrink-0 select-none items-center border-b border-line bg-panel px-2 ${
+            groupFocused ? '' : 'opacity-95'
+          }`}
+          onPointerDown={() => setActiveGroup(groupId)}
+          onClick={onBlankClick}
+          onContextMenu={openBlankMenu}
+        >
+          <div data-tab-strip="true" className="h-full min-w-0 flex-1" />
+        </div>
+        {blankMenu ? (
+          <ContextMenu
+            x={blankMenu.x}
+            y={blankMenu.y}
+            items={blankItems}
+            onClose={() => setBlankMenu(null)}
+          />
+        ) : null}
+      </>
+    )
+  }
+
   const groupActiveTab = tabs.find((t) => t.id === groupActiveId) ?? null
   // SVG is edited as source by default, so it alone needs a "peek at the image" exit on the tab bar's right
   const svgTab =
@@ -554,13 +615,8 @@ export function TabBar({ groupId }: { groupId: TabGroupId }) {
           groupFocused ? '' : 'opacity-95'
         }`}
         onPointerDown={() => setActiveGroup(groupId)}
-        onDoubleClick={(event) => {
-          const target = event.target as HTMLElement
-          // Tabs keep their own double-click (promote); buttons handle their own clicks.
-          if (target.closest('[data-tab-id]') || target.closest('button')) return
-          event.preventDefault()
-          setBlankMenu({ x: event.clientX, y: event.clientY })
-        }}
+        onClick={onBlankClick}
+        onContextMenu={openBlankMenu}
       >
         <div
           ref={stripRef}
@@ -642,19 +698,7 @@ export function TabBar({ groupId }: { groupId: TabGroupId }) {
         <ContextMenu
           x={blankMenu.x}
           y={blankMenu.y}
-          items={[
-            {
-              label: t('tabs.newTextFile'),
-              shortcut: newFileKeys || undefined,
-              onClick: () => {
-                useTabs.getState().openUntitled({ groupId })
-              },
-            },
-            {
-              label: t('tabs.openFile'),
-              onClick: () => void openFileDialog({ groupId }),
-            },
-          ]}
+          items={blankItems}
           onClose={() => setBlankMenu(null)}
         />
       ) : null}

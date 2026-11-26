@@ -117,7 +117,10 @@ export function ActivityBar({
   return (
     <div
       className="tide-activity-bar relative flex w-[52px] shrink-0 flex-col items-center justify-between border-r border-line-soft bg-activity-bar py-2"
-      onDoubleClick={(event) => {
+      onClick={(event) => {
+        // The second click of a double-click opens the visibility checklist. WKWebView does not
+        // always dispatch dblclick, so use the click count already trusted by Item.
+        if (event.detail !== 2 || menu) return
         event.preventDefault()
         const rect = event.currentTarget.getBoundingClientRect()
         setMenu({ x: rect.right + 6, y: event.clientY })

@@ -58,10 +58,11 @@ EditorHost selects tab kinds; markdown helpers own contained links and images.
   blame, conflicts, import links and project search, but keep language detection from `tab.name`, editing,
   auto-save, formatting and images. Their cursor session lives in localStorage (`lib/externalTabs.ts`),
   not the Rust project session. Project switch still closes them with `closeEverything`.
-- Double-clicking tab-strip whitespace opens the blank-tab menu (New text file / Open file…); tabs keep
-  their own double-click promotion. A file/diff tab double-click also switches to Explorer and requests a
-  centred tree reveal (`TreeReveal.center`); external tabs only promote. Open File is the first Welcome
-  action and a palette command (`file.open`, no default stroke so Mod+O stays Open Folder).
+- Double-clicking or right-clicking tab-strip whitespace opens the blank-tab menu (New blank file / Open
+  file…); an empty project pane renders the same 36px strip, while the no-project Welcome page does not.
+  Tabs keep their own double-click promotion. A file/diff tab double-click also switches to Explorer and
+  requests a centred tree reveal (`TreeReveal.center`); external tabs only promote. Open File is the first
+  Welcome action and a palette command (`file.open`, no default stroke so Mod+O stays Open Folder).
 - Hydrate project/root/chain/tabs as one gate behind the themed startup frame. Restore metadata first;
   load content/state on activation. Missing eol is safe only while there is no state to save. Restore
   file/cursor state only within the same project; virtual/chat tabs never enter file-layout persistence.

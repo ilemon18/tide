@@ -222,9 +222,6 @@ export function SettingsView() {
         </Card>
 
         <Card title={t('settings.activityBar.card')}>
-          <div className="border-b border-line/60 px-4 py-2.5 text-xs leading-relaxed text-muted">
-            {t('settings.activityBar.hint')}
-          </div>
           {ACTIVITY_BAR_ITEMS.map((item) => (
             <Row key={item.id} label={t(item.labelKey)}>
               <Toggle

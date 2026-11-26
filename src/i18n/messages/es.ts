@@ -254,7 +254,6 @@ export const es: Messages = {
 
   'settings.memory.card': 'Memoria',
   'settings.activityBar.card': 'Barra de actividades',
-  'settings.activityBar.hint': 'Explorador y Buscar siempre se muestran. Haz doble clic en la barra de actividades para cambiarlos rápidamente.',
   'settings.memory.lightweight': 'Modo ligero',
   'settings.memory.lightweightHint':
     'Libera memoria pausando funciones en segundo plano. Los archivos abiertos pueden recargarse al volver.',
@@ -296,8 +295,6 @@ export const es: Messages = {
   'settings.about.checking': 'Comprobando…',
   'settings.about.download': 'Descargar actualización',
   'settings.about.install': 'Instalar actualización',
-  'settings.about.installUpdate': 'Instalar actualización',
-  'settings.about.installPrompt': 'La versión {version} está lista para instalarse. ¿Instalarla ahora?',
   "settings.about.restartAfterInstall": "La aplicación se reiniciará al terminar la instalación.",
   'settings.about.installing': 'Instalando…',
   'settings.about.retry': 'Reintentar',
@@ -440,7 +437,7 @@ export const es: Messages = {
 
   'tab.untitledName': 'Sin título-{count}',
   'tab.untitledFileName': 'Sin título-{count}',
-  'tabs.newTextFile': 'Nuevo archivo de texto',
+  'tabs.newTextFile': 'Nuevo archivo vacío',
   'tabs.openFile': 'Abrir archivo…',
   'tabs.close': 'Cerrar',
   'tabs.closeOthers': 'Cerrar las demás',
@@ -626,11 +623,9 @@ export const es: Messages = {
   'git.openChanges': 'Abrir cambios',
   'git.undoLastCommit': 'Deshacer el último commit',
   'git.stashChanges': 'Guardar cambios en stash',
-  'git.stashChangesHint': 'Solo cambios rastreados · los archivos sin seguimiento se quedan',
   'git.popStash': 'Aplicar stash',
   'git.popStashCount': 'Aplicar stash ({count})',
   'git.resetAll': 'Restablecer todos los cambios',
-  'git.resetAllHint': 'Cambios rastreados preparados y no preparados',
   'git.conflictsCount': '{count} conflicto | {count} conflictos',
   'git.markResolvedFirst': 'Primero marca los archivos en conflicto como resueltos',
   'git.commitPlaceholderOp': '{label}: mensaje del commit (del otro lado)',

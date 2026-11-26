@@ -86,7 +86,6 @@ it('exposes one Tasks and Problems switch in the activity bar card', () => {
 it('exposes activity bar visibility toggles under General', () => {
   render(<SettingsView />)
   const card = screen.getByRole('heading', { name: t('settings.activityBar.card') }).closest('section')!
-  expect(within(card).getByText(t('settings.activityBar.hint'))).toBeTruthy()
   for (const item of ACTIVITY_BAR_ITEMS) {
     const toggle = within(card).getByRole('button', { name: t(item.labelKey) })
     expect(toggle.getAttribute('aria-pressed')).toBe('true')

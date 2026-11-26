@@ -253,7 +253,6 @@ export const ko: Messages = {
 
   'settings.memory.card': '메모리',
   'settings.activityBar.card': '활동 표시줄',
-  'settings.activityBar.hint': '탐색기와 검색은 항상 표시됩니다. 활동 표시줄을 두 번 클릭하면 이 아이콘을 빠르게 전환할 수 있습니다.',
   'settings.memory.lightweight': '라이트 모드',
   'settings.memory.lightweightHint': '백그라운드 기능을 중지해 메모리를 확보합니다. 돌아오면 열린 파일을 다시 불러올 수 있습니다.',
   'settings.memory.lightweightOn':
@@ -294,8 +293,6 @@ export const ko: Messages = {
   'settings.about.checking': '확인 중…',
   'settings.about.download': '업데이트 다운로드',
   'settings.about.install': '업데이트 설치',
-  'settings.about.installUpdate': '업데이트 설치',
-  'settings.about.installPrompt': '{version}을(를) 설치할 준비가 되었습니다. 지금 설치할까요?',
   "settings.about.restartAfterInstall": "설치가 완료되면 앱이 다시 시작됩니다.",
   'settings.about.installing': '설치 중…',
   'settings.about.retry': '다시 시도',
@@ -432,7 +429,7 @@ export const ko: Messages = {
 
   'tab.untitledName': '제목 없음-{count}',
   'tab.untitledFileName': '제목 없음-{count}',
-  'tabs.newTextFile': '새 텍스트 파일',
+  'tabs.newTextFile': '새 빈 파일',
   'tabs.openFile': '파일 열기…',
   'tabs.close': '닫기',
   'tabs.closeOthers': '다른 탭 닫기',
@@ -617,11 +614,9 @@ export const ko: Messages = {
   'git.openChanges': '변경 사항 열기',
   'git.undoLastCommit': '마지막 커밋 되돌리기',
   'git.stashChanges': '변경 사항 스태시',
-  'git.stashChangesHint': '추적 중인 변경만 · 추적되지 않은 파일은 유지',
   'git.popStash': '스태시 팝',
   'git.popStashCount': '스태시 팝 ({count})',
   'git.resetAll': '모든 변경 사항 재설정',
-  'git.resetAllHint': '스테이지된 변경과 스테이지되지 않은 추적 변경',
   'git.conflictsCount': '충돌 {count}건',
   'git.markResolvedFirst': '먼저 충돌 파일을 해결됨으로 표시하세요',
   'git.commitPlaceholderOp': '{label}: 커밋 메시지(상대 커밋에서)',

@@ -101,12 +101,14 @@ const replyControlClass =
 const userControlClass =
   'h-[22px] w-[22px] pointer-events-none group-hover/user:pointer-events-auto group-focus-within/user:pointer-events-auto opacity-0 transition-opacity duration-fast group-hover/user:opacity-100 group-focus-within/user:opacity-100'
 
-const optionCardShellClass = 'relative rounded-[6px] border border-line-soft'
-const optionCardHeaderClass = 'flex items-start gap-2.5 px-3 py-2.5'
+const optionCardShellClass = 'relative overflow-hidden rounded-[7px] border border-line bg-panel-alt'
+const optionCardHeaderClass = 'flex items-start gap-2.5 border-b border-line-soft bg-panel px-3 py-2.5'
 const optionRowBaseClass =
   'flex w-full gap-2 rounded-[4px] border px-2.5 py-2 text-left text-xs font-medium text-fg/85 transition-colors duration-fast disabled:cursor-not-allowed disabled:opacity-55'
-const questionOptionClass = `${optionRowBaseClass} items-start`
-const planOptionClass = `${optionRowBaseClass} items-center border-line-soft hover:border-line hover:bg-hover`
+const questionOptionClass = `${optionRowBaseClass} items-start border-line-soft bg-panel hover:border-line hover:bg-hover`
+const questionOptionSelectedClass = `${optionRowBaseClass} items-start border-accent/50 bg-accent/10`
+const planOptionClass = `${optionRowBaseClass} items-center border-line-soft bg-panel hover:border-line hover:bg-hover`
+const planPrimaryOptionClass = `${optionRowBaseClass} items-center border-accent/50 bg-accent/10 hover:border-accent/70 hover:bg-accent/20`
 
 /** Prefer the executable command/path over the provider's generic tool name or JSON input. */
 export function toolCommand(item: AgentItem): string {
@@ -314,18 +316,14 @@ function QuestionCard({
                   aria-checked={checked}
                   disabled={locked}
                   onClick={() => toggleOption(option.label)}
-                  className={`${questionOptionClass} ${
-                    checked
-                      ? 'border-fg/25 bg-hover'
-                      : 'border-line-soft hover:border-line hover:bg-hover'
-                  }`}
+                  className={checked ? questionOptionSelectedClass : questionOptionClass}
                 >
                   <span
                     aria-hidden
                     className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center border text-[9px] font-semibold transition-colors ${
                       multi ? 'rounded-[3px]' : 'rounded-full'
                     } ${
-                      checked ? 'border-fg/35 text-fg' : 'border-line-soft text-muted'
+                      checked ? 'border-accent bg-accent text-accent-fg' : 'border-line-soft text-muted'
                     }`}
                   >
                     {checked ? <Icon name="check" size={9} /> : String.fromCharCode(65 + index)}
@@ -343,7 +341,7 @@ function QuestionCard({
             })}
           </div>
 
-          <label className="flex items-center gap-2 rounded-[4px] border border-line-soft px-2.5 transition-colors duration-fast focus-within:border-line focus-within:bg-hover">
+          <label className="flex items-center gap-2 rounded-[4px] border border-line-soft bg-panel px-2.5 transition-colors duration-fast focus-within:border-accent/50">
             <span aria-hidden className="shrink-0 text-muted">
               <Icon name="edit" size={12} />
             </span>
@@ -372,7 +370,11 @@ function QuestionCard({
               type="button"
               disabled={!canSubmit}
               onClick={() => void submit()}
-              className="flex h-8 shrink-0 items-center gap-1.5 rounded-[4px] border border-line-soft px-2.5 text-xs font-medium text-fg/85 transition-colors duration-fast hover:border-line hover:bg-hover disabled:cursor-not-allowed disabled:opacity-55"
+              className={`flex h-8 shrink-0 items-center gap-1.5 rounded-[4px] border px-2.5 text-xs font-medium transition-colors duration-fast disabled:cursor-not-allowed disabled:opacity-55 ${
+                canSubmit
+                  ? 'border-accent bg-accent text-accent-fg hover:opacity-90'
+                  : 'border-line-soft bg-panel-alt text-muted'
+              }`}
             >
               <Icon name="arrow-up-right" size={12} />
               {t('agent.question.submit')}
@@ -435,9 +437,9 @@ function PlanCard({
   return (
     <div className={optionCardShellClass}>
       <div className={optionCardHeaderClass}>
-        <Icon name="list-check" size={13} className="mt-0.5 shrink-0 text-muted" />
+        <Icon name="list-check" size={13} className="mt-0.5 shrink-0 text-accent" />
         <div className="flex min-w-0 flex-1 flex-col gap-1">
-          <div className="text-2xs font-semibold tracking-wide text-muted">
+          <div className="text-2xs font-semibold tracking-wide text-accent">
             {t('agent.plan.header')}
           </div>
           {item.text ? (
@@ -451,15 +453,15 @@ function PlanCard({
       {!resolved ? (
         <div className="flex flex-col gap-1.5 px-3 pb-3 pt-0.5">
           {/* Codex plan_implementation.rs: keep official option copy/order; action IDs stay persisted. */}
-          {actions.map(({ action, label, icon }) => (
+          {actions.map(({ action, label, icon }, index) => (
             <button
               key={action}
               type="button"
               disabled={locked}
               onClick={() => handleAction(action)}
-              className={planOptionClass}
+              className={index === 0 ? planPrimaryOptionClass : planOptionClass}
             >
-              <Icon name={icon} size={12} className="shrink-0 text-muted" />
+              <Icon name={icon} size={12} className={`shrink-0 ${index === 0 ? 'text-accent' : 'text-muted'}`} />
               <span className="min-w-0 flex-1">{label}</span>
             </button>
           ))}
@@ -470,7 +472,7 @@ function PlanCard({
             aria-label={t('agent.plan.instructions')}
             placeholder={t('agent.plan.instructions')}
             rows={2}
-            className="mt-1 w-full resize-y rounded-[4px] border border-line-soft bg-transparent px-2.5 py-2 text-xs text-fg outline-none transition-colors duration-fast placeholder:text-muted/55 focus:border-line disabled:opacity-60"
+            className="mt-1 w-full resize-y rounded-[4px] border border-line-soft bg-panel px-2.5 py-2 text-xs text-fg outline-none transition-colors duration-fast placeholder:text-muted/55 focus:border-accent/50 disabled:opacity-60"
           />
         </div>
       ) : (

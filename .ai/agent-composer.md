@@ -89,9 +89,9 @@ actions and queue gates. Rust parses questions/scans skills. Provider/model/perm
   on hydration.
 - Plan options follow Codex copy/order in all catalogs:
   “Yes, implement this plan”; “Yes, clear context and implement”; “No, stay in Plan mode”.
-  Source: [Codex plan_implementation.rs, commit 63a15005](https://github.com/openai/codex/blob/63a15005de43a3db68d451403593b202ed337d20/codex-rs/tui/src/chatwidget/plan_implementation.rs).
+  Source: [plan_implementation.rs, 63a15005](https://github.com/openai/codex/blob/63a15005de43a3db68d451403593b202ed337d20/codex-rs/tui/src/chatwidget/plan_implementation.rs).
   Preserve persisted action IDs. Clear-context passes the plan into a fresh session in the same tab.
-  Optional instructions follow all three buttons and accompany the selected action.
+  Optional instructions follow all actions; cards flat, accent primary/selected.
 - The complete command set is /new, /resume [chat ID], /fork, /compact, /status, /model [ID|default],
   /permissions, /plan, /goal, /review, /test, /explain and /help. Local /new resets the current chat tab
   in place, clears its transcript/session context and keeps the selected provider/model/permissions.

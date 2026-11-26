@@ -93,10 +93,14 @@ it('passes the conversation workspace to text, reasoning and plan Markdown', () 
 })
 
 it('shows the plan once followed by three next actions and optional instructions', () => {
-  render(view())
+  const { container } = render(view())
   expect(screen.getAllByText('The agreed plan')).toHaveLength(1)
   expect(screen.getAllByRole('button')).toHaveLength(3)
-  for (const button of screen.getAllByRole('button')) expect(button.className).not.toContain('accent')
+  const buttons = screen.getAllByRole('button')
+  expect(buttons[0].className).toContain('border-accent/50')
+  expect(buttons[0].className).toContain('bg-accent/10')
+  expect(buttons[1].className).not.toContain('bg-accent')
+  expect(container.querySelector('[class*="bg-gradient"]')).toBeNull()
   const instructions = screen.getByRole('textbox', { name: 'agent.plan.instructions' })
   for (const button of screen.getAllByRole('button')) {
     expect(button.compareDocumentPosition(instructions) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
@@ -158,7 +162,7 @@ const questionView = (message = questionMessage(), running = false, pendingQuest
   <AssistantMessage chatId="chat" providerLabel="Codex" message={message} running={running} pendingQuestionId={pendingQuestionId} />
 )
 
-it('renders question choices as a neutral vertical list without gradients', () => {
+it('renders question choices as a distinct vertical list without gradients', () => {
   const { container } = render(questionView())
   const group = screen.getByRole('radiogroup')
   expect(group.className).toContain('flex-col')
@@ -168,12 +172,14 @@ it('renders question choices as a neutral vertical list without gradients', () =
   const option = screen.getByRole('radio', { name: /Option A/ }) as HTMLButtonElement
   fireEvent.click(option)
   expect(option.getAttribute('aria-checked')).toBe('true')
-  expect(option.className).toContain('bg-hover')
-  expect(option.className).not.toContain('accent')
+  expect(option.className).toContain('border-accent/50')
+  expect(option.className).toContain('bg-accent/10')
+  expect((screen.getByRole('radio', { name: /Option B/ }) as HTMLButtonElement).className)
+    .not.toContain('bg-accent')
 
   const submit = screen.getByRole('button', { name: 'agent.question.submit' })
   expect(submit.className).not.toContain('bg-gradient')
-  expect(submit.className).not.toContain('accent')
+  expect(submit.className).toContain('bg-accent')
 })
 
 it('hides structured question options until streaming completes', async () => {

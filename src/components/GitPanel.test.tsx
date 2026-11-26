@@ -134,7 +134,7 @@ it('offers stash, pop and reset in the more-actions menu', async () => {
   await waitFor(() => expect(actions.gitStashCount).toHaveBeenCalledWith('/repo'))
   await screen.findByRole('button', { name: 'git.popStashCount' })
 
-  fireEvent.click(button('git.stashChangesgit.stashChangesHint'))
+  fireEvent.click(button('git.stashChanges'))
   expect(git.stashChanges).toHaveBeenCalledWith('/repo')
 
   fireEvent.click(container.querySelector('[data-tip="git.moreActions"]') as HTMLElement)
@@ -142,7 +142,7 @@ it('offers stash, pop and reset in the more-actions menu', async () => {
   expect(git.popStash).toHaveBeenCalledWith('/repo')
 
   fireEvent.click(container.querySelector('[data-tip="git.moreActions"]') as HTMLElement)
-  fireEvent.click(await screen.findByRole('button', { name: 'git.resetAllgit.resetAllHint' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'git.resetAll' }))
   expect(git.resetAll).toHaveBeenCalledWith('/repo')
 })
 
@@ -150,9 +150,9 @@ it('disables stash and reset when there are no tracked changes', async () => {
   git.statuses['/repo'].changes = []
   const { container } = render(<GitPanel />)
   fireEvent.click(container.querySelector('[data-tip="git.moreActions"]') as HTMLElement)
-  await screen.findByRole('button', { name: 'git.resetAllgit.resetAllHint' })
-  expect(button('git.stashChangesgit.stashChangesHint').disabled).toBe(true)
-  expect(button('git.resetAllgit.resetAllHint').disabled).toBe(true)
+  await screen.findByRole('button', { name: 'git.resetAll' })
+  expect(button('git.stashChanges').disabled).toBe(true)
+  expect(button('git.resetAll').disabled).toBe(true)
 })
 
 it('shows conflict actions and opens the worktree on single click', async () => {

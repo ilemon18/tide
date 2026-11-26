@@ -677,7 +677,6 @@ const RepoSection = memo(function RepoSection({
     { type: 'separator' },
     {
       label: t('git.stashChanges'),
-      description: t('git.stashChangesHint'),
       disabled: busy !== null || Boolean(operation) || trackedChanges === 0,
       onClick: () => void stashChanges(root.id),
     },
@@ -691,7 +690,6 @@ const RepoSection = memo(function RepoSection({
     { type: 'separator' },
     {
       label: t('git.resetAll'),
-      description: t('git.resetAllHint'),
       danger: true,
       disabled: busy !== null || Boolean(operation) || !status.head || trackedChanges === 0,
       onClick: () => void resetAll(root.id),

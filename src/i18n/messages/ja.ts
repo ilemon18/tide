@@ -253,7 +253,6 @@ export const ja: Messages = {
 
   'settings.memory.card': 'メモリ',
   'settings.activityBar.card': 'アクティビティバー',
-  'settings.activityBar.hint': 'エクスプローラーと検索は常に表示されます。アクティビティバーをダブルクリックすると、これらのアイコンをすばやく切り替えられます。',
   'settings.memory.lightweight': '軽量モード',
   'settings.memory.lightweightHint': 'バックグラウンド機能を停止してメモリを解放。開いているファイルは戻ると再読み込みされる場合があります。',
   'settings.memory.lightweightOn':
@@ -294,8 +293,6 @@ export const ja: Messages = {
   'settings.about.checking': '確認中…',
   'settings.about.download': '更新をダウンロード',
   'settings.about.install': '更新をインストール',
-  'settings.about.installUpdate': '更新をインストール',
-  'settings.about.installPrompt': 'バージョン {version} をインストールできます。今すぐインストールしますか？',
   "settings.about.restartAfterInstall": "インストールが完了するとアプリが再起動します。",
   'settings.about.installing': 'インストール中…',
   'settings.about.retry': '再試行',
@@ -431,7 +428,7 @@ export const ja: Messages = {
 
   'tab.untitledName': '無題-{count}',
   'tab.untitledFileName': '無題-{count}',
-  'tabs.newTextFile': '新しいテキストファイル',
+  'tabs.newTextFile': '新しい空のファイル',
   'tabs.openFile': 'ファイルを開く…',
   'tabs.close': '閉じる',
   'tabs.closeOthers': '他のタブを閉じる',
@@ -616,11 +613,9 @@ export const ja: Messages = {
   'git.openChanges': '変更を開く',
   'git.undoLastCommit': '直前のコミットを取り消し',
   'git.stashChanges': '変更を stash する',
-  'git.stashChangesHint': '追跡済みの変更のみ · 未追跡ファイルは残ります',
   'git.popStash': 'stash を pop する',
   'git.popStashCount': 'stash を pop する（{count}）',
   'git.resetAll': 'すべての変更をリセット',
-  'git.resetAllHint': 'ステージ済み・未ステージの追跡変更',
   'git.conflictsCount': '{count} 件の競合',
   'git.markResolvedFirst': '先に競合ファイルを解決済みにしてください',
   'git.commitPlaceholderOp': '{label}: コミットメッセージ（相手側のコミットから）',

@@ -100,7 +100,7 @@ it('double-click opens a checked visibility menu that can restore hidden items',
   const { container } = renderBar({
     visibility: { welcome: false, git: false, structure: false, tasks: false },
   })
-  fireEvent.doubleClick(container.querySelector('.tide-activity-bar')!, { clientX: 60, clientY: 40 })
+  fireEvent.click(container.querySelector('.tide-activity-bar')!, { detail: 2, clientX: 60, clientY: 40 })
 
   const welcome = screen.getByRole('button', { name: 'activity.welcomeTip' })
   expect(welcome.getAttribute('aria-pressed')).toBe('false')
@@ -116,7 +116,7 @@ it('double-click opens a checked visibility menu that can restore hidden items',
 
 it('toggles the single Tasks and Problems switch from the activity bar menu', () => {
   const { container } = renderBar()
-  fireEvent.doubleClick(container.querySelector('.tide-activity-bar')!, { clientX: 60, clientY: 40 })
+  fireEvent.click(container.querySelector('.tide-activity-bar')!, { detail: 2, clientX: 60, clientY: 40 })
 
   // The visible bar icon and the menu row share this label; the row is the checkable toggle.
   fireEvent.click(screen.getByRole('button', { name: 'activity.tasksTip', pressed: true }))

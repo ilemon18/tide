@@ -13,7 +13,8 @@ import { formatVersion } from '../lib/version'
  *
  * Release builds may check and download in the background when the user enables automatic updates.
  * Debug builds skip that path and keep Settings → About as the manual entry. Downloading never installs
- * on its own: a background download asks for confirmation, while manual downloads stop at the ready state.
+ * on its own: automatic and manual downloads both stop at the ready state, and the user's click on the
+ * shared install action is the explicit consent to restart.
  *
  * Each status maps to exactly one button label (mapping in `lib/updateView.ts`):
  *
@@ -47,8 +48,8 @@ type UpdateStore = {
   logPath: string
   /** Check for updates; a forced manual check bypasses the local cache and cached fallback. */
   check: (manual?: boolean, force?: boolean) => Promise<void>
-  /** User action: download and verify through Rust. Background downloads ask before installing. */
-  download: (background?: boolean) => Promise<void>
+  /** User action: download and verify through Rust; installation stays a separate explicit action. */
+  download: () => Promise<void>
   install: () => Promise<void>
   /** Opens the release page in the browser (the step after a release without an installer) */
   openPage: () => Promise<void>
@@ -138,7 +139,7 @@ export const useUpdate = create<UpdateStore>((set, get) => ({
     }
   },
 
-  download: async (background = false) => {
+  download: async () => {
     const { info, status } = get()
     // Needs a package for the current platform; the UI only offers this when available, this blocks a double click
     if (!info?.available || !info.downloadUrl || (status !== 'available' && status !== 'error')) return
@@ -150,17 +151,6 @@ export const useUpdate = create<UpdateStore>((set, get) => ({
       // The file is on disk now, nothing left to watch
       unwatchProgress()
       set({ status: 'ready', percent: 100 })
-      if (background && useSettings.getState().autoUpdate) {
-        const info = get().info
-        const confirmed = await useUi.getState().confirm({
-          title: t('settings.about.installUpdate'),
-          message: t('settings.about.installPrompt', {
-            version: formatVersion(info?.latest ?? ''),
-          }),
-          confirmText: t('settings.about.install'),
-        })
-        if (confirmed) await get().install()
-      }
     } catch (err) {
       set({ status: 'error', error: errorText(err) })
       useUi.getState().toast(errorText(err), 'error')
@@ -266,7 +256,7 @@ async function runAutomaticUpdate() {
   await useUpdate.getState().check(false)
   const state = useUpdate.getState()
   if (useSettings.getState().autoUpdate && state.status === 'available') {
-    await useUpdate.getState().download(true)
+    await useUpdate.getState().download()
   }
 }
 

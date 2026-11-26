@@ -136,24 +136,18 @@ it('downloads a known update without installing until the user chooses install',
   expect(mocks.install).toHaveBeenCalledWith(availableInfo.latest)
 })
 
-it('asks before installing a background download and keeps it ready when declined', async () => {
+it('leaves a background download ready without prompting, then installs on the explicit action', async () => {
   mocks.autoUpdate = true
-  mocks.confirm.mockResolvedValue(false)
   useUpdate.setState({ status: 'available', info: availableInfo })
   mocks.download.mockResolvedValue('/tmp/Tide.exe')
 
-  await useUpdate.getState().download(true)
+  await useUpdate.getState().download()
 
-  expect(mocks.confirm).toHaveBeenCalledWith(expect.objectContaining({
-    title: 'settings.about.installUpdate',
-    confirmText: 'settings.about.install',
-  }))
+  expect(mocks.confirm).not.toHaveBeenCalled()
   expect(mocks.install).not.toHaveBeenCalled()
   expect(useUpdate.getState().status).toBe('ready')
 
-  mocks.confirm.mockResolvedValue(true)
-  useUpdate.setState({ status: 'available', info: availableInfo })
-  await useUpdate.getState().download(true)
+  await useUpdate.getState().install()
   expect(mocks.install).toHaveBeenCalledWith(availableInfo.latest)
 })
 

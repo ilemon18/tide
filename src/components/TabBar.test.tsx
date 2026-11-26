@@ -174,7 +174,9 @@ it('blocks middle-click on a running Agent while keeping ordinary file closes av
 it('opens the blank tab-bar menu on an empty-area double-click and creates a grouped Untitled', () => {
   const { container } = render(<TabBar groupId="primary" />)
   const strip = container.querySelector<HTMLElement>('[data-tab-strip="true"]')!
-  fireEvent.doubleClick(strip, { clientX: 40, clientY: 10 })
+  fireEvent.click(strip, { detail: 1, clientX: 40, clientY: 10 })
+  expect(contextMenu.current).toBeNull()
+  fireEvent.click(strip, { detail: 2, clientX: 40, clientY: 10 })
   expect(contextMenu.current?.items.map((item) => item.label)).toEqual([
     'tabs.newTextFile',
     'tabs.openFile',
@@ -183,6 +185,31 @@ it('opens the blank tab-bar menu on an empty-area double-click and creates a gro
   expect(useTabs.getState().openUntitled).toHaveBeenCalledWith({ groupId: 'primary' })
   act(() => contextMenu.current!.items[1].onClick!())
   expect(openFileDialog).toHaveBeenCalledWith({ groupId: 'primary' })
+})
+
+it('opens the same blank menu on an empty-area right-click', () => {
+  const { container } = render(<TabBar groupId="primary" />)
+  const strip = container.querySelector<HTMLElement>('[data-tab-strip="true"]')!
+  fireEvent.contextMenu(strip, { clientX: 50, clientY: 12 })
+  expect(contextMenu.current?.items.map((item) => item.label)).toEqual([
+    'tabs.newTextFile',
+    'tabs.openFile',
+  ])
+})
+
+it('renders the blank strip for an empty project pane when requested', () => {
+  useTabs.setState({
+    tabs: [],
+    groups: [{ id: 'primary', activeId: null, order: [] }],
+    activeGroupId: 'primary',
+  })
+  const { container } = render(<TabBar groupId="primary" showEmptyBar />)
+  const strip = container.querySelector<HTMLElement>('[data-tab-strip="true"]')!
+  fireEvent.click(strip, { detail: 2, clientX: 40, clientY: 10 })
+  expect(contextMenu.current?.items.map((item) => item.label)).toEqual([
+    'tabs.newTextFile',
+    'tabs.openFile',
+  ])
 })
 
 it('keeps tab double-click as promotion without opening the blank menu', () => {

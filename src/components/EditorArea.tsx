@@ -38,7 +38,7 @@ function EditorPane({ groupId, searchOpen, searchFocus, onCloseSearch, showWelco
       data-group={groupId}
       className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
     >
-      <TabBar groupId={groupId} />
+      <TabBar groupId={groupId} showEmptyBar={!showWelcome} />
       <div className="relative min-h-0 flex-1 overflow-hidden">
         <EditorHost groupId={groupId} />
         {tabCount === 0 ? (

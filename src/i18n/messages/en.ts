@@ -269,7 +269,6 @@ export const en = {
   // ---------------------------------------------------------------- Settings: memory
   'settings.memory.card': 'Memory',
   'settings.activityBar.card': 'Activity bar',
-  'settings.activityBar.hint': 'Explorer and Search are always shown. Double-click the activity bar to change these quickly.',
   'settings.memory.lightweight': 'Lightweight mode',
   'settings.memory.lightweightHint':
     'Frees memory by pausing background features. Open files may reload when you return.',
@@ -315,8 +314,6 @@ export const en = {
   'settings.about.checking': 'Checking…',
   'settings.about.download': 'Download update',
   'settings.about.install': 'Install update',
-  'settings.about.installUpdate': 'Install update',
-  'settings.about.installPrompt': 'Version {version} is ready to install. Install it now?',
   "settings.about.restartAfterInstall": "The app will restart when installation finishes.",
   'settings.about.installing': 'Installing…',
   'settings.about.retry': 'Retry',
@@ -462,7 +459,7 @@ export const en = {
   // ---------------------------------------------------------------- Tabs
   'tab.untitledName': 'Untitled-{count}',
   'tab.untitledFileName': 'Untitled-{count}',
-  'tabs.newTextFile': 'New text file',
+  'tabs.newTextFile': 'New blank file',
   'tabs.openFile': 'Open file…',
   'tabs.close': 'Close',
   'tabs.closeOthers': 'Close others',
@@ -655,11 +652,9 @@ export const en = {
   'git.openChanges': 'Open changes',
   'git.undoLastCommit': 'Undo last commit',
   'git.stashChanges': 'Stash changes',
-  'git.stashChangesHint': 'Tracked changes only · untracked files stay',
   'git.popStash': 'Pop stash',
   'git.popStashCount': 'Pop stash ({count})',
   'git.resetAll': 'Reset all changes',
-  'git.resetAllHint': 'Staged and unstaged tracked changes',
   'git.conflictsCount': '{count} conflict | {count} conflicts',
   'git.markResolvedFirst': 'Mark the conflicted files as resolved first',
   'git.commitPlaceholderOp': '{label}: commit message (from the other side)',
