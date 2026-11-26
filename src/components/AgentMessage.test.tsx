@@ -8,6 +8,13 @@ import { en } from '../i18n/messages/en'
 const { resolvePlanAction, answerQuestion } = vi.hoisted(() => ({ resolvePlanAction: vi.fn(), answerQuestion: vi.fn() }))
 vi.mock('../store/agent', () => ({ useAgent: Object.assign((select: (state: unknown) => unknown) => select({ running: {} }), { getState: () => ({ resolvePlanAction, answerQuestion }) }) }))
 vi.mock('../store/tabs', () => ({ useTabs: { getState: () => ({}) } }))
+vi.mock('../store/git', () => ({
+  useGit: Object.assign(
+    (select: (state: { busy: string | null }) => unknown) => select({ busy: null }),
+    { getState: () => ({}) },
+  ),
+}))
+vi.mock('../store/ui', () => ({ useUi: { getState: () => ({}) } }))
 vi.mock('../lib/actions', () => ({ revealInExplorer: vi.fn() }))
 vi.mock('../i18n', () => ({ useT: () => (key: string) => key }))
 vi.mock('./AgentMarkdown', () => ({ AgentMarkdown: ({ text, root }: { text: string; root?: string }) => <div data-root={root}>{text}</div> }))
@@ -34,6 +41,34 @@ beforeEach(() => {
   answerQuestion.mockReset(); answerQuestion.mockResolvedValue(true)
 })
 afterEach(cleanup)
+
+it('shows a turn change summary before the completion line and only undoes the latest reply', () => {
+  const message: AgentMessage = {
+    id: 'reply', role: 'assistant', at: 1, completion: 'completed',
+    items: [{ id: 'text', type: 'text', text: 'Done' }],
+    changes: {
+      snapshot: { worktree: 'tree-start' },
+      files: [{ path: 'src/a.ts', status: 'M', additions: 1, deletions: 2, binary: false }],
+      additions: 1, deletions: 2, truncated: false,
+    },
+  }
+  const { container, rerender } = render(
+    <AssistantMessage chatId="chat" providerLabel="Codex" message={message} running={false} pendingQuestionId={null} latest />,
+  )
+  const card = container.querySelector('[data-agent-changes="reply"]')
+  const status = container.querySelector('[role="status"]')
+  expect(card).toBeTruthy()
+  expect(status).toBeTruthy()
+  expect(card!.compareDocumentPosition(status!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  expect(screen.getByText('agent.changes.revert')).toBeTruthy()
+
+  // Still streaming: the turn has not finished, so its undo must not be clickable yet
+  rerender(<AssistantMessage chatId="chat" providerLabel="Codex" message={message} running pendingQuestionId={null} latest />)
+  expect(screen.queryByText('agent.changes.revert')).toBeNull()
+
+  rerender(<AssistantMessage chatId="chat" providerLabel="Codex" message={message} running={false} pendingQuestionId={null} latest={false} />)
+  expect(screen.queryByText('agent.changes.revert')).toBeNull()
+})
 
 it('labels user turns above their content without adding the label to copied text', () => {
   const message: AgentMessage = { id: 'user', role: 'user', at: 1, text: 'Keep my spacing  \nNext line' }

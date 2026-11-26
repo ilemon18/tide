@@ -369,6 +369,12 @@ export const es: Messages = {
   'dialog.removeProject.message':
     'Este proyecto todavía tiene archivos sin guardar. Al quitarlo se descartarán esos cambios.',
   'dialog.removeProject.confirm': 'Quitar',
+  'dialog.agentRevert.title': '¿Deshacer este turno?',
+  'dialog.agentRevert.message':
+    'Restaura el {count} archivo que cambió este turno a su contenido anterior al turno. Las ediciones posteriores de ese archivo se descartan. | Restaura los {count} archivos que cambió este turno a su contenido anterior al turno. Las ediciones posteriores de esos archivos se descartan.',
+  'dialog.agentRevert.messageWithCommit':
+    'Este turno también creó un commit. Deshacer restaura los archivos pero no elimina el commit.',
+  'dialog.agentRevert.confirm': 'Deshacer',
   'dialog.gitDiscard.title': 'Descartar cambios',
   'dialog.gitDiscard.message':
     'Se descartarán los cambios de {count} archivo. No se puede deshacer. | Se descartarán los cambios de {count} archivos. No se puede deshacer.',
@@ -423,6 +429,9 @@ export const es: Messages = {
   'toast.pullDone': 'Pull completado',
   'toast.pushDone': 'Push completado',
   'toast.fetchDone': 'Ramas remotas sincronizadas',
+  'toast.agentChangesReverted': 'Cambios del turno deshechos',
+  'toast.agentChangesSkipped':
+    'No se pudo restaurar {count} archivo | No se pudieron restaurar {count} archivos',
   'toast.gitSkipped': 'Se omitió el paso actual; la lista de conflictos está actualizada',
   'toast.gitStashed': 'Cambios guardados en stash',
   'toast.gitStashPopped': 'Stash aplicado',
@@ -774,6 +783,10 @@ export const es: Messages = {
   'error.search.invalidInclude': 'Patrón de inclusión no válido: {pattern} ({error})',
   'error.search.invalidExclude': 'Patrón de exclusión no válido: {pattern} ({error})',
   'error.search.invalidFilter': 'Filtro de archivos no válido: {error}',
+  'error.git.turnSnapshotMissing':
+    'La base de este turno ya no está disponible (puede que Git la haya eliminado). No se puede deshacer.',
+  'error.git.turnRevertBlocked':
+    'No se puede restaurar {path}: un directorio o archivo especial ocupa esta ruta.',
   'error.git.spawnFailed': 'No se puede ejecutar git: {error} (comprueba que Git esté instalado)',
   'error.git.timeout':
     'Git agotó el tiempo de espera (180 s). Revisa la red o tus credenciales.',
@@ -867,6 +880,16 @@ export const es: Messages = {
   'agent.you': 'Tú',
   'agent.send': 'Enviar',
   'agent.stop': 'Detener',
+  'agent.changes.title': '{count} archivo modificado | {count} archivos modificados',
+  'agent.changes.additions': 'Líneas añadidas',
+  'agent.changes.deletions': 'Líneas eliminadas',
+  'agent.changes.binary': 'Binario',
+  'agent.changes.revert': 'Deshacer turno',
+  'agent.changes.reverted': 'Deshecho',
+  'agent.changes.showMore': 'Mostrar {count} más | Mostrar {count} más',
+  'agent.changes.showLess': 'Mostrar menos',
+  'agent.changes.truncated': 'Mostrando los primeros {count} archivos',
+  'agent.changes.unavailable': 'Deshacer no disponible',
   'agent.queue.badge': 'En cola',
   'agent.queue.send': 'Intervenir',
   'agent.queue.pending': 'Detener el turno actual y enviar este mensaje ahora',

@@ -18,6 +18,7 @@ scope:
   - src/components/AgentTabStatus*.tsx
   - src/components/AgentProviderIcon*.tsx
   - src/components/AgentContextUsage*.tsx
+  - src/components/AgentTurnChanges*.tsx
   - src/components/ContextMenu.tsx
   - src-tauri/src/commands/agent.rs
   - src-tauri/src/agent/mod.rs
@@ -112,6 +113,21 @@ An empty/failed probe never clears the saved model. Input/plans:
 - Composer permission state comes from its picker/cards, without a duplicate plan/read-only line.
   Settings → Agent shows all installed providers and five uninstalled (More reveals the rest), plus the
   history toggle. Permission defaults/explanation stay hidden there; chat permission controls remain.
+
+## Turn changes and undo
+
+- Write-capable turns snapshot the worktree baseline before the CLI spawns (`turn_snapshot`), and the reader
+  thread snapshots it again after the child is reaped. `turnChanges` is emitted immediately before `done` on
+  the same channel, so the summary lands on the same assistant message and a queued next turn cannot leak
+  its writes into it. Read-only/planning turns and non-repository roots produce no card.
+- The card shows per-file A/M/D/R/T status with numstat line counts (rows capped at 200, totals complete;
+  a truncated list offers no undo because the undo carries only the listed paths), opens the existing
+  unstaged diff, and offers undo only on the chat's latest assistant message; sending a new turn removes the
+  button immediately. The confirm dialog warns when the turn also committed.
+- Undo restores exactly the listed rows to the baseline worktree and index trees through the Git store's
+  transaction (index queue, suspended saves, deleted tabs closed, restored tabs force-reloaded). It never
+  rewrites commits, never touches unlisted paths, and a pruned baseline (`git.turnSnapshotMissing`) hides the
+  action with a coded message instead of guessing.
 
 ## Snapshot transport
 

@@ -360,6 +360,7 @@ fn main() {
             commands::git::git_abort,
             commands::git::git_skip,
             commands::git::git_conflict_reset,
+            commands::git::git_turn_revert,
             // terminal
             commands::terminal::pty_open,
             commands::terminal::pty_write,

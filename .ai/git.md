@@ -6,6 +6,7 @@ scope:
   - src/store/git.test.ts
   - src/store/commitHover*.ts
   - src/components/CommitHoverCard*.tsx
+  - src/components/AgentTurnChanges*.tsx
   - src/components/DiffView.tsx
   - src/components/DiffView.test.tsx
   - src/components/diffScroll.ts
@@ -105,6 +106,21 @@ and subprocess policy. DiffView/diffScroll own positioning; editor/conflicts own
   without HEAD reports `git.noCommitToReset`.
 - `git stash list` is read only when the more-actions menu opens; status polling never adds a process.
   All three mutations wait for the per-root index queue and take the global busy lock.
+
+## Turn snapshots and undo
+
+- turn_snapshot copies `<gitdir>/index` to a temp index, reads its tree (the index baseline), then runs
+  `GIT_INDEX_FILE=<tmp> git add -A -- .` + `git write-tree` for the worktree baseline. The real index and the
+  worktree are never touched, and the pathspec is the workspace subtree, so a repo subdirectory stays scoped.
+- turn_changes diffs the two worktree trees (`--name-status -z -M` plus `--numstat -z -M`), so work the agent
+  committed still shows and HEAD/index are never compared. Renames carry `oldPath`; copies are reported as adds.
+- git_turn_revert preflights every target (`resolve_in_root` + `assert_inside`; directories and special files
+  are rejected before anything changes), deletes created files first so a case-only rename survives, writes
+  baseline blobs with `paths::write_atomic` plus the exec bit, prunes dirs it emptied up to the root, then
+  restores index entries from the baseline index tree (`restore --source … --staged`, `update-index
+  --force-remove`). Both trees are unreferenced objects: `git gc` may prune them, and the command then fails
+  with `git.turnSnapshotMissing` instead of half-applying.
+- Undo restores only the rows the card lists; it never rewrites commits and never touches other paths.
 
 ## Diff and conflict contracts
 

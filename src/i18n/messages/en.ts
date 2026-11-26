@@ -391,6 +391,12 @@ export const en = {
   'dialog.removeProject.message':
     'This project still has unsaved files. Removing it will discard those changes.',
   'dialog.removeProject.confirm': 'Remove',
+  'dialog.agentRevert.title': 'Undo this turn?',
+  'dialog.agentRevert.message':
+    'Restores the {count} file this turn changed to its content before the turn. Later edits to those files are discarded. | Restores the {count} files this turn changed to their content before the turn. Later edits to those files are discarded.',
+  'dialog.agentRevert.messageWithCommit':
+    'This turn also created a commit. Undo restores the files but does not delete the commit.',
+  'dialog.agentRevert.confirm': 'Undo',
   'dialog.gitDiscard.title': 'Discard changes',
   'dialog.gitDiscard.message':
     'Changes in {count} file will be discarded. This cannot be undone. | Changes in {count} files will be discarded. This cannot be undone.',
@@ -444,6 +450,9 @@ export const en = {
   'toast.pullDone': 'Pull complete',
   'toast.pushDone': 'Push complete',
   'toast.fetchDone': 'Remote branches synced',
+  'toast.agentChangesReverted': 'Turn changes undone',
+  'toast.agentChangesSkipped':
+    '{count} file could not be restored | {count} files could not be restored',
   'toast.gitSkipped': 'Skipped the current step; the conflict list is updated',
   'toast.gitStashed': 'Changes stashed',
   'toast.gitStashPopped': 'Stash applied',
@@ -809,6 +818,10 @@ export const en = {
   'error.search.invalidInclude': 'Invalid include pattern: {pattern} ({error})',
   'error.search.invalidExclude': 'Invalid exclude pattern: {pattern} ({error})',
   'error.search.invalidFilter': 'Invalid file filter: {error}',
+  'error.git.turnSnapshotMissing':
+    'The baseline for this turn is no longer available (Git may have pruned it). Undo is unavailable.',
+  'error.git.turnRevertBlocked':
+    'Cannot restore {path}: a directory or special file occupies this path.',
   'error.git.spawnFailed': 'Cannot run git: {error} (check that Git is installed)',
   'error.git.timeout': 'Git timed out (180s). Check the network or your credentials.',
   'error.git.readTimeout': 'Git did not respond within 20 seconds. Check the repository or try again.',
@@ -899,6 +912,16 @@ export const en = {
   'agent.you': 'You',
   'agent.send': 'Send',
   'agent.stop': 'Stop',
+  'agent.changes.title': '{count} file changed | {count} files changed',
+  'agent.changes.additions': 'Lines added',
+  'agent.changes.deletions': 'Lines deleted',
+  'agent.changes.binary': 'Binary',
+  'agent.changes.revert': 'Undo turn',
+  'agent.changes.reverted': 'Undone',
+  'agent.changes.showMore': 'Show {count} more file | Show {count} more files',
+  'agent.changes.showLess': 'Show less',
+  'agent.changes.truncated': 'Showing the first {count} files',
+  'agent.changes.unavailable': 'Undo unavailable',
   'agent.queue.badge': 'Queued',
   'agent.queue.send': 'Interject',
   'agent.queue.pending': 'Stop the current turn and send this message now',

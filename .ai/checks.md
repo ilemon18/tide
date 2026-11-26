@@ -76,6 +76,11 @@ failure recovery without overwriting edits/queues/reset chats, persisted reply p
 provider-named output folds, plus localized user labels excluded from copies.
 
 Rust agent tests also protect context root/path/range/byte validation and quoted snapshot prompt round trips.
+Agent turn-change cards are covered by per-file status/count rendering, latest-reply-only undo, confirmation
+gating, stale/pruned-baseline handling and row expansion; the Git transaction tests protect save suspension,
+created-file deletion, renamed-path suspension, partial failures and stale baselines. Rust tests protect
+tree-to-tree counts for add/edit/delete/rename/binary, exact restore of already-dirty files, index restore,
+commit-preserving undo, pruned snapshots, escaping paths and directory-blocked restores.
 Rust history tests cover 0/15/16/30/31-entry page boundaries/totals, project-scoped title search before paging (IDs excluded), Unicode/literal matching and exclusion of message bodies.
 Rust transcript deletion tests cover project ownership, idempotent removal and preservation of corrupt records.
 

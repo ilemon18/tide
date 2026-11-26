@@ -1,5 +1,12 @@
 import { create } from 'zustand'
-import { api, errorText, type GitBranches, type GitFile, type GitStatus } from '../lib/ipc'
+import {
+  api,
+  errorText,
+  type AgentTurnChanges,
+  type GitBranches,
+  type GitFile,
+  type GitStatus,
+} from '../lib/ipc'
 import { useUi } from './ui'
 import { useWorkspace } from './workspace'
 import { t } from '../i18n'
@@ -33,6 +40,11 @@ type GitStore = {
   unstage: (root: string, paths: string[]) => Promise<void>
   discard: (root: string, paths: string[]) => Promise<void>
   discardAllChanges: (root: string) => Promise<void>
+  /**
+   * Restore the files an agent turn changed to their content before that turn. `stale` means the
+   * baseline snapshot is gone (pruned by `git gc`); `error` already toasted.
+   */
+  revertTurnChanges: (root: string, changes: AgentTurnChanges) => Promise<'ok' | 'stale' | 'error'>
   commit: (root: string, message: string) => Promise<boolean>
   /** Undo the last commit (soft reset): changes stay staged, returns the previous commit message */
   undoLastCommit: (root: string) => Promise<string | null>
@@ -525,6 +537,53 @@ export const useGit = create<GitStore>((set, get) => ({
       // Never reschedule a successful discard's old buffer, even if disk reload failed.
       resumeSaves?.(targets.filter((path) => !completed.has(path)))
       optimisticDiscards.delete(root)
+      signatures.delete(root)
+      try {
+        await get().refresh(root, true)
+      } finally {
+        set({ busy: null })
+      }
+    }
+  },
+
+  revertTurnChanges: async (root, changes) => {
+    if (get().busy || useUi.getState().confirmReq) return 'error'
+    set({ busy: 'turn-revert' })
+    // Keep index mutations from racing a concurrent stage / unstage on the same repo
+    await waitForIndexQueue(root)
+    const targets = [...new Set(changes.files.flatMap((file) =>
+      file.oldPath ? [file.path, file.oldPath] : [file.path]))]
+    let resumeSaves: ((reschedule?: boolean | readonly string[]) => void) | undefined
+    let restored: string[] = []
+    let deleted: string[] = []
+    let completed = false
+    try {
+      const { useTabs, suspendFileSaves } = await import('./tabs')
+      if (targets.length) resumeSaves = await suspendFileSaves(root, targets)
+      const result = await api.gitTurnRevert(root, changes.snapshot, changes.files)
+      restored = result.restored
+      deleted = result.deleted
+      // Remove buffers for files the turn created before refreshing diffs
+      for (const path of deleted) useTabs.getState().onDeleted(root, path)
+      if (restored.length > 0) {
+        await useTabs.getState().refreshFromDisk(root, { force: true, paths: restored })
+      }
+      completed = result.error === null
+      if (result.error) {
+        useUi.getState().toast(errorText(result.error), 'error')
+      } else if (result.skipped.length > 0) {
+        useUi.getState().toast(t('toast.agentChangesSkipped', { count: result.skipped.length }), 'error')
+      }
+      return completed ? 'ok' : 'error'
+    } catch (error) {
+      // The baseline tree is gone: the card hides the action instead of offering a dead one
+      if ((error as { code?: unknown } | null)?.code === 'git.turnSnapshotMissing') return 'stale'
+      useUi.getState().toast(errorText(error), 'error')
+      return 'error'
+    } finally {
+      // Never reschedule a successfully reverted buffer, even if the disk reload failed
+      const keep = new Set([...restored, ...deleted])
+      resumeSaves?.(completed ? targets.filter((path) => !keep.has(path)) : undefined)
       signatures.delete(root)
       try {
         await get().refresh(root, true)

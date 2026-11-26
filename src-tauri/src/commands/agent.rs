@@ -190,6 +190,15 @@ pub fn agent_send(
         prompt
     };
 
+    // Baseline for the turn's change card and undo: the worktree tree before the CLI can write.
+    // Read-only turns cannot modify files, so they skip the extra `git add -A` entirely.
+    let snapshot_root = root.clone();
+    let start_baseline = if request.read_only {
+        None
+    } else {
+        crate::commands::git::turn_snapshot(&snapshot_root)
+    };
+
     let mut cmd = providers::build_command(&launch.program, &launch.args);
     cmd.current_dir(&root)
         .stdin(Stdio::piped())
@@ -364,6 +373,18 @@ pub fn agent_send(
         if let Some(turn) = turn { turn.kill(); }
         let status = child.wait();
         let cancelled = cancel_flag.load(Ordering::Relaxed);
+        // Snapshot the end state before `Done` is emitted: a queued next turn starts on `Done`
+        // and must not leak its writes into this turn's diff. The diff itself is two read-only
+        // `git diff` runs against two trees, so `Done` only waits for the snapshot.
+        if let Some(start) = start_baseline.as_ref() {
+            if let Some(end) = crate::commands::git::turn_snapshot(&snapshot_root) {
+                if let Some(changes) =
+                    crate::commands::git::turn_changes(&snapshot_root, start, &end)
+                {
+                    let _ = tx.send(AgentEvent::TurnChanges { changes });
+                }
+            }
+        }
         let _ = tx.send(AgentEvent::Done {
             ok: native_result == Some(true) && !cancelled,
             cancelled,

@@ -370,6 +370,7 @@ export function AgentChat({ chatId }: { chatId: string }) {
                       providerLabel={providerName(message.provider || chat.provider)}
                       running={running && message.id === last?.id}
                       pendingQuestionId={pendingQuestion?.item.id ?? null}
+                      latest={message.id === last?.id}
                     />
                   )}
                 </div>

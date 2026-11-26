@@ -13,6 +13,8 @@ import {
   type AgentChatSummary,
   type AgentProviderInfo,
   type AgentQuestionOption,
+  type AgentTurnChangeFile,
+  type AgentTurnChanges,
   type AgentUsage,
 } from '../lib/ipc'
 import {
@@ -109,6 +111,8 @@ export type AgentMessage = {
   completion?: 'completed' | 'failed' | 'stopped'
   completedAt?: number
   durationMs?: number
+  /** Net file changes of this turn; only the chat's latest reply may offer the undo */
+  changes?: AgentTurnChanges
 }
 
 export type AgentChatStatus = 'idle' | 'running' | 'error' | 'cancelled'
@@ -279,6 +283,10 @@ type AgentStore = {
   interjectQueued: (chatId: string, id: string) => Promise<boolean>
   stop: (chatId: string) => Promise<void>
   applyEvent: (payload: AgentEventPayload) => void
+  /** Mark the turn's change card as undone so its undo action disappears */
+  markTurnChangesReverted: (chatId: string, messageId: string) => void
+  /** The baseline snapshot was pruned: keep the summary, drop the undo action */
+  markTurnChangesStale: (chatId: string, messageId: string) => void
   setChatProvider: (chatId: string, provider: string, options?: { remember?: boolean }) => void
   setPermissionMode: (chatId: string, mode: AgentPermissionMode) => void
   respondPermission: (chatId: string, requestId: string, allow: boolean) => Promise<void>
@@ -439,6 +447,45 @@ function persistLeavingChat(chatId: string, chat: AgentChat) {
   })
 }
 
+const TURN_CHANGE_STATUSES = new Set(['A', 'M', 'D', 'R', 'T'])
+
+/**
+ * Stored summaries come back from disk; drop malformed rows instead of letting a hand-edited
+ * transcript crash the reply UI. Unknown fields are ignored, never trusted.
+ */
+function normalizeTurnChanges(raw: unknown): AgentTurnChanges | undefined {
+  if (!raw || typeof raw !== 'object') return undefined
+  const value = raw as Partial<AgentTurnChanges>
+  const snapshot = value.snapshot
+  const worktree = snapshot && typeof snapshot === 'object' ? snapshot.worktree : undefined
+  if (typeof worktree !== 'string' || !worktree || !Array.isArray(value.files)) return undefined
+  const count = (input: unknown) => typeof input === 'number' && Number.isFinite(input) && input > 0 ? input : 0
+  const files = value.files.flatMap((file): AgentTurnChangeFile[] => {
+    if (!file || typeof file.path !== 'string' || !file.path) return []
+    if (typeof file.status !== 'string' || !TURN_CHANGE_STATUSES.has(file.status)) return []
+    return [{
+      path: file.path,
+      ...(typeof file.oldPath === 'string' && file.oldPath ? { oldPath: file.oldPath } : {}),
+      status: file.status as AgentTurnChangeFile['status'],
+      additions: count(file.additions),
+      deletions: count(file.deletions),
+      binary: file.binary === true,
+    }]
+  })
+  const index = typeof snapshot?.index === 'string' && snapshot.index ? snapshot.index : undefined
+  return {
+    snapshot: index ? { worktree, index } : { worktree },
+    ...(typeof value.head === 'string' && value.head ? { head: value.head } : {}),
+    ...(value.headChanged === true ? { headChanged: true } : {}),
+    files,
+    additions: count(value.additions) || files.reduce((sum, file) => sum + file.additions, 0),
+    deletions: count(value.deletions) || files.reduce((sum, file) => sum + file.deletions, 0),
+    truncated: value.truncated === true,
+    ...(typeof value.revertedAt === 'number' && Number.isFinite(value.revertedAt) ? { revertedAt: value.revertedAt } : {}),
+    ...(value.stale === true ? { stale: true } : {}),
+  }
+}
+
 function normalizeChat(raw: unknown, recover = false): AgentChat | null {
   if (!raw || typeof raw !== 'object') return null
   const value = raw as Partial<AgentChat>
@@ -451,7 +498,8 @@ function normalizeChat(raw: unknown, recover = false): AgentChat | null {
         const usage = normalizeAgentUsage(message.usage)
         const readOnly = message.readOnly === true ? true : undefined
         const provider = typeof message.provider === 'string' && message.provider.trim() ? message.provider : undefined
-        message = { ...message, provider, items: message.items?.map(item => recover && item.type === 'plan' && item.actionState === 'launching'
+        const changes = normalizeTurnChanges(message.changes)
+        message = { ...message, provider, changes, items: message.items?.map(item => recover && item.type === 'plan' && item.actionState === 'launching'
           ? { ...item, resolved: false, actionState: 'failed' as const } : recover && item.type === 'permission' && ['pending', 'submitting'].includes(item.permissionState ?? '') ? { ...item, permissionState: 'expired' as const } : item) }
         return usage ? { ...message, usage, readOnly } : { ...message, usage: undefined, readOnly }
       }
@@ -731,12 +779,43 @@ export const useAgent = create<AgentStore>((set, get) => {
     return { ...chat, messages, updatedAt: Date.now() }
   }
 
+  /** Same contract as `patchLastAssistant`, for fields that live on the message itself */
+  const patchLastAssistantMessage = (
+    chat: AgentChat,
+    fn: (message: AgentMessage) => AgentMessage,
+  ): AgentChat => {
+    const messages = chat.messages.slice()
+    const last = messages[messages.length - 1]
+    if (!last || last.role !== 'assistant') return chat
+    messages[messages.length - 1] = fn(last)
+    return { ...chat, messages, updatedAt: Date.now() }
+  }
+
   const patchLastAssistantUsage = (chat: AgentChat, usage: AgentUsage): AgentChat => {
     const messages = chat.messages.slice()
     const last = messages[messages.length - 1]
     if (!last || last.role !== 'assistant') return chat
     messages[messages.length - 1] = { ...last, usage }
     return { ...chat, messages, updatedAt: Date.now() }
+  }
+
+  /** Patch the change summary of one message; no-op when it has none */
+  const patchMessageChanges = (
+    chatId: string,
+    messageId: string,
+    patch: Partial<AgentTurnChanges>,
+  ): void => {
+    const chat = get().chats[chatId]
+    if (!chat) return
+    let touched = false
+    const messages = chat.messages.map(message => {
+      if (message.id !== messageId || !message.changes) return message
+      touched = true
+      return { ...message, changes: { ...message.changes, ...patch } }
+    })
+    if (!touched) return
+    set({ chats: { ...get().chats, [chatId]: { ...chat, messages, updatedAt: Date.now() } } })
+    schedulePersist(chatId)
   }
 
   const upsert = (
@@ -1565,6 +1644,14 @@ export const useAgent = create<AgentStore>((set, get) => {
       }
     },
 
+    markTurnChangesReverted: (chatId, messageId) => {
+      patchMessageChanges(chatId, messageId, { revertedAt: Date.now() })
+    },
+
+    markTurnChangesStale: (chatId, messageId) => {
+      patchMessageChanges(chatId, messageId, { stale: true })
+    },
+
     removeQueued: (chatId, id) => {
       if (get().deletingChats[chatId] || get().interjecting[chatId] === id) return
       const queue = (get().queues[chatId] ?? []).filter((item) => item.id !== id)
@@ -1727,6 +1814,14 @@ export const useAgent = create<AgentStore>((set, get) => {
             unpricedTurns: Math.max(0, cost.unpricedTurns - (previous?.costUsd === null ? 1 : 0) + (usage.costUsd === null ? 1 : 0)) }
           next.sessionUsage.costUsd = next.sessionCost.unpricedTurns ? null : next.sessionCost.knownUsd
         }
+        if (next === chat) return
+        set({ chats: { ...get().chats, [chatId]: next } })
+        schedulePersist(chatId)
+        return
+      }
+
+      if (event.kind === 'turnChanges') {
+        const next = patchLastAssistantMessage(chat, message => ({ ...message, changes: event.changes }))
         if (next === chat) return
         set({ chats: { ...get().chats, [chatId]: next } })
         schedulePersist(chatId)

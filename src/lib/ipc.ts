@@ -474,9 +474,47 @@ export type AgentEvent =
   | { kind: 'notice'; text: string }
   | { kind: 'stderr'; text: string }
   | { kind: 'usage'; usage: AgentUsage; sessionUsage?: AgentUsage }
+  | { kind: 'turnChanges'; changes: AgentTurnChanges }
   | { kind: 'done'; ok: boolean; cancelled: boolean; code: number | null; durationMs?: number; completedAt?: number }
 
+/** One file changed by an agent turn; `path` is workspace-relative. */
+export type AgentTurnChangeFile = {
+  path: string
+  /** Rename source; absent for adds, edits, deletes and copies */
+  oldPath?: string
+  status: 'A' | 'M' | 'D' | 'R' | 'T'
+  additions: number
+  deletions: number
+  binary: boolean
+}
+
+/** Net file changes of one finished turn plus the baseline an undo restores. */
+export type AgentTurnChanges = {
+  /** Unreferenced Git trees: undo works until `git gc` prunes them */
+  snapshot: { worktree: string; index?: string }
+  head?: string
+  /** The turn produced a commit; undo restores files but leaves the commit */
+  headChanged?: boolean
+  files: AgentTurnChangeFile[]
+  additions: number
+  deletions: number
+  /** More files changed than `files` lists */
+  truncated: boolean
+  /** Undo already ran for this turn */
+  revertedAt?: number
+  /** The baseline snapshot is gone (e.g. pruned by `git gc`); undo is unavailable */
+  stale?: boolean
+}
+
 export type AgentEventPayload = { chatId: string; runId: string; sequence: number; event: AgentEvent }
+
+export type GitTurnRevertResult = {
+  restored: string[]
+  deleted: string[]
+  /** Baseline symlinks / submodules that were left alone */
+  skipped: string[]
+  error: CodedError | null
+}
 
 /** A chat tab restored through agent/tabs.json */
 export type AgentTabRef = { id: string; root: string }
@@ -603,6 +641,9 @@ export const api = {
   gitSkip: (root: string) => invoke<string>('git_skip', { root }),
   gitConflictReset: (root: string, rel: string) =>
     invoke<void>('git_conflict_reset', { root, rel }),
+  /** Restore one agent turn's files (and their index entries) to the recorded baseline */
+  gitTurnRevert: (root: string, snapshot: AgentTurnChanges['snapshot'], files: AgentTurnChangeFile[]) =>
+    invoke<GitTurnRevertResult>('git_turn_revert', { root, snapshot, files }),
 
   // ---- Window ----
   /** Focus the next Tide window in label order, wrapping at the end */

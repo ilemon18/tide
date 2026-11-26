@@ -82,6 +82,33 @@ describe('context attachment flow', () => {
     expect(useAgent.getState().chats['chat-test'].messages.find(message => message.text === 'second')?.attachments).toEqual([contextAttachment()])
   })
 
+  it('stores a turn change summary on the reply and patches it when the undo runs', async () => {
+    await useAgent.getState().sendMessage('chat-test', { text: 'edit files', mentions: [] })
+    const running = useAgent.getState().chats['chat-test']
+    const messageId = running.messages.at(-1)!.id
+    const changes = {
+      snapshot: { worktree: 'tree-start' },
+      files: [{ path: 'a.ts', status: 'M' as const, additions: 1, deletions: 2, binary: false }],
+      additions: 1, deletions: 2, truncated: false,
+    }
+    useAgent.getState().applyEvent({ chatId: running.id, runId: running.activeRunId!, sequence: 1,
+      event: { kind: 'turnChanges', changes } })
+    expect(useAgent.getState().chats['chat-test'].messages.at(-1)?.changes).toMatchObject({ additions: 1 })
+    await vi.advanceTimersByTimeAsync(700)
+    expect(api.agentChatApply).toHaveBeenCalledWith('chat-test', expect.objectContaining({
+      upserts: expect.arrayContaining([expect.objectContaining({ id: messageId, changes })]),
+    }))
+
+    useAgent.getState().applyEvent({ chatId: running.id, runId: running.activeRunId!, sequence: 2,
+      event: { kind: 'done', ok: true, cancelled: false, code: 0 } })
+    expect(useAgent.getState().chats['chat-test'].messages.at(-1)?.completion).toBe('completed')
+
+    useAgent.getState().markTurnChangesReverted('chat-test', messageId)
+    expect(useAgent.getState().chats['chat-test'].messages.at(-1)?.changes?.revertedAt).toBeTypeOf('number')
+    useAgent.getState().markTurnChangesStale('chat-test', messageId)
+    expect(useAgent.getState().chats['chat-test'].messages.at(-1)?.changes?.stale).toBe(true)
+  })
+
   it('retains attachments after launch failure and persists them with the user turn', async () => {
     const draft = { text: 'Analyze', mentions: [], attachments: [contextAttachment()] }
     useAgent.getState().setChatDraft('chat-test', draft)

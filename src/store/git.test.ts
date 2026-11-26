@@ -14,6 +14,7 @@ const { api, workspace, ui, tabs } = vi.hoisted(() => ({
     gitStash: vi.fn(),
     gitStashPop: vi.fn(),
     gitResetAll: vi.fn(),
+    gitTurnRevert: vi.fn(),
   },
   workspace: {
     roots: [{ id: '/repo', name: 'Repo', isGitRepo: true }],
@@ -92,6 +93,7 @@ beforeEach(() => {
   api.gitStash.mockResolvedValue('')
   api.gitStashPop.mockResolvedValue('')
   api.gitResetAll.mockResolvedValue(undefined)
+  api.gitTurnRevert.mockResolvedValue({ restored: [], deleted: [], skipped: [], error: null })
   api.gitStatus.mockResolvedValue(status())
   useGit.setState({
     statuses: { '/repo': status({ changes: [{ path: 'a.ts', status: 'M' }] }) },
@@ -253,4 +255,70 @@ it('makes commit wait for queued index work', async () => {
   await stagePromise
   await vi.waitFor(() => expect(api.gitCommit).toHaveBeenCalledOnce())
   await commitPromise
+})
+
+it('reverts a turn by suspending saves, reloading restored files and dropping created ones', async () => {
+  const changes = {
+    snapshot: { worktree: 'tree-start', index: 'tree-index' },
+    files: [
+      { path: 'a.ts', status: 'M' as const, additions: 2, deletions: 1, binary: false },
+      { path: 'new.ts', status: 'A' as const, additions: 3, deletions: 0, binary: false },
+    ],
+    additions: 5,
+    deletions: 1,
+    truncated: false,
+  }
+  api.gitTurnRevert.mockResolvedValueOnce({ restored: ['a.ts'], deleted: ['new.ts'], skipped: [], error: null })
+
+  expect(await useGit.getState().revertTurnChanges('/repo', changes)).toBe('ok')
+
+  expect(tabs.suspend).toHaveBeenCalledWith('/repo', ['a.ts', 'new.ts'])
+  expect(api.gitTurnRevert).toHaveBeenCalledWith('/repo', changes.snapshot, changes.files)
+  expect(tabs.onDeleted).toHaveBeenCalledWith('/repo', 'new.ts')
+  expect(tabs.refreshFromDisk).toHaveBeenCalledWith('/repo', { force: true, paths: ['a.ts'] })
+  expect(api.gitStatus).toHaveBeenCalled()
+  expect(useGit.getState().busy).toBeNull()
+})
+
+it('suspends saves of both sides of a rename', async () => {
+  const changes = {
+    snapshot: { worktree: 'tree-start' },
+    files: [{ path: 'new.ts', oldPath: 'old.ts', status: 'R' as const, additions: 1, deletions: 1, binary: false }],
+    additions: 1,
+    deletions: 1,
+    truncated: false,
+  }
+  api.gitTurnRevert.mockResolvedValueOnce({ restored: ['old.ts'], deleted: ['new.ts'], skipped: [], error: null })
+  await useGit.getState().revertTurnChanges('/repo', changes)
+  expect(tabs.suspend).toHaveBeenCalledWith('/repo', ['new.ts', 'old.ts'])
+})
+
+it('keeps the files and toasts when the backend reports a partial revert', async () => {
+  const changes = {
+    snapshot: { worktree: 'tree-start' },
+    files: [{ path: 'a.ts', status: 'M' as const, additions: 1, deletions: 0, binary: false }],
+    additions: 1,
+    deletions: 0,
+    truncated: false,
+  }
+  api.gitTurnRevert.mockResolvedValueOnce({
+    restored: [], deleted: [], skipped: [], error: { code: 'git.turnRevertBlocked', params: { path: 'a.ts' } },
+  })
+  expect(await useGit.getState().revertTurnChanges('/repo', changes)).toBe('error')
+  expect(ui.toast).toHaveBeenCalled()
+  expect(tabs.refreshFromDisk).not.toHaveBeenCalled()
+})
+
+it('reports a pruned baseline as stale without a generic error toast', async () => {
+  const changes = {
+    snapshot: { worktree: 'tree-start' },
+    files: [{ path: 'a.ts', status: 'M' as const, additions: 1, deletions: 0, binary: false }],
+    additions: 1,
+    deletions: 0,
+    truncated: false,
+  }
+  api.gitTurnRevert.mockRejectedValueOnce({ code: 'git.turnSnapshotMissing', params: {} })
+  expect(await useGit.getState().revertTurnChanges('/repo', changes)).toBe('stale')
+  expect(ui.toast).not.toHaveBeenCalled()
+  expect(useGit.getState().busy).toBeNull()
 })

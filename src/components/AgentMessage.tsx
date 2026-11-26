@@ -11,6 +11,7 @@ import { basename } from '../lib/paths'
 import { useT } from '../i18n'
 import { AgentStreamText } from './AgentStreamText'
 import { AgentTurnStatus } from './AgentTurnStatus'
+import { AgentTurnChanges } from './AgentTurnChanges'
 import { AgentSpinner } from './AgentSpinner'
 import { CommandChip, SkillChip } from './AgentTags'
 import { CopyButton } from './CopyButton'
@@ -652,6 +653,7 @@ export const AssistantMessage = memo(function AssistantMessage({
   message,
   running,
   pendingQuestionId,
+  latest = false,
 }: {
   chatId: string
   provider?: string
@@ -660,6 +662,8 @@ export const AssistantMessage = memo(function AssistantMessage({
   message: Message
   running: boolean
   pendingQuestionId: string | null
+  /** Last reply of the chat; only it may undo its turn */
+  latest?: boolean
 }) {
   const t = useT()
   const items = message.items ?? []
@@ -685,6 +689,15 @@ export const AssistantMessage = memo(function AssistantMessage({
         </div>
         {items.map(item => <Item root={root} key={item.id} chatId={chatId} providerLabel={providerLabel} item={item}
           running={running} pendingQuestionId={pendingQuestionId} items={items} />)}
+        {message.changes ? (
+          <AgentTurnChanges
+            chatId={chatId}
+            root={root}
+            messageId={message.id}
+            changes={message.changes}
+            latest={latest && !running}
+          />
+        ) : null}
         <AgentTurnStatus
           completion={message.completion}
           durationMs={message.durationMs}

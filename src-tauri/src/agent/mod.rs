@@ -258,6 +258,11 @@ pub enum AgentEvent {
         #[serde(rename = "sessionUsage", skip_serializing_if = "Option::is_none")]
         session_usage: Option<AgentUsage>,
     },
+    /// Net file changes of the finished turn. Always sent right before `Done`, so the summary
+    /// lands on the same assistant message and the baseline predates any queued next turn.
+    TurnChanges {
+        changes: crate::commands::git::TurnChanges,
+    },
     Done {
         ok: bool,
         cancelled: bool,

@@ -3,7 +3,7 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::State;
 
 use crate::error::{AppError, AppResult};
@@ -418,20 +418,7 @@ fn read_status(root_path: &Path) -> AppResult<GitStatus> {
     let Some(paths) = repo_paths(&root_str)? else {
         return Ok(GitStatus::empty(false, None));
     };
-    let toplevel = paths.toplevel.clone();
-
-    let prefix = match paths::canon(Path::new(&toplevel)) {
-        Ok(repo_canon) if repo_canon != root_path => paths::rel_in(&repo_canon, root_path)
-            .map(|s| {
-                if s.is_empty() {
-                    String::new()
-                } else {
-                    format!("{s}/")
-                }
-            })
-            .unwrap_or_default(),
-        _ => String::new(),
-    };
+    let prefix = workspace_prefix(&paths, root_path);
 
     let (ok, stdout, stderr) = run_bytes_with_timeout(
         &root_str,
@@ -760,6 +747,678 @@ pub fn git_diff_full(
     let binary = patch.as_bytes().iter().take(8192).any(|b| *b == 0)
         || patch.lines().any(|line| line.starts_with("Binary files"));
     Ok(GitDiffFull { patch, binary, truncated })
+}
+
+// ---- Agent turn snapshots ----
+
+/// A turn card lists at most this many files; the totals still count every changed file.
+const MAX_TURN_FILES: usize = 200;
+
+static TURN_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Temp directory the snapshot owns; removed on drop even when Git fails halfway.
+struct TempTurnDir(std::path::PathBuf);
+
+impl Drop for TempTurnDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+fn temp_turn_dir() -> Option<TempTurnDir> {
+    let sequence = TURN_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?
+        .as_nanos();
+    let dir = std::env::temp_dir().join(format!(
+        "tide-turn-{}-{sequence}-{stamp}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&dir).ok()?;
+    Some(TempTurnDir(dir))
+}
+
+/// One turn's baseline: the worktree tree (content of every non-ignored file, tracked or not), the
+/// index tree and HEAD. Both trees are unreferenced Git objects, so undo stays available until
+/// `git gc` prunes them; that is reported, never guessed at.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct TurnSnapshot {
+    /// Tree holding the worktree content at the start of the turn
+    pub worktree: String,
+    /// Tree holding the index content at the start of the turn; absent for a conflicted index
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub index: Option<String>,
+}
+
+/// Baseline plus the repo-relative prefix the diff must stay inside.
+pub(crate) struct TurnBaseline {
+    pub snapshot: TurnSnapshot,
+    pub head: Option<String>,
+    /// `src/` when the workspace is a subdirectory of the repo, empty at the top level
+    prefix: String,
+}
+
+/// One changed file of a finished turn.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TurnChangeFile {
+    /// Workspace-relative path on the new side (what the diff view opens)
+    pub path: String,
+    /// Rename source, workspace-relative; absent for adds, edits, deletes and copies
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub old_path: Option<String>,
+    /// A M D R T; a copy is reported as an add because its source stays in place
+    pub status: String,
+    pub additions: i64,
+    pub deletions: i64,
+    pub binary: bool,
+}
+
+/// Net change of one agent turn, derived from two baselines (never from HEAD or the index, so work
+/// the agent committed still shows up).
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TurnChanges {
+    /// Baseline the undo restores; the frontend persists it with the message
+    pub snapshot: TurnSnapshot,
+    /// HEAD before the turn; `head_changed` warns that undo leaves the commit in place
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub head: Option<String>,
+    pub head_changed: bool,
+    pub files: Vec<TurnChangeFile>,
+    pub additions: i64,
+    pub deletions: i64,
+    /// More files changed than the card lists
+    pub truncated: bool,
+}
+
+/// One file the undo must put back; the frontend forwards the card's own rows.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TurnRevertTarget {
+    pub path: String,
+    #[serde(default)]
+    pub old_path: Option<String>,
+    #[serde(default)]
+    pub status: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitTurnRevertResult {
+    pub restored: Vec<String>,
+    pub deleted: Vec<String>,
+    /// Baseline symlinks / submodules that were left alone
+    pub skipped: Vec<String>,
+    pub error: Option<AppError>,
+}
+
+/// Run Git against a disposable index file, leaving the real index and the worktree untouched.
+fn run_with_index(root: &str, index: &Path, args: &[&str]) -> AppResult<(bool, Vec<u8>, String)> {
+    let out = git_cmd(root)
+        .env("GIT_INDEX_FILE", index)
+        .args(args)
+        .output()
+        .map_err(spawn_error)?;
+    Ok((
+        out.status.success(),
+        out.stdout,
+        String::from_utf8_lossy(&out.stderr).to_string(),
+    ))
+}
+
+/// Repo-relative prefix (`src/`) for a workspace that is a subdirectory; empty at the top level.
+fn workspace_prefix(paths: &RepoPaths, root: &Path) -> String {
+    match paths::canon(Path::new(&paths.toplevel)) {
+        Ok(repo_canon) if repo_canon != root => paths::rel_in(&repo_canon, root)
+            .map(|value| {
+                if value.is_empty() {
+                    String::new()
+                } else {
+                    format!("{value}/")
+                }
+            })
+            .unwrap_or_default(),
+        _ => String::new(),
+    }
+}
+
+/// Snapshot the worktree into a tree object. Never fails the turn: any problem only means the
+/// frontend shows no changes card.
+pub(crate) fn turn_snapshot(root: &Path) -> Option<TurnBaseline> {
+    let root_str = root.to_string_lossy().to_string();
+    let paths = repo_paths(&root_str).ok()??;
+    let prefix = workspace_prefix(&paths, root);
+    let dir = temp_turn_dir()?;
+    let index = dir.0.join("index");
+    // A repository without an index yet behaves the same with an empty temp index
+    let real_index = paths.gitdir.join("index");
+    if real_index.is_file() {
+        std::fs::copy(&real_index, &index).ok()?;
+    }
+    // Read the index tree first: a conflicted index has none, which only means undo leaves the
+    // staging area alone.
+    let index_tree = run_with_index(&root_str, &index, &["write-tree"])
+        .ok()
+        .and_then(|(ok, out, _)| ok.then(|| String::from_utf8_lossy(&out).trim().to_string()))
+        .filter(|tree| !tree.is_empty());
+    // Stage the workspace subtree into the disposable index: the resulting tree is the turn's
+    // baseline content, including files Git does not track yet.
+    let staged = run_with_index(&root_str, &index, &["add", "-A", "--", "."])
+        .ok()
+        .is_some_and(|(ok, _, _)| ok);
+    if !staged {
+        return None;
+    }
+    // The worktree tree is read from the staging result, so never from the real index
+    let (tree_ok, tree_out, _) = run_with_index(&root_str, &index, &["write-tree"]).ok()?;
+    if !tree_ok {
+        return None;
+    }
+    let worktree = String::from_utf8_lossy(&tree_out).trim().to_string();
+    if worktree.is_empty() {
+        return None;
+    }
+    let head = run_text(&root_str, &["rev-parse", "--verify", "HEAD"])
+        .ok()
+        .filter(|(ok, _)| *ok)
+        .map(|(_, text)| text.trim().to_string())
+        .filter(|sha| !sha.is_empty());
+    Some(TurnBaseline {
+        snapshot: TurnSnapshot {
+            worktree,
+            index: index_tree,
+        },
+        head,
+        prefix,
+    })
+}
+
+fn empty_turn_changes(start: &TurnBaseline, end: &TurnBaseline) -> TurnChanges {
+    TurnChanges {
+        snapshot: start.snapshot.clone(),
+        head: start.head.clone(),
+        head_changed: start.head != end.head,
+        files: Vec::new(),
+        additions: 0,
+        deletions: 0,
+        truncated: false,
+    }
+}
+
+/// Net change between two turn baselines: tree to tree, so committed work still shows and no Git
+/// state (HEAD, index) has to be inspected.
+pub(crate) fn turn_changes(
+    root: &Path,
+    start: &TurnBaseline,
+    end: &TurnBaseline,
+) -> Option<TurnChanges> {
+    let root_str = root.to_string_lossy().to_string();
+    let from = start.snapshot.worktree.as_str();
+    let to = end.snapshot.worktree.as_str();
+    if from == to {
+        return Some(empty_turn_changes(start, end));
+    }
+
+    // Status letters plus rename pairs; `-z` keeps paths verbatim and puts the rename source in
+    // its own NUL-separated field, so nothing has to be parsed out of `old => new` text.
+    let (status_ok, status_out, _) = run_bytes(
+        &root_str,
+        &[
+            "diff", "--name-status", "-z", "-M", "--no-color", "--no-ext-diff", from, to,
+        ],
+    )
+    .ok()?;
+    if !status_ok {
+        return None;
+    }
+    let status_text = String::from_utf8_lossy(&status_out).to_string();
+    let mut order: Vec<(String, Option<String>, &'static str)> = Vec::new();
+    {
+        let mut fields = status_text.split('\0');
+        while let Some(meta) = fields.next() {
+            if meta.is_empty() {
+                continue;
+            }
+            let Some(letter) = meta.chars().next() else {
+                continue;
+            };
+            let first = fields.next()?;
+            if letter == 'R' {
+                order.push((fields.next()?.to_string(), Some(first.to_string()), "R"));
+            } else {
+                let kind = match letter {
+                    'A' => "A",
+                    'D' => "D",
+                    'T' => "T",
+                    // A copy leaves its source in place, so only the new file is undone
+                    'C' => "A",
+                    _ => "M",
+                };
+                order.push((first.to_string(), None, kind));
+            }
+        }
+    }
+    if order.is_empty() {
+        return Some(empty_turn_changes(start, end));
+    }
+
+    let (num_ok, num_out, _) = run_bytes(
+        &root_str,
+        &[
+            "diff", "--numstat", "-z", "-M", "--no-color", "--no-ext-diff", from, to,
+        ],
+    )
+    .ok()?;
+    let mut counts: std::collections::HashMap<String, (i64, i64, bool)> =
+        std::collections::HashMap::new();
+    if num_ok {
+        let text = String::from_utf8_lossy(&num_out).to_string();
+        let mut fields = text.split('\0');
+        while let Some(record) = fields.next() {
+            if record.is_empty() {
+                continue;
+            }
+            let mut parts = record.split('\t');
+            let add = parts.next().unwrap_or("");
+            let del = parts.next().unwrap_or("");
+            let path = parts.next().unwrap_or("").to_string();
+            // A rename record leaves the path field empty: the next two fields are old and new
+            let path = if path.is_empty() {
+                let _old = fields.next();
+                match fields.next() {
+                    Some(new) if !new.is_empty() => new.to_string(),
+                    _ => continue,
+                }
+            } else {
+                path
+            };
+            let binary = add == "-" || del == "-";
+            counts.insert(path, (add.parse().unwrap_or(0), del.parse().unwrap_or(0), binary));
+        }
+    }
+
+    let mut files = Vec::new();
+    let mut additions = 0i64;
+    let mut deletions = 0i64;
+    let mut changed = 0usize;
+    for (repo_path, repo_old, status) in order {
+        let Some(rel) = to_workspace_rel(&repo_path, &start.prefix) else {
+            continue;
+        };
+        let old_path = repo_old
+            .as_deref()
+            .and_then(|old| to_workspace_rel(old, &start.prefix));
+        let (add, del, binary) = counts.get(&repo_path).copied().unwrap_or((0, 0, false));
+        changed += 1;
+        additions += add;
+        deletions += del;
+        if files.len() < MAX_TURN_FILES {
+            files.push(TurnChangeFile {
+                path: rel,
+                old_path,
+                status: status.to_string(),
+                additions: add,
+                deletions: del,
+                binary,
+            });
+        }
+    }
+    Some(TurnChanges {
+        snapshot: start.snapshot.clone(),
+        head: start.head.clone(),
+        head_changed: start.head != end.head,
+        files,
+        additions,
+        deletions,
+        truncated: changed > MAX_TURN_FILES,
+    })
+}
+
+/// Paths that can never be a workspace-relative file we are willing to touch.
+fn invalid_turn_path(rel: &str) -> bool {
+    rel.is_empty()
+        || rel.contains('\0')
+        || rel.contains('\n')
+        || rel.contains('\r')
+        || Path::new(rel).is_absolute()
+        || rel.split(|c| c == '/' || c == '\\').any(|segment| segment == ".git")
+}
+
+/// Delete files the turn created, then drop the directories it left empty (never above the root).
+fn prune_turn_dirs(root: &Path, file: &Path) {
+    let mut current = file.parent();
+    while let Some(dir) = current {
+        if dir == root || !dir.starts_with(root) {
+            break;
+        }
+        if std::fs::remove_dir(dir).is_err() {
+            break;
+        }
+        current = dir.parent();
+    }
+}
+
+/// Read blobs in one `git cat-file --batch` process: `None` for anything Git could not find.
+fn read_blobs(root: &str, shas: &[String]) -> AppResult<Vec<Option<Vec<u8>>>> {
+    if shas.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut cmd = git_cmd(root);
+    cmd.arg("cat-file")
+        .arg("--batch")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped());
+    let mut child = cmd.spawn().map_err(spawn_error)?;
+    {
+        let mut stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| AppError::new("git cat-file stdin"))?;
+        for sha in shas {
+            let _ = stdin.write_all(sha.as_bytes());
+            let _ = stdin.write_all(b"\n");
+        }
+    }
+    let out = child.wait_with_output().map_err(spawn_error)?;
+    if !out.status.success() {
+        return Err(AppError::new(
+            String::from_utf8_lossy(&out.stderr).trim().to_string(),
+        ));
+    }
+    let data = out.stdout;
+    let mut cursor = 0usize;
+    let mut blobs = Vec::with_capacity(shas.len());
+    for _ in shas {
+        let Some(newline) = data[cursor..].iter().position(|byte| *byte == b'\n') else {
+            break;
+        };
+        let header = String::from_utf8_lossy(&data[cursor..cursor + newline]).to_string();
+        cursor += newline + 1;
+        let mut parts = header.split(' ');
+        let _name = parts.next();
+        let kind = parts.next().unwrap_or("");
+        if kind != "blob" {
+            blobs.push(None);
+            continue;
+        }
+        let size: usize = parts.next().and_then(|value| value.parse().ok()).unwrap_or(0);
+        if cursor + size > data.len() {
+            blobs.push(None);
+            break;
+        }
+        blobs.push(Some(data[cursor..cursor + size].to_vec()));
+        cursor += size + 1; // the newline Git writes after the content
+    }
+    while blobs.len() < shas.len() {
+        blobs.push(None);
+    }
+    Ok(blobs)
+}
+
+fn turn_revert_sets(files: &[TurnRevertTarget]) -> (Vec<String>, Vec<String>) {
+    let mut restore: Vec<String> = Vec::new();
+    let mut delete: Vec<String> = Vec::new();
+    let mut seen_restore = std::collections::HashSet::new();
+    let mut seen_delete = std::collections::HashSet::new();
+    for file in files {
+        match file.status.as_str() {
+            "A" | "C" => {
+                if seen_delete.insert(file.path.clone()) {
+                    delete.push(file.path.clone());
+                }
+            }
+            "R" => {
+                if let Some(old) = file.old_path.as_ref().filter(|old| !old.is_empty()) {
+                    if seen_restore.insert(old.clone()) {
+                        restore.push(old.clone());
+                    }
+                }
+                if seen_delete.insert(file.path.clone()) {
+                    delete.push(file.path.clone());
+                }
+            }
+            _ => {
+                if seen_restore.insert(file.path.clone()) {
+                    restore.push(file.path.clone());
+                }
+            }
+        }
+    }
+    (restore, delete)
+}
+
+fn revert_turn(
+    root: &Path,
+    snapshot: &TurnSnapshot,
+    files: &[TurnRevertTarget],
+) -> AppResult<GitTurnRevertResult> {
+    let root_str = root.to_string_lossy().to_string();
+    let mut result = GitTurnRevertResult {
+        restored: Vec::new(),
+        deleted: Vec::new(),
+        skipped: Vec::new(),
+        error: None,
+    };
+    let (restore, delete) = turn_revert_sets(files);
+    if restore.is_empty() && delete.is_empty() {
+        return Ok(result);
+    }
+    for rel in restore.iter().chain(delete.iter()) {
+        if invalid_turn_path(rel) {
+            return Err(AppError::p("path.invalid", [("path", rel.clone())]));
+        }
+    }
+    // Snapshot trees are unreferenced and `git gc` may already have pruned them
+    let (tree_ok, _, _) = run_bytes(
+        &root_str,
+        &["cat-file", "-e", &format!("{}^{{tree}}", snapshot.worktree)],
+    )?;
+    if !tree_ok {
+        return Err(AppError::c("git.turnSnapshotMissing"));
+    }
+    // Preflight every target before touching anything, same rule as bulk discard: a directory or
+    // special file in the way blocks the whole undo instead of half-applying it.
+    for rel in restore.iter().chain(delete.iter()) {
+        let abs = crate::state::resolve_in_root(root, rel)?;
+        crate::state::assert_inside(root, &abs)?;
+        match std::fs::symlink_metadata(&abs) {
+            Ok(meta) if meta.is_dir() || (!meta.is_file() && !meta.file_type().is_symlink()) => {
+                return Err(AppError::p("git.turnRevertBlocked", [("path", rel.clone())]));
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+                return Err(AppError::io(&abs, error));
+            }
+            Err(_) => {}
+        }
+    }
+
+    // Deletions first: a case-only rename is one file on macOS / Windows, so removing the new
+    // name before writing the old one cannot erase the restored content.
+    for rel in &delete {
+        let abs = crate::state::resolve_in_root(root, rel)?;
+        match std::fs::symlink_metadata(&abs) {
+            Ok(_) => {
+                if let Err(error) = std::fs::remove_file(&abs) {
+                    result.error = Some(AppError::io(&abs, error));
+                    return Ok(result);
+                }
+                prune_turn_dirs(root, &abs);
+                result.deleted.push(rel.clone());
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                result.error = Some(AppError::io(&abs, error));
+                return Ok(result);
+            }
+        }
+    }
+
+    if !restore.is_empty() {
+        let mut args: Vec<&str> = vec!["ls-tree", "-z", snapshot.worktree.as_str(), "--"];
+        args.extend(restore.iter().map(|path| path.as_str()));
+        let (ok, stdout, stderr) = run_bytes(&root_str, &args)?;
+        if !ok {
+            result.error = Some(AppError::new(stderr.trim().to_string()));
+            return Ok(result);
+        }
+        let prefix = repo_paths(&root_str)
+            .ok()
+            .flatten()
+            .map(|paths| workspace_prefix(&paths, root))
+            .unwrap_or_default();
+        // mode, type and blob per workspace-relative path
+        let mut entries: std::collections::HashMap<String, (String, String)> =
+            std::collections::HashMap::new();
+        let text = String::from_utf8_lossy(&stdout).to_string();
+        let mut fields = text.split('\0');
+        while let Some(record) = fields.next() {
+            if record.is_empty() {
+                continue;
+            }
+            let Some((meta, path)) = record.split_once('\t') else {
+                continue;
+            };
+            let mut parts = meta.split(' ');
+            let mode = parts.next().unwrap_or("").to_string();
+            let kind = parts.next().unwrap_or("").to_string();
+            let sha = parts.next().unwrap_or("").to_string();
+            let Some(rel) = to_workspace_rel(path, &prefix) else {
+                continue;
+            };
+            if sha.is_empty() {
+                continue;
+            }
+            entries.insert(rel, (mode, format!("{kind}:{sha}")));
+        }
+
+        // Symlinks / submodules cannot be written as plain files: report them instead of guessing
+        let mut wanted: Vec<(String, String, String)> = Vec::new();
+        for rel in &restore {
+            let Some((mode, spec)) = entries.get(rel) else {
+                continue;
+            };
+            let (kind, sha) = spec.split_once(':').unwrap_or(("blob", ""));
+            if kind != "blob" || !mode.starts_with("100") {
+                result.skipped.push(rel.clone());
+                continue;
+            }
+            wanted.push((rel.clone(), mode.clone(), sha.to_string()));
+        }
+        let shas: Vec<String> = wanted.iter().map(|(_, _, sha)| sha.clone()).collect();
+        let blobs = read_blobs(&root_str, &shas)?;
+        for ((rel, mode, _), data) in wanted.iter().zip(blobs.iter()) {
+            let Some(data) = data else {
+                result.skipped.push(rel.clone());
+                continue;
+            };
+            let abs = crate::state::resolve_in_root(root, rel)?;
+            crate::state::assert_inside(root, &abs)?;
+            if let Some(parent) = abs.parent() {
+                if let Err(error) = std::fs::create_dir_all(parent) {
+                    result.error = Some(AppError::io(&abs, error));
+                    return Ok(result);
+                }
+            }
+            if let Err(error) = paths::write_atomic(&abs, data) {
+                result.error = Some(AppError::io(&abs, error));
+                return Ok(result);
+            }
+            #[cfg(unix)]
+            {
+                if mode == "100755" {
+                    use std::os::unix::fs::PermissionsExt;
+                    let _ = std::fs::set_permissions(&abs, std::fs::Permissions::from_mode(0o755));
+                }
+            }
+            #[cfg(not(unix))]
+            {
+                let _ = mode;
+            }
+            result.restored.push(rel.clone());
+        }
+    }
+
+    // Staging area last: the worktree is already correct, so an index failure is reported but
+    // never rolls the files back.
+    if let Some(index_tree) = snapshot.index.as_deref().filter(|tree| !tree.is_empty()) {
+        let mut index_paths: Vec<String> = Vec::new();
+        for rel in restore.iter().chain(delete.iter()) {
+            if !index_paths.contains(rel) {
+                index_paths.push(rel.clone());
+            }
+        }
+        let mut args: Vec<&str> = vec!["ls-tree", "-z", "-r", "--name-only", index_tree, "--"];
+        args.extend(index_paths.iter().map(|path| path.as_str()));
+        match run_bytes(&root_str, &args) {
+            Ok((true, stdout, _)) => {
+                let text = String::from_utf8_lossy(&stdout).to_string();
+                let prefix = repo_paths(&root_str)
+                    .ok()
+                    .flatten()
+                    .map(|paths| workspace_prefix(&paths, root))
+                    .unwrap_or_default();
+                let mut present: Vec<String> = Vec::new();
+                for repo_path in text.split('\0').filter(|value| !value.is_empty()) {
+                    if let Some(rel) = to_workspace_rel(repo_path, &prefix) {
+                        if index_paths.contains(&rel) && !present.contains(&rel) {
+                            present.push(rel);
+                        }
+                    }
+                }
+                let absent: Vec<String> = index_paths
+                    .into_iter()
+                    .filter(|rel| !present.contains(rel))
+                    .collect();
+                if !present.is_empty() {
+                    let mut restore_args: Vec<&str> =
+                        vec!["restore", "--source", index_tree, "--staged", "--"];
+                    restore_args.extend(present.iter().map(|path| path.as_str()));
+                    if let Ok((ok, _, stderr)) = run_bytes(&root_str, &restore_args) {
+                        if !ok && result.error.is_none() {
+                            result.error = Some(AppError::new(stderr.trim().to_string()));
+                        }
+                    }
+                }
+                if !absent.is_empty() {
+                    let mut remove_args: Vec<&str> =
+                        vec!["update-index", "--force-remove", "--"];
+                    remove_args.extend(absent.iter().map(|path| path.as_str()));
+                    if let Ok((ok, _, stderr)) = run_bytes(&root_str, &remove_args) {
+                        if !ok && result.error.is_none() {
+                            result.error = Some(AppError::new(stderr.trim().to_string()));
+                        }
+                    }
+                }
+            }
+            Ok((false, _, stderr)) => {
+                if result.error.is_none() {
+                    result.error = Some(AppError::new(stderr.trim().to_string()));
+                }
+            }
+            Err(error) => {
+                if result.error.is_none() {
+                    result.error = Some(error);
+                }
+            }
+        }
+    }
+
+    Ok(result)
+}
+
+#[tauri::command(async)]
+pub fn git_turn_revert(
+    state: State<'_, AppState>,
+    root: String,
+    snapshot: TurnSnapshot,
+    files: Vec<TurnRevertTarget>,
+) -> AppResult<GitTurnRevertResult> {
+    let root_path = state.authorize(&root)?;
+    revert_turn(&root_path, &snapshot, &files)
 }
 
 #[tauri::command(async)]
@@ -1901,7 +2560,7 @@ pub fn git_conflict_reset(
 
 #[cfg(test)]
 mod tests {
-    use super::{apply_discard_change, discard_changes, discard_changes_with, discard_paths, git_cmd, local_repo_paths, read_status, repo_paths, reset_all, run_text, stash_count, stash_pop, stash_push, truncate_patch, undo_commit};
+    use super::{apply_discard_change, discard_changes, discard_changes_with, discard_paths, git_cmd, local_repo_paths, read_status, repo_paths, reset_all, revert_turn, run_text, stash_count, stash_pop, stash_push, truncate_patch, turn_changes, turn_snapshot, undo_commit, TurnRevertTarget, TurnSnapshot};
     use std::io::Write;
     use std::path::PathBuf;
     use std::process::Stdio;
@@ -2407,5 +3066,139 @@ mod tests {
     fn truncate_patch_leaves_short_input_untouched() {
         let patch = "short\n";
         assert_eq!(truncate_patch(patch, 100), patch);
+    }
+
+    fn turn_targets(changes: &super::TurnChanges) -> Vec<TurnRevertTarget> {
+        changes
+            .files
+            .iter()
+            .map(|file| TurnRevertTarget {
+                path: file.path.clone(),
+                old_path: file.old_path.clone(),
+                status: file.status.clone(),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn turn_snapshot_reports_every_kind_of_change_with_line_counts() {
+        let repo = TestRepo::new();
+        repo.write("keep.txt", "same\n");
+        repo.write("edit.txt", "a\nb\nc\n");
+        repo.write("gone.txt", "bye\n");
+        repo.write("move.txt", "m\n");
+        repo.commit();
+        let start = turn_snapshot(&repo.root).expect("baseline");
+        repo.write("edit.txt", "a\nB\nc\nd\n");
+        repo.write("added.txt", "n1\nn2\n");
+        std::fs::remove_file(repo.root.join("gone.txt")).unwrap();
+        std::fs::rename(repo.root.join("move.txt"), repo.root.join("moved.txt")).unwrap();
+        let end = turn_snapshot(&repo.root).expect("end");
+        let changes = turn_changes(&repo.root, &start, &end).expect("changes");
+
+        let find = |path: &str| changes.files.iter().find(|file| file.path == path);
+        let edit = find("edit.txt").expect("edit");
+        assert_eq!((edit.status.as_str(), edit.additions, edit.deletions), ("M", 2, 1));
+        let added = find("added.txt").expect("added");
+        assert_eq!((added.status.as_str(), added.additions), ("A", 2));
+        let gone = find("gone.txt").expect("delete");
+        assert_eq!((gone.status.as_str(), gone.deletions), ("D", 1));
+        let moved = find("moved.txt").expect("rename");
+        assert_eq!(moved.status, "R");
+        assert_eq!(moved.old_path.as_deref(), Some("move.txt"));
+        assert!(find("keep.txt").is_none());
+        assert_eq!((changes.additions, changes.deletions), (4, 2));
+        assert!(!changes.head_changed);
+        assert!(!changes.truncated);
+    }
+
+    #[test]
+    fn turn_undo_restores_pre_turn_content_and_drops_created_files() {
+        let repo = TestRepo::new();
+        repo.write("tracked.txt", "base\n");
+        repo.write("staged.txt", "base2\n");
+        repo.commit();
+        // Dirty before the turn: the undo must return to this, not to HEAD
+        repo.write("tracked.txt", "dirty-before\n");
+        repo.write("staged.txt", "staged-before\n");
+        repo.git(&["add", "staged.txt"]);
+        let start = turn_snapshot(&repo.root).unwrap();
+        repo.write("tracked.txt", "agent\n");
+        repo.write("staged.txt", "agent-staged\n");
+        std::fs::create_dir_all(repo.root.join("created/deep")).unwrap();
+        repo.write("created/deep/new.txt", "new\n");
+        let end = turn_snapshot(&repo.root).unwrap();
+        let changes = turn_changes(&repo.root, &start, &end).unwrap();
+        assert!(changes.files.iter().any(|file| file.path == "created/deep/new.txt"));
+
+        let result = revert_turn(&repo.root, &changes.snapshot, &turn_targets(&changes)).unwrap();
+        assert!(result.error.is_none(), "{:?}", result.error);
+        assert_eq!(repo.read("tracked.txt"), "dirty-before\n");
+        assert_eq!(repo.read("staged.txt"), "staged-before\n");
+        assert!(!repo.root.join("created/deep/new.txt").exists());
+        assert!(!repo.root.join("created").exists());
+        assert!(result.restored.contains(&"tracked.txt".to_string()));
+        assert!(result.deleted.contains(&"created/deep/new.txt".to_string()));
+        // The staging area went back to its pre-turn content as well
+        let staged = repo.git(&["diff", "--cached", "--name-only"]);
+        assert!(staged.contains("staged.txt"), "{staged}");
+    }
+
+    #[test]
+    fn turn_undo_keeps_work_committed_but_files_return_to_the_baseline() {
+        let repo = TestRepo::new();
+        repo.write("a.txt", "base\n");
+        repo.commit();
+        let start = turn_snapshot(&repo.root).unwrap();
+        repo.write("a.txt", "agent\n");
+        repo.commit();
+        let end = turn_snapshot(&repo.root).unwrap();
+        let changes = turn_changes(&repo.root, &start, &end).unwrap();
+        assert!(changes.head_changed, "a commit must be reported");
+
+        let result = revert_turn(&repo.root, &changes.snapshot, &turn_targets(&changes)).unwrap();
+        assert!(result.error.is_none());
+        assert_eq!(repo.read("a.txt"), "base\n");
+        // The commit itself stays; the warning in the confirm dialog explains that
+        assert_ne!(repo.git(&["rev-list", "--count", "HEAD"]).trim(), "1");
+    }
+
+    #[test]
+    fn turn_undo_rejects_pruned_snapshots_and_escaping_paths() {
+        let repo = TestRepo::new();
+        repo.write("a.txt", "one\n");
+        repo.commit();
+        let start = turn_snapshot(&repo.root).unwrap();
+        repo.write("a.txt", "two\n");
+        let end = turn_snapshot(&repo.root).unwrap();
+        let changes = turn_changes(&repo.root, &start, &end).unwrap();
+
+        let pruned = TurnSnapshot { worktree: "0".repeat(40), index: None };
+        let error = revert_turn(&repo.root, &pruned, &turn_targets(&changes)).unwrap_err();
+        assert_eq!(error.code, "git.turnSnapshotMissing");
+
+        let escaping = [TurnRevertTarget {
+            path: "../outside.txt".into(),
+            old_path: None,
+            status: "A".into(),
+        }];
+        let error = revert_turn(&repo.root, &changes.snapshot, &escaping).unwrap_err();
+        assert_eq!(error.code, "path.invalid");
+    }
+
+    #[test]
+    fn turn_undo_refuses_a_directory_occupying_a_baseline_file() {
+        let repo = TestRepo::new();
+        repo.write("a.txt", "one\n");
+        repo.commit();
+        let start = turn_snapshot(&repo.root).unwrap();
+        std::fs::remove_file(repo.root.join("a.txt")).unwrap();
+        std::fs::create_dir(repo.root.join("a.txt")).unwrap();
+        repo.write("a.txt/inner.txt", "x\n");
+        let end = turn_snapshot(&repo.root).unwrap();
+        let changes = turn_changes(&repo.root, &start, &end).unwrap();
+
+        let error = revert_turn(&repo.root, &changes.snapshot, &turn_targets(&changes)).unwrap_err();
+        assert_eq!(error.code, "git.turnRevertBlocked");
     }
 }
