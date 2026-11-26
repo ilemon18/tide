@@ -43,10 +43,10 @@ keywords:
 
 ## Ownership
 
-CLIs own auth/models/tools; Rust owns processes; the agent store owns queues/UI. Every new chat forces
-`loadCatalog(provider, true)` in the background: concurrent requests coalesce with one owed force run,
-and a non-empty refreshed catalog repairs session defaults (and blank idle chats) whose model disappeared.
-An empty/failed probe never clears the saved model. Input/plans:
+CLIs own auth/models/tools; Rust owns processes; the agent store owns queues/UI. New chats force
+`loadCatalog(provider, true)` in the background: concurrent requests coalesce around one owed run, and a
+non-empty refresh repairs session defaults (and blank idle chats) whose model disappeared. Empty/failed
+probes never clear the saved model. Input/plans:
 [agent-composer.md](./agent-composer.md). History: [agent-storage.md](./agent-storage.md).
 
 ## Turns and events
@@ -56,58 +56,58 @@ An empty/failed probe never clears the saved model. Input/plans:
   matching run. EOF/error never means success.
 - Codex uses app-server initialize/thread/turn; Claude uses bidirectional stream-json/stdio approvals.
   transport.rs keeps stdin writable, bounds handshake and closes completed processes. Native schemas
-  govern; unsupported protocols require upgrade, never whole-response fallback.
+  govern; unsupported protocols need an upgrade, never a whole-response fallback.
 - Run ID/sequence reject stale/completed events; upsert IDs. agentEvents batches text/thinking/tools,
   flushes before structure/end, replaces snapshots and deduplicates Claude blocks. Caps preserve Unicode
   and mark truncation; grapheme smoothing preserves stored/copied bytes.
-- Running sends enter FIFO queue, never process stdin. Success drains without erasing newer drafts;
+- Running sends enter the FIFO queue, never process stdin. Success drains without erasing newer drafts;
   failure keeps session/queue. Completed unanswered questions and unresolved plans block sends/drain
-  across pages; an incomplete or failed/cancelled streamed question does not establish a gate.
+  across pages; incomplete or failed/cancelled streams do not gate.
 - A queued card can interject: wait for the old launch, cancel, then wait for its Done before launching the
   selection. Edit appends its text/metadata to the composer (existing command wins), removes the entry and
-  focuses the composer. Lock duplicate actions/drain; preserve order, metadata and newer drafts. Cancel/launch
-  failure retains the selection; pending question/plan gates still apply.
-- A chat tab with a running turn cannot be closed through the tab button, middle-click, context menu, bulk
-  close, or shortcut. The tab store rejects non-force close requests before stopping the run; task teardown
-  may use force cleanup. The guard lifts on Done, stop, error, or cancellation.
+  focuses the composer. Lock duplicate actions/drain; preserve order, metadata and newer drafts.
+  Launch failure retains the selection; question/plan gates still apply.
+- A chat tab with a running turn cannot close via tab button, middle-click, context menu, bulk close or
+  shortcut. The tab store rejects non-force closes before stopping the run; task teardown
+  may force-clean. The guard lifts on Done/stop/error/cancel.
 
 ## Permissions and preferences
 
 - Persist permissionMode=read-only/workspace-write/full-access; legacy missing stays writable. Explicit
   picker/local-command choices update defaults immediately; new chats inherit. Model changes save
   compatible effort, including empty Default (CLI config). Restore/hydration/provider fallback never
-  overwrite preferences; restored chats retain options. Temporary plan/question/compact/execution choices
+  overwrite preferences. Temporary plan/question/compact/execution choices
   never become defaults. Plan/question follow-ups force read-only; runs lock model/effort/permissions.
   Menu and /permissions share a setter.
 - Codex maps modes to read-only/never, workspace-write/on-request, danger-full-access/never; Claude to
   plan, acceptEdits, bypassPermissions. Native/organization restrictions still apply; Claude modes are not
-  OS sandboxes. Ordered allow-once/deny cards validate window/run/request ownership and single use in Rust.
+  OS sandboxes. Ordered allow-once/deny cards validate window/run/request ownership and single use.
   Grants last one turn; persist before responding. Read-only rejects escalation. Stop/done/recovery expire
-  cards; waiting blocks drain; failed question launch restores the card. Permission queries/compact never create plans.
+  cards; waiting blocks drain; failed question launch restores the card. Queries/compact never create plans.
 
 ## Replies and usage
 
 - Tab failures override completion. Replies use GFM/code-copy, reject HTML/remote images and accept only
-  contained owning-root file links (`:line:col`/`#LlineCcol`). Entry points respect agentEnabled; tree double-click
-  stays a tree gesture. Items preserve source order, reconcile IDs and retain expansion.
+  contained owning-root file links (`:line:col`/`#LlineCcol`). Entries respect agentEnabled; tree double-click
+  stays a tree gesture. Items keep source order, reconcile IDs and retain expansion.
 - Output folds show reply provider names (catalog, then Codex/Claude Code or ID); legacy replies use the chat
-  provider. Retain expansion/copy. User bubbles show `agent.you`; copies omit speaker labels.
+  provider. Keep expansion/copy. User bubbles show `agent.you`; copies omit speaker labels.
 - Tail reports activity/elapsed/confirmation waits; persist completion time and backend duration. Finished
-  reopened turns show local HH:mm, live ones omit it. History expansion pauses following.
-- Tail status receives primitive fields and owns its one-second clock; streamed Markdown/tools never remount
-  it. AgentSpinner rotates a fixed HTML box separately from SVG painting. Live replies use visible rendering;
-  only inactive messages use automatic skipped-content rendering.
-- The configurable context.openOrLatest action jumps only in the active chat, respecting overlays and IME;
-  its other focus context opens a file-tree row. Jumping loads the latest history page first. Sends,
-  successful interjections and running-to-finished transitions resume following and anchor the latest
-  bottom after deferred layout. Upward reading gestures and direct scrollbar presses pause following. Layout-generated scroll events, including
-  upward offsets after content shrink/regrowth, never clear that intent and schedule another bottom anchor.
-  First-send layout changes and queue/composer resizing retain following. Queued cards use the lighter panel surface.
-  Observe transcript text/child mutations as well as box resizing so deferred stream smoothing and Markdown
-  code/table formatting anchor the latest bottom after rendering; these commits respect paused following.
+  reopened turns show local HH:mm; live ones omit it. History expansion pauses following.
+- Tail status takes primitive fields and owns its one-second clock; streamed Markdown/tools never remount it.
+  AgentSpinner rotates a fixed HTML box apart from SVG painting. Live replies render visibly; only inactive
+  messages skip content automatically.
+- The configurable context.openOrLatest jumps only in the active chat, respecting overlays and IME; its other
+  focus context opens a file-tree row, loading the latest history page first. Sends, successful interjections
+  and running→finished transitions resume following and anchor the bottom after deferred layout; upward
+  reading gestures and direct scrollbar presses pause it. Layout-generated scrolls, including upward offsets
+  after shrink/regrowth, never clear that intent and schedule another anchor; first-send layout changes and
+  queue/composer resizing retain following, and queued cards use the lighter surface. Observe transcript
+  text/child mutations and box resizing so deferred smoothing and Markdown formatting anchor after render;
+  respect paused following.
 - Context popup uses provider context/session usage, unaffected by loaded history/drafts. The context ring
-  uses the current context snapshot, while token rows show only the current native session cumulative usage;
-  latest-turn token details are not displayed. Zero is valid; invalid is unavailable. Keep persisted cost
+  uses the current context snapshot, while token rows show only the native session cumulative usage;
+  latest-turn details are hidden. Zero is valid; invalid is unavailable. Keep persisted cost
   fields compatible, without price UI.
 
 - Composer permission state comes from its picker/cards, without a duplicate plan/read-only line.
@@ -116,28 +116,25 @@ An empty/failed probe never clears the saved model. Input/plans:
 
 ## Turn changes and undo
 
-- Write-capable turns snapshot the worktree baseline before the CLI spawns (`turn_snapshot`), and the reader
-  thread snapshots it again after the child is reaped. `turnChanges` is emitted immediately before `done` on
-  the same channel, so the summary lands on the same assistant message and a queued next turn cannot leak
-  its writes into it. Read-only/planning turns and non-repository roots produce no card.
-- The card shows per-file A/M/D/R/T status with numstat line counts (rows capped at 200, totals complete;
-  a truncated list offers no undo because the undo carries only the listed paths), opens the existing
-  unstaged diff, and offers undo only on the chat's latest assistant message; sending a new turn removes the
-  button immediately. The confirm dialog warns when the turn also committed.
-- Undo restores exactly the listed rows to the baseline worktree and index trees through the Git store's
-  transaction (index queue, suspended saves, deleted tabs closed, restored tabs force-reloaded). It never
-  rewrites commits, never touches unlisted paths, and a pruned baseline (`git.turnSnapshotMissing`) hides the
-  action with a coded message instead of guessing.
+- Write-capable turns snapshot the worktree baseline before spawn and again after the child is reaped;
+  `turnChanges` precedes `done`, so the summary joins the same assistant message and a queued next turn cannot
+  leak its writes into it. Read-only/planning turns and non-repository roots make no card.
+- The card shows per-file A/M/D/R/T status with numstat counts (200-row cap, complete totals; truncation
+  disables undo), opens the unstaged diff, and offers undo only on the latest assistant message; a
+  new turn removes it. The confirm dialog warns when the turn also committed.
+- Undo restores only the listed rows via the Git store (index queue, suspended saves, closed/reloaded tabs),
+  never rewriting commits or touching unlisted paths; a pruned baseline fails with
+  `git.turnSnapshotMissing`. Command mechanics: [git.md](./git.md).
 
 ## Snapshot transport
 
 - AgentTurnRequest carries structured attachments; agent/mod.rs validates them before provider setup,
-  authorizes owning roots/contained relative paths and serializes metadata/text as quoted JSON after prompt
+  authorizes owning roots/contained paths and serializes metadata/text as quoted JSON after prompt
   guidance. It neither rereads content nor changes permission/planning state.
 - Limits are owned by agent/mod.rs and mirror src/lib/memoryBudget.ts. Old callers may omit attachments.
 
 ## Change map and verification
 
-Coordinate Rust emitters, frontend reducers and IPC types. Preserve native schemas, ownership and cleanup;
-settings defaults follow [runtime.md](./runtime.md). Provider/transport and agent tests protect protocol,
-queues, replies and usage. Native-account compatibility needs explicit native verification.
+Coordinate Rust emitters, frontend reducers and IPC types; keep native schemas, ownership and cleanup, and
+follow [runtime.md](./runtime.md) for settings defaults. Provider/transport and agent tests protect protocol, queues, replies and
+usage; native-account compatibility needs explicit verification.

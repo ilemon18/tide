@@ -25,6 +25,7 @@ vi.mock('../store/workspace', () => ({ useWorkspace: (select: (state: unknown) =
 vi.mock('../store/ui', () => ({ useUi: Object.assign((select: (state: unknown) => unknown) => select(ui), { getState: () => ui }) }))
 vi.mock('../i18n', () => ({ useT: () => (key: string, params?: Record<string, unknown>) =>
   params ? `${key} ${Object.values(params).join(' ')}` : key }))
+import codexIcon from '../assets/agentIcons/codex.svg'
 import { AgentHistoryPage } from './AgentHistoryPage'
 
 const NOW = Date.parse('2026-01-01T00:00:00Z')
@@ -60,7 +61,7 @@ it('shows the project and provider icon before the conversation name, and releas
   const row = screen.getByRole('button', { name: 'agent.history.open Saved conversation' })
   const logo = row.querySelector<HTMLElement>('[style*="mask-image"]')!
   expect(logo).toBeTruthy()
-  expect(logo.getAttribute('style')).toContain('codex')
+  expect(logo.getAttribute('style')).toContain(codexIcon)
   expect(logo.compareDocumentPosition(screen.getByText('Saved conversation')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   expect(row.getAttribute('title')).toBe('Saved conversation')
   expect(screen.getByText('30s')).toBeTruthy()

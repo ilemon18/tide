@@ -46,7 +46,7 @@ and subprocess policy. DiffView/diffScroll own positioning; editor/conflicts own
   mutations never race `index.lock`, and coalesce the authoritative status into one refresh when the queue
   drains. These operations do not take the global busy lock. Commit / pull / push / fetch / undo / operation
   controls remain exclusive and wait for queued index work before mutating. A failed optimistic mutation
-  toasts and lets that forced status restore the real rows.
+  toasts and the forced status restores real rows.
 - Branch dialog is 480px clamped to viewport with a scrolling list. Separate local/remote groups; empty
   search shows ten/group, current local pinned then newest commits (remote recency). Name search spans
   all cached branches, capped at 200 visible matches. Headings are visual; keyboard visits rows/create.
@@ -68,9 +68,9 @@ and subprocess policy. DiffView/diffScroll own positioning; editor/conflicts own
 - store/commitHover owns requests, hover intent and completed content. Share cached/in-flight details by
   structured root/SHA/path/original-line/current-line keys; use memoryBudget.commitDetails for LRU eviction.
   Foreground hover reads immediately and shares matching background reads; background prefetch is serial
-  with only the latest waiting target. Prefetch failures remain silent and hover retries failures.
-- Clicking a diff-gutter change bar selects its line and opens the same one-line commit card, fetching blame
-  on demand when inline blame is off; uncommitted lines have no commit and leave the card closed.
+  with only the latest waiting target. Prefetch failures stay silent; hover retries them.
+- Clicking a change bar selects its line and opens the same one-line commit card, fetching blame when inline
+  blame is off; uncommitted lines leave it closed.
 - CommitHoverCard appears only with a completed diff, empty-change result or error. Measure the full card
   invisibly before first paint; cached results enter synchronously. Keep the existing single-line snippet.
   Target/content updates are atomic so a new target never paints the previous target's snippet.
@@ -110,16 +110,16 @@ and subprocess policy. DiffView/diffScroll own positioning; editor/conflicts own
 ## Turn snapshots and undo
 
 - turn_snapshot copies `<gitdir>/index` to a temp index, reads its tree (the index baseline), then runs
-  `GIT_INDEX_FILE=<tmp> git add -A -- .` + `git write-tree` for the worktree baseline. The real index and the
-  worktree are never touched, and the pathspec is the workspace subtree, so a repo subdirectory stays scoped.
+  `GIT_INDEX_FILE=<tmp> git add -A -- .` + `git write-tree` for the worktree baseline. Real index/worktree stay
+  untouched; pathspec is the workspace subtree, so subdirectories stay scoped.
 - turn_changes diffs the two worktree trees (`--name-status -z -M` plus `--numstat -z -M`), so work the agent
-  committed still shows and HEAD/index are never compared. Renames carry `oldPath`; copies are reported as adds.
-- git_turn_revert preflights every target (`resolve_in_root` + `assert_inside`; directories and special files
-  are rejected before anything changes), deletes created files first so a case-only rename survives, writes
+  committed still shows and HEAD/index are never compared. Renames carry `oldPath`; copies are adds.
+- git_turn_revert preflights every target (`resolve_in_root` + `assert_inside`; directories/special files
+  are rejected before mutation), deletes created files first so a case-only rename survives, writes
   baseline blobs with `paths::write_atomic` plus the exec bit, prunes dirs it emptied up to the root, then
   restores index entries from the baseline index tree (`restore --source … --staged`, `update-index
-  --force-remove`). Both trees are unreferenced objects: `git gc` may prune them, and the command then fails
-  with `git.turnSnapshotMissing` instead of half-applying.
+  --force-remove`). Both trees are unreferenced: `git gc` may prune them, then the command fails with
+  `git.turnSnapshotMissing` instead of half-applying.
 - Undo restores only the rows the card lists; it never rewrites commits and never touches other paths.
 
 ## Diff and conflict contracts

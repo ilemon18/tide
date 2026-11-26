@@ -59,9 +59,9 @@ EditorHost selects tab kinds; markdown helpers own contained links and images.
   auto-save, formatting and images. Their cursor session lives in localStorage (`lib/externalTabs.ts`),
   not the Rust project session. Project switch still closes them with `closeEverything`.
 - Double-clicking or right-clicking tab-strip whitespace opens the blank-tab menu (New blank file / Open
-  file…); an empty project pane renders the same 36px strip, while the no-project Welcome page does not.
-  Tabs keep their own double-click promotion. A file/diff tab double-click also switches to Explorer and
-  requests a centred tree reveal (`TreeReveal.center`); external tabs only promote. Open File is the first
+  file…); an empty project pane shows the same 36px strip; the no-project Welcome page does not.
+  Tabs keep their own double-click promotion. A file/diff double-click also switches to Explorer with a
+  centred tree reveal (`TreeReveal.center`); external tabs only promote. Open File is the first
   Welcome action and a palette command (`file.open`, no default stroke so Mod+O stays Open Folder).
 - Hydrate project/root/chain/tabs as one gate behind the themed startup frame. Restore metadata first;
   load content/state on activation. Missing eol is safe only while there is no state to save. Restore
@@ -92,8 +92,8 @@ EditorHost selects tab kinds; markdown helpers own contained links and images.
   idle/failed/cancelled restore them. The tab store keeps the same guard for non-UI callers, while force cleanup
   remains available to project teardown.
 - Chat tabs/drag ghosts use live provider icon + conversation title + optional execution status, with generic
-  loading icon fallback. Single-colour provider marks are mask-tinted with currentColor so dark themes keep
-  them visible; brand-coloured marks stay as images. tabTitle uses tab.name or the localized New chat fallback;
+  loading icon fallback. Single-colour provider marks are currentColor mask tints; brand marks stay images.
+  tabTitle uses tab.name or the localized New chat fallback;
   tooltips/headers use the same conversation title. src/store/agent.ts's titleFromPrompt takes the trimmed
   first prompt's first line, keeping up to 48 Unicode code points and appending an ellipsis only when truncated.
   Follow-ups keep that title; history/session restoration reuses it. /new clears the title so the next
@@ -116,9 +116,9 @@ EditorHost selects tab kinds; markdown helpers own contained links and images.
   split ChangeSets. Never store views/states in zustand or share a state between views.
 - The line-number gutter mirrors the right-edge DiffRuler: store/diffMarks caches parsed full-patch marks
   per root+rel (mtime/dirty/diffEpoch signature; in-flight dedupe) and editor/diffGutter renders one
-  success/warning/danger bar per changed line. Marked rows are click targets that select the line and open
-  its one-line blame card (fetching blame on demand when needed), with a pointer cursor and a wider hover bar.
-  Project file states get the gutter before lineNumbers; external, untracked-buffer and preview states do not.
+  success/warning/danger bar per changed line. Marked rows are click targets (see [git.md](./git.md));
+  pointer cursor, wider hover bar. Project file states get the gutter before lineNumbers; external,
+  untracked-buffer and preview states do not.
   Marks are disk-based: typing maps their positions, the next save reloads the real patch. EditorHost reapplies
   the current marks after every state swap.
 - ⌘/Ctrl-click in a code file first resolves an import path (importLinks, opens the target file). Otherwise
@@ -131,8 +131,8 @@ EditorHost selects tab kinds; markdown helpers own contained links and images.
 - editor/blame schedules current-line detail prefetch after blame arrives or the cursor changes lines,
   debounced 150ms by store/commitHover. Reuse the typing suppression period before scheduling; skip absent,
   disabled and uncommitted blame. Same-line/viewport/locale refreshes do not restart the debounce.
-  State replacement, extension removal and view destruction cancel that view's pending prefetch without
-  cancelling another pane's newer target. Hover request/presentation contracts: [git.md](./git.md).
+  State replacement, extension removal and view destruction cancel that view's pending prefetch but not
+  another pane's newer target. Hover request/presentation contracts: [git.md](./git.md).
 
 ## Selection context
 

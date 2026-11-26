@@ -125,6 +125,8 @@ it('opens the blame card when a changed-line gutter bar is clicked', async () =>
 
   const row = view.dom.querySelector<HTMLElement>('.cm-diff-gutter-hit')
   expect(row).toBeTruthy()
+  // jsdom has no layout, so resolve the clicked row's line explicitly for CodeMirror's gutter handler.
+  vi.spyOn(view, 'lineBlockAtHeight').mockReturnValue(view.lineBlockAt(view.state.doc.line(2).from))
   row!.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
 
   expect(view.state.selection.main.head).toBe(view.state.doc.line(2).from)
@@ -143,6 +145,7 @@ it('fetches blame on demand when inline blame is not mounted', async () => {
 
   const row = view.dom.querySelector<HTMLElement>('.cm-diff-gutter-hit')
   expect(row).toBeTruthy()
+  vi.spyOn(view, 'lineBlockAtHeight').mockReturnValue(view.lineBlockAt(view.state.doc.line(2).from))
   row!.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
   await vi.advanceTimersByTimeAsync(0)
 

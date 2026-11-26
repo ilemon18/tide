@@ -845,7 +845,7 @@ pub struct TurnRevertTarget {
     pub status: String,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct GitTurnRevertResult {
     pub restored: Vec<String>,
