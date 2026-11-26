@@ -10,6 +10,7 @@ import { useSettings } from '../store/settings'
 import { useT } from '../i18n'
 import { openSettings } from '../lib/actions'
 import { AgentComposer } from './AgentComposer'
+import { AgentProviderIcon } from './AgentProviderIcon'
 import { AssistantMessage, UserMessage } from './AgentMessage'
 import { AgentSpinner } from './AgentSpinner'
 import { Icon } from './Icon'
@@ -264,12 +265,12 @@ export function AgentChat({ chatId }: { chatId: string }) {
       onPointerDownCapture={() => useAgent.getState().markChatFocused(chatId)}>
       <div className="flex h-9 shrink-0 items-center gap-1.5 border-b border-line bg-bg px-2.5">
         <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-[5px] bg-accent/15 text-accent">
-          <Icon name="agent" size={12} />
+          <AgentProviderIcon provider={chat.provider} size={13} className="text-accent" />
         </div>
         <span className="min-w-0 max-w-[280px] truncate text-sm font-medium text-fg/90">
           {chat.title || t('agent.newChat')}
         </span>
-        <span className="shrink-0 rounded-[var(--r-row)] bg-panel-alt px-1.5 py-0.5 text-2xs text-muted">
+        <span className="sr-only">
           {providerLabel}
         </span>
         <div className="ml-auto flex shrink-0 items-center gap-1.5">
@@ -365,6 +366,7 @@ export function AgentChat({ chatId }: { chatId: string }) {
                       chatId={chatId}
                       root={chat.root}
                       message={message}
+                      provider={message.provider || chat.provider}
                       providerLabel={providerName(message.provider || chat.provider)}
                       running={running && message.id === last?.id}
                       pendingQuestionId={pendingQuestion?.item.id ?? null}
@@ -400,7 +402,7 @@ export function AgentChat({ chatId }: { chatId: string }) {
           <div className="mx-auto flex w-full max-w-[820px] flex-col gap-1.5 px-4">
             {initialConversation ? (
               <div className="mb-4 flex flex-col items-center gap-3 text-center">
-                <Icon name="agent" size={24} className="text-accent" />
+                <AgentProviderIcon provider={chat.provider} size={24} className="text-accent" />
                 <h1 className="text-xl font-medium text-fg">{t('agent.empty')}</h1>
               </div>
             ) : null}

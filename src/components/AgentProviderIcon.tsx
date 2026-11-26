@@ -20,6 +20,9 @@ const PROVIDER_IMAGES: Record<string, string> = {
   qwen: qwenIcon,
 }
 
+/** These marks are single-colour, so use their alpha as a mask and tint them with the theme text colour. */
+const MONOCHROME_PROVIDERS = new Set(['codex', 'copilot', 'cursor', 'goose', 'opencode'])
+
 type Props = {
   provider: string
   size?: number
@@ -28,6 +31,27 @@ type Props = {
 
 export function AgentProviderIcon({ provider, size = 16, className }: Props) {
   const image = PROVIDER_IMAGES[provider]
+  if (image && MONOCHROME_PROVIDERS.has(provider)) {
+    return (
+      <span
+        aria-hidden="true"
+        className={`inline-block shrink-0 ${className ?? ''}`}
+        style={{
+          width: size,
+          height: size,
+          backgroundColor: 'currentColor',
+          WebkitMaskImage: `url("${image}")`,
+          maskImage: `url("${image}")`,
+          WebkitMaskSize: 'contain',
+          maskSize: 'contain',
+          WebkitMaskRepeat: 'no-repeat',
+          maskRepeat: 'no-repeat',
+          WebkitMaskPosition: 'center',
+          maskPosition: 'center',
+        }}
+      />
+    )
+  }
   if (image) {
     return (
       <img

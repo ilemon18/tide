@@ -1,8 +1,22 @@
 import { RangeSet, RangeSetBuilder, StateEffect, StateField, type Extension, type Text } from '@codemirror/state'
 import { EditorView, GutterMarker, gutter } from '@codemirror/view'
 import type { DiffMark, DiffMarkKind } from '../lib/diffMarks'
+import type { BlameResult } from '../lib/ipc'
+import { blameField, showBlameAtLine, showBlameRange } from './blame'
+
+type BlameProvider = () => Promise<BlameResult | null>
+const blameProviders = new WeakMap<EditorView, BlameProvider>()
+let clickSequence = 0
+
+/** EditorHost supplies the active file so a bar click can fetch blame even when inline blame is off. */
+export function setDiffGutterBlameProvider(view: EditorView, provider: BlameProvider | null): void {
+  if (provider) blameProviders.set(view, provider)
+  else blameProviders.delete(view)
+}
 
 class DiffMarkMarker extends GutterMarker {
+  elementClass = 'cm-diff-gutter-hit'
+
   constructor(readonly kind: DiffMarkKind) {
     super()
   }
@@ -93,6 +107,37 @@ export const diffMarksGutter: Extension = [
     class: 'cm-diff-gutter',
     markers: (view) => view.state.field(diffGutterField).ranges,
     initialSpacer: () => SPACER,
+    domEventHandlers: {
+      click(view, line, event) {
+        const target = event.target instanceof Element ? event.target : null
+        const row = target?.closest<HTMLElement>('.cm-diff-gutter-hit')
+        if (!row) return false
+        event.preventDefault()
+        const lineNumber = view.state.doc.lineAt(line.from).number
+        view.dispatch({ selection: { anchor: line.from }, scrollIntoView: false })
+        const rect = row.getBoundingClientRect()
+        const anchor = {
+          left: rect.left,
+          top: rect.top,
+          right: rect.right,
+          bottom: rect.bottom,
+        }
+        const sequence = ++clickSequence
+        const blame = view.state.field(blameField, false)
+        if (!showBlameAtLine(view, lineNumber, anchor) && (!blame || blame.disabled)) {
+          const provider = blameProviders.get(view)
+          if (provider) {
+            void provider()
+              .then((data) => {
+                if (sequence === clickSequence && data) showBlameRange(data, lineNumber, anchor)
+              })
+              .catch(() => {})
+          }
+        }
+        view.focus()
+        return true
+      },
+    },
   }),
 ]
 

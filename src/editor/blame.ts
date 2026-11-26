@@ -106,6 +106,43 @@ function rangeFor(ranges: BlameRange[], line: number): BlameRange | null {
   return null
 }
 
+/** Open the one-line commit card for a line in a blame result, used by the diff gutter. */
+export function showBlameRange(
+  data: BlameResult,
+  lineNumber: number,
+  rect: { left: number; top: number; right: number; bottom: number },
+): boolean {
+  if (data.disabled) return false
+  const range = rangeFor(data.ranges, lineNumber)
+  if (!range || range.uncommitted || !range.sha) return false
+
+  const origLine = range.origLine ? range.origLine + (lineNumber - range.startLine) : 0
+  useCommitHover.getState().show({
+    root: data.root,
+    rel: data.rel,
+    author: range.author,
+    authorTime: range.authorTime,
+    summary: range.summary,
+    sha: range.sha,
+    lineStart: range.startLine,
+    lineCount: range.lineCount,
+    line: lineNumber,
+    origLine,
+    rect,
+  })
+  return true
+}
+
+/** Use the mounted blame field first; the diff gutter also has an on-demand fallback. */
+export function showBlameAtLine(
+  view: EditorView,
+  lineNumber: number,
+  rect: { left: number; top: number; right: number; bottom: number },
+): boolean {
+  const data = view.state.field(blameField, false)
+  return data ? showBlameRange(data, lineNumber, rect) : false
+}
+
 function cursorBlame(view: EditorView, suppressed: boolean) {
   // Hidden while typing: trailing grey commit text distracts and makes fresh keystrokes jump
   if (suppressed) return null
@@ -191,7 +228,17 @@ const blamePlugin = ViewPlugin.fromClass(
       } : null
       const key = query ? commitDetailKey(query) : null
       if (key !== this.prefetchKey) {
-        this.hideHover()
+        const hover = useCommitHover.getState().target
+        const sameTarget = Boolean(
+          cursor &&
+          hover &&
+          !cursor.range.uncommitted &&
+          hover.root === cursor.data.root &&
+          hover.rel === cursor.data.rel &&
+          hover.sha === cursor.range.sha &&
+          hover.line === cursor.line.number,
+        )
+        if (!sameTarget) this.hideHover()
         this.cancelPrefetch()
         this.prefetchKey = key
         this.cancelPrefetch = query ? scheduleCommitPrefetch(query) : () => {}

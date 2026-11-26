@@ -20,6 +20,12 @@ it('draws one marker per changed line', () => {
   ])
 })
 
+it('marks changed rows as click targets', () => {
+  const ranges = buildDiffGutterRanges(Text.of(['a']), [{ from: 1, to: 1, kind: 'mod' }])
+  const iter = ranges.iter()
+  expect((iter.value as unknown as { elementClass: string }).elementClass).toBe('cm-diff-gutter-hit')
+})
+
 it('clamps out-of-range marks to the last line', () => {
   const doc = Text.of(['a', 'b', 'c'])
   const ranges = buildDiffGutterRanges(doc, [{ from: 99, to: 120, kind: 'del' }])

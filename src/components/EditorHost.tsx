@@ -23,7 +23,7 @@ import {
 import { ensureEditorState } from '../editor/openState'
 import { stickyRange } from '../editor/highlight'
 import { setEditorView, setFocusedGroup } from '../editor/viewRef'
-import { applyDiffMarks } from '../editor/diffGutter'
+import { applyDiffMarks, setDiffGutterBlameProvider } from '../editor/diffGutter'
 import { useFileDiffMarks, diffMarksFor } from '../store/diffMarks'
 import type { DiffMark } from '../lib/diffMarks'
 import { linkMirror, unlinkMirror, unlinkView } from '../editor/mirror'
@@ -441,6 +441,22 @@ export function EditorHost({ groupId }: { groupId: TabGroupId }) {
     if (!view || !activeTab || activeTab.kind !== 'file' || activeTab.external) return
     applyDiffMarks(view, diffEntry?.marks ?? NO_DIFF_MARKS)
   }, [diffEntry, activeId, stateEpoch])
+
+  // A gutter click can ask for blame even when inline blame is disabled: fetch this active file on demand.
+  useEffect(() => {
+    const view = viewRef.current
+    if (!view) return
+    if (!activeTab || activeTab.kind !== 'file' || activeTab.external) {
+      setDiffGutterBlameProvider(view, null)
+      return
+    }
+    setDiffGutterBlameProvider(view, () => {
+      const current = useTabs.getState().tabs.find((tab) => tab.id === activeTab.id)
+      if (!current || current.kind !== 'file') return Promise.resolve(null)
+      return useBlame.getState().fetchNow(current, true, false)
+    })
+    return () => setDiffGutterBlameProvider(view, null)
+  }, [activeId, stateEpoch, activeTab?.kind, activeTab?.external])
 
   useEffect(() => {
     const view = viewRef.current

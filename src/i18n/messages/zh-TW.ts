@@ -199,7 +199,6 @@ export const zhTW: Messages = {
 
   'time.justNow': '剛剛',
 
-  'settings.title': '設定',
   'settings.section.general.label': '一般',
   'settings.section.appearance.label': '外觀',
   'settings.section.editor.label': '編輯器',
@@ -210,7 +209,6 @@ export const zhTW: Messages = {
 
   'settings.language.card': '語言',
   'settings.about.autoUpdate': '自動更新',
-  'settings.about.autoUpdateHint': '在背景下載更新，並在安裝前詢問確認。',
 
   'settings.appearance.theme': '主題',
   'settings.appearance.fonts': '字型與字級',
@@ -282,7 +280,6 @@ export const zhTW: Messages = {
 
   'settings.about.version': '版本',
   'settings.agent.history': '專案歷史對話',
-  'settings.agent.historyHint': '顯示目前專案的已儲存對話。僅在開啟歷史記錄時載入。',
   'settings.about.settingsFile': '設定檔',
   'settings.about.repository': '程式碼倉庫',
   'settings.about.updates': '更新',

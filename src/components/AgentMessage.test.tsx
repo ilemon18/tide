@@ -92,6 +92,20 @@ it('passes the conversation workspace to text, reasoning and plan Markdown', () 
   for (const text of ['Reply', 'Reasoning', 'Plan']) expect(screen.getByText(text).getAttribute('data-root')).toBe('/owning-repo')
 })
 
+it('uses the message provider mark for the assistant avatar', () => {
+  const { container } = render(
+    <AssistantMessage
+      chatId="chat"
+      provider="codex"
+      providerLabel="Codex"
+      message={planMessage()}
+      running={false}
+      pendingQuestionId={null}
+    />,
+  )
+  expect(container.querySelector('[style*="mask-image"]')).toBeTruthy()
+})
+
 it('shows the plan once followed by three next actions and optional instructions', () => {
   const { container } = render(view())
   expect(screen.getAllByText('The agreed plan')).toHaveLength(1)

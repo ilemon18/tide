@@ -92,11 +92,13 @@ EditorHost selects tab kinds; markdown helpers own contained links and images.
   idle/failed/cancelled restore them. The tab store keeps the same guard for non-UI callers, while force cleanup
   remains available to project teardown.
 - Chat tabs/drag ghosts use live provider icon + conversation title + optional execution status, with generic
-  loading icon fallback. tabTitle uses tab.name or the localized New chat fallback; tooltips/headers use the
-  same conversation title. src/store/agent.ts's titleFromPrompt takes the trimmed first prompt's first line,
-  keeping up to 48 Unicode code points and appending an ellipsis only when truncated. Follow-ups keep that
-  title; history/session restoration reuses it. /new clears the title so the next prompt names the
-  conversation again. Reply links reuse openFile/openAt with the owning root and normalized relative path.
+  loading icon fallback. Single-colour provider marks are mask-tinted with currentColor so dark themes keep
+  them visible; brand-coloured marks stay as images. tabTitle uses tab.name or the localized New chat fallback;
+  tooltips/headers use the same conversation title. src/store/agent.ts's titleFromPrompt takes the trimmed
+  first prompt's first line, keeping up to 48 Unicode code points and appending an ellipsis only when truncated.
+  Follow-ups keep that title; history/session restoration reuses it. /new clears the title so the next
+  prompt names the conversation again. Reply links reuse openFile/openAt with the owning root and normalized
+  relative path.
 
 ## Keyboard ownership
 
@@ -114,9 +116,11 @@ EditorHost selects tab kinds; markdown helpers own contained links and images.
   split ChangeSets. Never store views/states in zustand or share a state between views.
 - The line-number gutter mirrors the right-edge DiffRuler: store/diffMarks caches parsed full-patch marks
   per root+rel (mtime/dirty/diffEpoch signature; in-flight dedupe) and editor/diffGutter renders one
-  success/warning/danger bar per changed line. Project file states get the gutter before lineNumbers;
-  external, untracked-buffer and preview states do not. Marks are disk-based: typing maps their positions,
-  the next save reloads the real patch. EditorHost reapplies the current marks after every state swap.
+  success/warning/danger bar per changed line. Marked rows are click targets that select the line and open
+  its one-line blame card (fetching blame on demand when needed), with a pointer cursor and a wider hover bar.
+  Project file states get the gutter before lineNumbers; external, untracked-buffer and preview states do not.
+  Marks are disk-based: typing maps their positions, the next save reloads the real patch. EditorHost reapplies
+  the current marks after every state swap.
 - ⌘/Ctrl-click in a code file first resolves an import path (importLinks, opens the target file). Otherwise
   importJump resolves the identifier under the pointer, walks a member chain to its root, and moves the
   caret to that binding's import line, centring it and using the sticky jump highlight. The import scan is

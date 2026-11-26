@@ -212,7 +212,6 @@ export const en = {
   'time.justNow': 'just now',
 
   // ---------------------------------------------------------------- Settings: sections
-  'settings.title': 'Settings',
   'settings.section.general.label': 'General',
   'settings.section.appearance.label': 'Appearance',
   'settings.section.editor.label': 'Editor',
@@ -224,7 +223,6 @@ export const en = {
   // ---------------------------------------------------------------- Settings: general
   'settings.language.card': 'Language',
   'settings.about.autoUpdate': 'Automatic updates',
-  'settings.about.autoUpdateHint': 'Downloads updates in the background and asks before installing.',
 
   // ---------------------------------------------------------------- Settings: appearance
   'settings.appearance.theme': 'Theme',
@@ -306,7 +304,6 @@ export const en = {
   // ---------------------------------------------------------------- Settings: about
   'settings.about.version': 'Version',
   'settings.agent.history': 'Project chat history',
-  'settings.agent.historyHint': 'Show saved chats for the current project. History loads only when opened.',
   'settings.about.settingsFile': 'Settings file',
   'settings.about.repository': 'Repository',
   'settings.about.updates': 'Updates',

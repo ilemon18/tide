@@ -9,6 +9,7 @@ vi.mock('../i18n', () => ({ t: (key: string) => key, currentLocale: () => 'en' }
 vi.mock('./locale', () => ({ hasLocaleEffect: () => false, watchLocale: () => () => {} }))
 import { clearCommitDetails, useCommitHover } from '../store/commitHover'
 import { blameExtension, setBlameEffect } from './blame'
+import { diffMarksGutter, setDiffGutterBlameProvider, setDiffMarksEffect } from './diffGutter'
 
 const data: BlameResult = {
   root: '/repo', rel: 'a.ts', disabled: false, reason: null, lineCount: 3, latest: null,
@@ -104,6 +105,49 @@ it('skips uncommitted and disabled blame and cancels a pending hover on cursor m
   resolve({ fileDiff: '+old line' })
   await vi.advanceTimersByTimeAsync(0)
   expect(useCommitHover.getState().content).toBeNull()
+})
+
+it('opens the blame card when a changed-line gutter bar is clicked', async () => {
+  const view = new EditorView({
+    state: EditorState.create({
+      doc: 'first\nsecond\nthird',
+      extensions: [blameExtension, diffMarksGutter],
+    }),
+    parent: document.body,
+  })
+  views.push(view)
+  view.dispatch({
+    effects: [
+      setBlameEffect.of(data),
+      setDiffMarksEffect.of([{ from: 2, to: 2, kind: 'mod' }]),
+    ],
+  })
+
+  const row = view.dom.querySelector<HTMLElement>('.cm-diff-gutter-hit')
+  expect(row).toBeTruthy()
+  row!.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+
+  expect(view.state.selection.main.head).toBe(view.state.doc.line(2).from)
+  expect(useCommitHover.getState().target?.line).toBe(2)
+  expect(gitCommitDetail).toHaveBeenCalledWith('/repo', 'abc1234', 'a.ts', 2, 11)
+})
+
+it('fetches blame on demand when inline blame is not mounted', async () => {
+  const view = new EditorView({
+    state: EditorState.create({ doc: 'first\nsecond\nthird', extensions: [diffMarksGutter] }),
+    parent: document.body,
+  })
+  views.push(view)
+  setDiffGutterBlameProvider(view, () => Promise.resolve(data))
+  view.dispatch({ effects: setDiffMarksEffect.of([{ from: 2, to: 2, kind: 'mod' }]) })
+
+  const row = view.dom.querySelector<HTMLElement>('.cm-diff-gutter-hit')
+  expect(row).toBeTruthy()
+  row!.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+  await vi.advanceTimersByTimeAsync(0)
+
+  expect(useCommitHover.getState().target?.line).toBe(2)
+  expect(gitCommitDetail).toHaveBeenCalledWith('/repo', 'abc1234', 'a.ts', 2, 11)
 })
 
 it.each(['disable', 'replace', 'destroy', 'new commit'])('invalidates a pending hover on editor %s', async (action) => {

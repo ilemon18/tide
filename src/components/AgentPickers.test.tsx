@@ -84,7 +84,8 @@ it('preserves the compact icon-only agent picker and its accessible provider nam
   const label = `${t('agent.picker.agent')}: Codex`
   const button = screen.getByRole('button', { name: label })
   expect(button.textContent).toBe('')
-  expect(button.querySelector('img')).toBeTruthy()
+  expect(button.querySelector('img')).toBeNull()
+  expect(button.querySelector('[style*="mask-image"]')).toBeTruthy()
   expect(button.querySelector('[data-icon="chevron-down"]')).toBeNull()
   expect(button.getAttribute('data-tip')).toBe(label)
   fireEvent.click(button)

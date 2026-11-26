@@ -199,7 +199,6 @@ export const es: Messages = {
 
   'time.justNow': 'ahora mismo',
 
-  'settings.title': 'Ajustes',
   'settings.section.general.label': 'General',
   'settings.section.appearance.label': 'Apariencia',
   'settings.section.editor.label': 'Editor',
@@ -210,7 +209,6 @@ export const es: Messages = {
 
   'settings.language.card': 'Idioma',
   'settings.about.autoUpdate': 'Actualizaciones automáticas',
-  'settings.about.autoUpdateHint': 'Descarga actualizaciones en segundo plano y pide confirmación antes de instalarlas.',
 
   'settings.appearance.theme': 'Tema',
   'settings.appearance.fonts': 'Fuente y tamaño',
@@ -287,7 +285,6 @@ export const es: Messages = {
 
   'settings.about.version': 'Versión',
   'settings.agent.history': 'Historial de chats del proyecto',
-  'settings.agent.historyHint': 'Muestra los chats guardados del proyecto actual. El historial solo se carga al abrirlo.',
   'settings.about.settingsFile': 'Archivo de ajustes',
   'settings.about.repository': 'Repositorio',
   'settings.about.updates': 'Actualizaciones',

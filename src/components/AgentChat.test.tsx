@@ -223,6 +223,7 @@ it('keeps the conversation title and provider without a duplicate result label',
   render(<AgentChat chatId="chat" />)
   expect(screen.getByText('Example')).toBeTruthy()
   expect(screen.getByText('Codex')).toBeTruthy()
+  expect(document.querySelector('[style*="mask-image"]')).toBeTruthy()
   expect(screen.queryByText('agent.status.failed')).toBeNull()
 })
 

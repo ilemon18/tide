@@ -3,7 +3,6 @@ import React from 'react'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { AgentHistory } from '../store/agent'
-import codexIcon from '../assets/agentIcons/codex.svg'
 
 const { state, actions, workspace, ui } = vi.hoisted(() => ({
   state: {
@@ -59,8 +58,9 @@ it('shows the project and provider icon before the conversation name, and releas
   expect(screen.getByText('Example project')).toBeTruthy()
   expect(actions.loadHistory).toHaveBeenCalledExactlyOnceWith('/repo', { page: 1, query: '' })
   const row = screen.getByRole('button', { name: 'agent.history.open Saved conversation' })
-  const logo = row.querySelector('img')!
-  expect(logo.getAttribute('src')).toBe(codexIcon)
+  const logo = row.querySelector<HTMLElement>('[style*="mask-image"]')!
+  expect(logo).toBeTruthy()
+  expect(logo.getAttribute('style')).toContain('codex')
   expect(logo.compareDocumentPosition(screen.getByText('Saved conversation')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   expect(row.getAttribute('title')).toBe('Saved conversation')
   expect(screen.getByText('30s')).toBeTruthy()

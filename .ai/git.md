@@ -68,6 +68,8 @@ and subprocess policy. DiffView/diffScroll own positioning; editor/conflicts own
   structured root/SHA/path/original-line/current-line keys; use memoryBudget.commitDetails for LRU eviction.
   Foreground hover reads immediately and shares matching background reads; background prefetch is serial
   with only the latest waiting target. Prefetch failures remain silent and hover retries failures.
+- Clicking a diff-gutter change bar selects its line and opens the same one-line commit card, fetching blame
+  on demand when inline blame is off; uncommitted lines have no commit and leave the card closed.
 - CommitHoverCard appears only with a completed diff, empty-change result or error. Measure the full card
   invisibly before first paint; cached results enter synchronously. Keep the existing single-line snippet.
   Target/content updates are atomic so a new target never paints the previous target's snippet.

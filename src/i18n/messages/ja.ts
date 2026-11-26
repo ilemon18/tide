@@ -199,7 +199,6 @@ export const ja: Messages = {
 
   'time.justNow': 'たった今',
 
-  'settings.title': '設定',
   'settings.section.general.label': '一般',
   'settings.section.appearance.label': '外観',
   'settings.section.editor.label': 'エディター',
@@ -210,7 +209,6 @@ export const ja: Messages = {
 
   'settings.language.card': '言語',
   'settings.about.autoUpdate': '自動更新',
-  'settings.about.autoUpdateHint': 'バックグラウンドで更新をダウンロードし、インストール前に確認します。',
 
   'settings.appearance.theme': 'テーマ',
   'settings.appearance.fonts': 'フォントとサイズ',
@@ -285,7 +283,6 @@ export const ja: Messages = {
 
   'settings.about.version': 'バージョン',
   'settings.agent.history': 'プロジェクトのチャット履歴',
-  'settings.agent.historyHint': '現在のプロジェクトの保存済みチャットを表示します。履歴を開いたときだけ読み込みます。',
   'settings.about.settingsFile': '設定ファイル',
   'settings.about.repository': 'リポジトリ',
   'settings.about.updates': 'アップデート',

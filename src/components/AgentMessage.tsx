@@ -1,4 +1,5 @@
 import { AgentAttachments } from './AgentAttachments'
+import { AgentProviderIcon } from './AgentProviderIcon'
 import { serializeAttachments } from '../lib/agentContext'
 import { memo, useLayoutEffect, useRef, useState } from 'react'
 import type { AgentItem, AgentMessage as Message } from '../store/agent'
@@ -645,6 +646,7 @@ export const UserMessage = memo(function UserMessage({
 
 export const AssistantMessage = memo(function AssistantMessage({
   chatId,
+  provider = '',
   providerLabel,
   root = '',
   message,
@@ -652,6 +654,7 @@ export const AssistantMessage = memo(function AssistantMessage({
   pendingQuestionId,
 }: {
   chatId: string
+  provider?: string
   providerLabel: string
   root?: string
   message: Message
@@ -668,7 +671,7 @@ export const AssistantMessage = memo(function AssistantMessage({
     <div className="group/reply flex gap-2">
       {/* 22px box = one 22px reply line: the avatar centre and the first line centre coincide */}
       <div className="flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-[5px] bg-accent/15 text-accent">
-        <Icon name="agent" size={13} />
+        <AgentProviderIcon provider={provider} size={13} className="text-accent" />
       </div>
       <div className="relative flex min-w-0 flex-1 flex-col gap-2 pr-5">
         <div className="absolute right-0 top-0 z-10">

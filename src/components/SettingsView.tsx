@@ -537,7 +537,7 @@ export function SettingsView() {
               disabled={!settings.agentDefaultProvider}
             />
           </Row>
-          <Row label={t('settings.agent.history')} hint={t('settings.agent.historyHint')}>
+          <Row label={t('settings.agent.history')}>
             <Toggle
               ariaLabel={t('settings.agent.history')}
               value={settings.agentHistoryEnabled}
@@ -669,10 +669,7 @@ export function SettingsView() {
         </Card>
 
         <Card title={t('settings.about.updates')}>
-          <Row
-            label={t('settings.about.autoUpdate')}
-            hint={t('settings.about.autoUpdateHint')}
-          >
+          <Row label={t('settings.about.autoUpdate')}>
             <Toggle
               ariaLabel={t('settings.about.autoUpdate')}
               value={settings.autoUpdate}
@@ -722,9 +719,6 @@ export function SettingsView() {
   return (
     <div className="absolute inset-0 flex overflow-hidden bg-bg">
       <nav className="flex w-[212px] shrink-0 flex-col border-r border-line-soft bg-panel px-2 py-3">
-        <div className="px-2.5 pb-2 text-2xs font-medium tracking-wide text-muted/70">
-          {t('settings.title')}
-        </div>
         <div className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto">
           {SETTINGS_SECTIONS.map((item) => (
             <button

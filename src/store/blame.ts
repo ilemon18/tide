@@ -31,7 +31,8 @@ type BlameStore = {
   byTab: Record<string, BlameResult | null>
   loading: Record<string, boolean>
   scheduleFetch: (tab: Tab) => void
-  fetchNow: (tab: Tab) => Promise<void>
+  /** Explicit fetch; force bypasses the inline-blame setting and lightweight pause. */
+  fetchNow: (tab: Tab, force?: boolean, attach?: boolean) => Promise<BlameResult | null>
   invalidate: (tabId: string) => void
   /** Keep blame data for one tab only; other tabs refetch on demand when reactivated */
   dropOtherTabs: (keepTabId: string | null) => void
@@ -71,16 +72,28 @@ export const useBlame = create<BlameStore>((set, get) => ({
     )
   },
 
-  fetchNow: async (tab) => {
-    if (tab.kind !== 'file' || !feature.inlineBlame() || !useSettings.getState().inlineBlame) return
+  fetchNow: async (tab, force = false, attach = true) => {
+    if (tab.kind !== 'file') return null
+    if (!force && (!feature.inlineBlame() || !useSettings.getState().inlineBlame)) return null
     const key = `${tab.root}|${tab.rel}|${tab.mtime}`
-    set({ loading: { ...get().loading, [tab.id]: true } })
+    const cached = cache.get(key)
+    if (cached) {
+      remember(key, cached)
+      if (attach && get().byTab[tab.id] !== cached) {
+        set({ byTab: { ...get().byTab, [tab.id]: cached } })
+      }
+      return cached
+    }
+    if (attach) set({ loading: { ...get().loading, [tab.id]: true } })
     try {
       const result = await api.gitBlame(tab.root, tab.rel)
       remember(key, result)
-      set({ byTab: { ...get().byTab, [tab.id]: result }, loading: { ...get().loading, [tab.id]: false } })
+      if (attach) {
+        set({ byTab: { ...get().byTab, [tab.id]: result }, loading: { ...get().loading, [tab.id]: false } })
+      }
+      return result
     } catch {
-      remember(key, {
+      const failed: BlameResult = {
         disabled: true,
         reason: null,
         lineCount: 0,
@@ -88,8 +101,12 @@ export const useBlame = create<BlameStore>((set, get) => ({
         latest: null,
         root: tab.root,
         rel: tab.rel,
-      })
-      set({ loading: { ...get().loading, [tab.id]: false } })
+      }
+      if (attach) {
+        remember(key, failed)
+        set({ byTab: { ...get().byTab, [tab.id]: failed }, loading: { ...get().loading, [tab.id]: false } })
+      }
+      return failed
     }
   },
 

@@ -199,7 +199,6 @@ export const ko: Messages = {
 
   'time.justNow': '방금 전',
 
-  'settings.title': '설정',
   'settings.section.general.label': '일반',
   'settings.section.appearance.label': '모양',
   'settings.section.editor.label': '편집기',
@@ -210,7 +209,6 @@ export const ko: Messages = {
 
   'settings.language.card': '언어',
   'settings.about.autoUpdate': '자동 업데이트',
-  'settings.about.autoUpdateHint': '백그라운드에서 업데이트를 다운로드하고 설치 전에 확인합니다.',
 
   'settings.appearance.theme': '테마',
   'settings.appearance.fonts': '글꼴 및 크기',
@@ -285,7 +283,6 @@ export const ko: Messages = {
 
   'settings.about.version': '버전',
   'settings.agent.history': '프로젝트 채팅 기록',
-  'settings.agent.historyHint': '현재 프로젝트의 저장된 채팅을 표시합니다. 기록을 열 때만 불러옵니다.',
   'settings.about.settingsFile': '설정 파일',
   'settings.about.repository': '저장소',
   'settings.about.updates': '업데이트',

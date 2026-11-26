@@ -348,7 +348,13 @@
     margin: 1px 0;
     border-radius: 1px;
     opacity: 0.8;
-    transition: opacity var(--dur-fast) var(--ease-islands);
+    transition:
+      width var(--dur-fast) var(--ease-islands),
+      opacity var(--dur-fast) var(--ease-islands);
+  }
+
+  .cm-diff-gutter-hit {
+    cursor: pointer;
   }
 
   .cm-diff-mark-add {
@@ -370,6 +376,11 @@
   .cm-diff-gutter:hover .cm-diff-mark-add,
   .cm-diff-gutter:hover .cm-diff-mark-mod,
   .cm-diff-gutter:hover .cm-diff-mark-del {
+    opacity: 1;
+  }
+
+  .cm-diff-gutter-hit:hover .cm-diff-mark {
+    width: 5px;
     opacity: 1;
   }
 

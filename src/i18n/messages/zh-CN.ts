@@ -199,7 +199,6 @@ export const zhCN: Messages = {
 
   'time.justNow': '刚刚',
 
-  'settings.title': '设置',
   'settings.section.general.label': '通用',
   'settings.section.appearance.label': '外观',
   'settings.section.editor.label': '编辑器',
@@ -210,7 +209,6 @@ export const zhCN: Messages = {
 
   'settings.language.card': '语言',
   'settings.about.autoUpdate': '自动更新',
-  'settings.about.autoUpdateHint': '在后台下载更新，并在安装前询问确认。',
 
   'settings.appearance.theme': '主题',
   'settings.appearance.fonts': '字体与字号',
@@ -282,7 +280,6 @@ export const zhCN: Messages = {
 
   'settings.about.version': '版本',
   'settings.agent.history': '项目历史对话',
-  'settings.agent.historyHint': '显示当前项目的已保存对话。仅在打开历史记录时加载。',
   'settings.about.settingsFile': '设置文件',
   'settings.about.repository': '代码仓库',
   'settings.about.updates': '更新',
