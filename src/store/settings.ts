@@ -58,7 +58,6 @@ export const DEFAULT_SETTINGS: Settings = {
   activityBarWelcomeVisible: true,
   activityBarGitVisible: true,
   activityBarStructureVisible: true,
-  activityBarTasksVisible: true,
   agentDefaultProvider: '',
   agentDefaultModel: '',
   agentDefaultEffort: '',
@@ -118,7 +117,6 @@ const SHARED_KEYS = [
   'activityBarWelcomeVisible',
   'activityBarGitVisible',
   'activityBarStructureVisible',
-  'activityBarTasksVisible',
   'agentDefaultProvider',
   'agentDefaultModel',
   'agentDefaultEffort',
@@ -138,7 +136,7 @@ function settingsEqual(a: Settings, b: Settings): boolean {
 let unknownFields: Record<string, unknown> = {}
 
 /** Retired settings: unknown and no longer written back. Without this list old keys stay "unknown" forever. */
-const RETIRED_KEYS = new Set(['breadcrumbs'])
+const RETIRED_KEYS = new Set(['breadcrumbs', 'activityBarTasksVisible'])
 
 /** Pick the keys this version does not know from the loaded config */
 function pickUnknownFields(raw: Settings): Record<string, unknown> {
@@ -216,7 +214,6 @@ function snapshot(s: SettingsStore): Settings {
     activityBarWelcomeVisible: s.activityBarWelcomeVisible,
     activityBarGitVisible: s.activityBarGitVisible,
     activityBarStructureVisible: s.activityBarStructureVisible,
-    activityBarTasksVisible: s.activityBarTasksVisible,
     agentDefaultProvider: s.agentDefaultProvider,
     agentDefaultModel: s.agentDefaultModel,
     agentDefaultEffort: s.agentDefaultEffort,
@@ -246,6 +243,7 @@ function persist(get: () => SettingsStore, delay = 400) {
 /** Migrate old configs */
 function migrate(raw: Settings): Settings {
   const next = { ...DEFAULT_SETTINGS, ...raw }
+  for (const key of RETIRED_KEYS) delete (next as unknown as Record<string, unknown>)[key]
   const version = raw.schemaVersion ?? 0
 
   // v1 → v2: the old default theme was 'system' (really light); unify onto the new default Dracula.
@@ -304,7 +302,6 @@ function migrate(raw: Settings): Settings {
   if (typeof next.activityBarWelcomeVisible !== 'boolean') next.activityBarWelcomeVisible = true
   if (typeof next.activityBarGitVisible !== 'boolean') next.activityBarGitVisible = true
   if (typeof next.activityBarStructureVisible !== 'boolean') next.activityBarStructureVisible = true
-  if (typeof next.activityBarTasksVisible !== 'boolean') next.activityBarTasksVisible = true
   if (typeof next.autoUpdate !== 'boolean') next.autoUpdate = false
   if (typeof next.agentDefaultProvider !== 'string') next.agentDefaultProvider = ''
   if (typeof next.agentDefaultModel !== 'string') next.agentDefaultModel = ''

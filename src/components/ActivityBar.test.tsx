@@ -64,7 +64,6 @@ function renderBar(overrides: Partial<React.ComponentProps<typeof ActivityBar>> 
       onChange={vi.fn()}
       welcomeActive={false}
       visibility={visibleAll}
-      tasksEnabled
       onOpenSettings={vi.fn()}
       {...overrides}
     />,
@@ -113,4 +112,17 @@ it('double-click opens a checked visibility menu that can restore hidden items',
   expect(state.settings.patch).toHaveBeenCalledExactlyOnceWith({ activityBarWelcomeVisible: true })
   // keepOpen leaves the checklist available for the next item.
   expect(screen.getByRole('button', { name: 'activity.welcomeTip' })).toBeTruthy()
+})
+
+it('toggles the single Tasks and Problems switch from the activity bar menu', () => {
+  const { container } = renderBar()
+  fireEvent.doubleClick(container.querySelector('.tide-activity-bar')!, { clientX: 60, clientY: 40 })
+
+  fireEvent.click(screen.getByRole('button', { name: 'activity.tasksTip' }))
+  expect(state.settings.patch).toHaveBeenCalledExactlyOnceWith({ tasksEnabled: false })
+})
+
+it('hides the task icon when tasks are disabled', () => {
+  renderBar({ visibility: { ...visibleAll, tasks: false } })
+  expect(screen.queryByRole('button', { name: 'activity.tasksTip' })).toBeNull()
 })

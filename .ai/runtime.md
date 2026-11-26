@@ -63,9 +63,11 @@ App owns hydration/window coordination; the settings store and Rust theme comman
   in-project paths normally or exact external-file grants otherwise. File grants belong to the window and
   are released on Destroyed. The activity bar's home icon reuses `openWelcome()`, so an already open
   welcome tab is focused rather than duplicated.
-- Explorer and Search are always visible in the activity bar. Welcome, Source Control, Structure and Tasks
-  can be hidden from Settings → General or the double-click checklist. Visibility is cosmetic: commands and
-  shortcuts still open a hidden view; turning a currently visible view off falls back to Explorer once.
+- Explorer and Search are always visible in the activity bar. Welcome, Source Control and Structure can be
+  hidden from Settings → General or the double-click checklist. Visibility is cosmetic: commands and shortcuts
+  still open a hidden view; turning a currently visible view off falls back to Explorer once. Tasks has one
+  switch: its Settings row and checklist entry both toggle `tasksEnabled`, which shows the activity and enables
+  execution / Problems diagnostics.
 - Mod+Shift+A opens Agent using the title-bar action, including from editors/terminals/text fields. Mod+A
   always remains native; dialogs/overlays block app shortcuts. Shared shortcut contracts are below.
 
@@ -145,15 +147,17 @@ volume root so the command-line installer and app updates can locate it. The Fin
   preserve larger saved heights, and only clamp for the current window in the composer.
 - Add settings in both types/defaults, migration, UI and SHARED_KEYS when shared across windows. Retirement
   removes both defaults and adds RETIRED_KEYS or the old key is written back forever.
-- Tasks has an empty state without a project. Disabling tasks hides its activity and stops live runs;
-  execution, diagnostics and process ownership follow [tasks.md](./tasks.md).
+- Tasks has an empty state without a project. `tasksEnabled` is the only task switch; disabling it hides the
+  activity, stops live runs and turns off diagnostics. Execution and process ownership follow
+  [tasks.md](./tasks.md).
 - Settings → Agent no longer exposes permission defaults or a permission explanation card. Chat composer
   permission controls and the persisted permission field remain runtime contracts for existing and new chats.
 - Schema v11 adds agentDefaultPermissionMode=workspace-write, schema v12 adds autoUpdate=false, schema
   v13 adds agentHistoryEnabled=true; v14 adds shortcutOverrides={}; v15 adds tasksEnabled=true; v16 adds
-  the four activityBar*Visible switches=true. Invalid
-  values fall back without resetting other settings. Provider/model/effort/permission and update preferences
-  write immediately and sync windows; UI patches related fields together. Historical chats keep saved options;
+  the activity bar visibility switches=true. The former Tasks visibility switch is retired in favor of
+  `tasksEnabled`. Invalid values fall back without resetting other settings.
+  Provider/model/effort/permission and update preferences write immediately and sync windows; UI patches
+  related fields together. Historical chats keep saved options;
   temporary plan options never become defaults.
 - settings.json/session.json use app_config_dir and the Rust theme lock; chat storage follows
   [agent-storage.md](./agent-storage.md). `public/theme-boot.js` paints before React with CSP-safe external JS.

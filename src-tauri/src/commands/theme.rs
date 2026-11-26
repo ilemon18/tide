@@ -82,8 +82,6 @@ pub struct Settings {
     pub activity_bar_git_visible: bool,
     #[serde(default = "default_true", deserialize_with = "deserialize_visibility")]
     pub activity_bar_structure_visible: bool,
-    #[serde(default = "default_true", deserialize_with = "deserialize_visibility")]
-    pub activity_bar_tasks_visible: bool,
     /// Last chosen provider / model / effort: new chats start here (empty = auto / CLI default)
     pub agent_default_provider: String,
     pub agent_default_model: String,
@@ -196,7 +194,6 @@ impl Default for Settings {
             activity_bar_welcome_visible: true,
             activity_bar_git_visible: true,
             activity_bar_structure_visible: true,
-            activity_bar_tasks_visible: true,
             agent_default_provider: String::new(),
             agent_default_model: String::new(),
             agent_default_effort: String::new(),
@@ -464,7 +461,6 @@ mod compat {
         assert!(settings.activity_bar_welcome_visible);
         assert!(settings.activity_bar_git_visible);
         assert!(settings.activity_bar_structure_visible);
-        assert!(settings.activity_bar_tasks_visible);
         assert!(!settings.auto_save);
     }
 
@@ -518,19 +514,16 @@ mod compat {
         assert!(legacy.activity_bar_welcome_visible);
         assert!(legacy.activity_bar_git_visible);
         assert!(legacy.activity_bar_structure_visible);
-        assert!(legacy.activity_bar_tasks_visible);
         for invalid in [serde_json::json!(null), serde_json::json!(7), serde_json::json!("broken")] {
             let settings: Settings = serde_json::from_value(serde_json::json!({
                 "activityBarWelcomeVisible": invalid,
                 "activityBarGitVisible": invalid,
                 "activityBarStructureVisible": invalid,
-                "activityBarTasksVisible": invalid,
                 "fontSize": 19,
             })).unwrap();
             assert!(settings.activity_bar_welcome_visible);
             assert!(settings.activity_bar_git_visible);
             assert!(settings.activity_bar_structure_visible);
-            assert!(settings.activity_bar_tasks_visible);
             assert_eq!(settings.font_size, 19);
         }
         let hidden: Settings = serde_json::from_str(r#"{"activityBarGitVisible":false}"#).unwrap();

@@ -101,22 +101,12 @@ const replyControlClass =
 const userControlClass =
   'h-[22px] w-[22px] pointer-events-none group-hover/user:pointer-events-auto group-focus-within/user:pointer-events-auto opacity-0 transition-opacity duration-fast group-hover/user:opacity-100 group-focus-within/user:opacity-100'
 
-const cardShellClass =
-  'group/item relative overflow-hidden rounded-[16px] border border-accent/25 bg-panel shadow-popup'
-const cardHeaderClass =
-  'relative flex items-start gap-2.5 overflow-hidden border-b border-accent/10 bg-gradient-to-br from-accent/10 via-accent/5 to-transparent px-3.5 py-3'
-const cardIconClass =
-  'relative flex h-8 w-8 shrink-0 items-center justify-center rounded-[11px] bg-gradient-to-br from-accent to-accent/75 text-accent-fg shadow-[0_8px_18px_-12px_var(--c-accent)]'
-const planShellClass = 'relative rounded-[6px] border border-line-soft'
-const planHeaderClass = 'flex items-start gap-2.5 px-3 py-2.5'
-const planOptionClass =
-  'flex w-full items-center gap-2 rounded-[4px] border border-line-soft px-2.5 py-2 text-left text-xs font-medium text-fg/85 transition-colors duration-fast hover:border-accent/35 hover:text-fg disabled:cursor-not-allowed disabled:opacity-55'
-const cardGlow = (
-  <div
-    aria-hidden
-    className="pointer-events-none absolute -right-10 -top-16 h-36 w-36 rounded-full bg-accent/10 blur-3xl"
-  />
-)
+const optionCardShellClass = 'relative rounded-[6px] border border-line-soft'
+const optionCardHeaderClass = 'flex items-start gap-2.5 px-3 py-2.5'
+const optionRowBaseClass =
+  'flex w-full gap-2 rounded-[4px] border px-2.5 py-2 text-left text-xs font-medium text-fg/85 transition-colors duration-fast disabled:cursor-not-allowed disabled:opacity-55'
+const questionOptionClass = `${optionRowBaseClass} items-start`
+const planOptionClass = `${optionRowBaseClass} items-center border-line-soft hover:border-line hover:bg-hover`
 
 /** Prefer the executable command/path over the provider's generic tool name or JSON input. */
 export function toolCommand(item: AgentItem): string {
@@ -277,24 +267,17 @@ function QuestionCard({
   }
 
   return (
-    <div className={cardShellClass}>
-      <div
-        aria-hidden
-        className="absolute inset-x-0 top-0 z-10 h-0.5 bg-gradient-to-r from-accent via-accent/40 to-transparent"
-      />
-      <div className={cardHeaderClass}>
-        {cardGlow}
-        <span className={cardIconClass}>
-          <Icon name="message-question" size={14} />
-        </span>
+    <div className={optionCardShellClass}>
+      <div className={optionCardHeaderClass}>
+        <Icon name="message-question" size={13} className="mt-0.5 shrink-0 text-muted" />
         <div className="flex min-w-0 flex-1 flex-col gap-1">
-          <div className="text-2xs font-semibold tracking-wide text-accent">{item.header}</div>
-          <div className="whitespace-pre-wrap break-words text-sm font-medium leading-relaxed text-fg">
+          <div className="text-2xs font-semibold tracking-wide text-muted">{item.header}</div>
+          <div className="whitespace-pre-wrap break-words text-sm leading-relaxed text-fg/90">
             {item.question}
           </div>
         </div>
         {multi && ready ? (
-          <span className="shrink-0 rounded-full bg-accent/10 px-2 py-0.5 text-[10px] font-semibold text-accent ring-1 ring-inset ring-accent/15">
+          <span className="shrink-0 text-2xs text-muted">
             {t('agent.question.multi')}
           </span>
         ) : null}
@@ -315,11 +298,11 @@ function QuestionCard({
           </div>
         </div>
       ) : ready ? (
-        <div className="flex flex-col gap-2.5 p-3.5">
+        <div className="flex flex-col gap-1.5 px-3 pb-3 pt-0.5">
           <div
             role={multi ? 'group' : 'radiogroup'}
             aria-label={multi ? t('agent.question.multi') : t('agent.question.single')}
-            className="grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-2"
+            className="flex flex-col gap-1.5"
           >
             {(item.options ?? []).map((option, index) => {
               const checked = selected.includes(option.label)
@@ -331,29 +314,27 @@ function QuestionCard({
                   aria-checked={checked}
                   disabled={locked}
                   onClick={() => toggleOption(option.label)}
-                  className={`group/option flex min-h-[64px] items-start gap-2.5 rounded-[12px] border p-2.5 text-left transition duration-fast hover:-translate-y-px active:translate-y-0 disabled:cursor-not-allowed disabled:translate-y-0 disabled:opacity-55 ${
+                  className={`${questionOptionClass} ${
                     checked
-                      ? 'border-accent/50 bg-accent/10 shadow-[0_8px_20px_-18px_var(--c-accent)]'
-                      : 'border-line-soft bg-bg/55 hover:border-accent/30 hover:bg-hover'
+                      ? 'border-fg/25 bg-hover'
+                      : 'border-line-soft hover:border-line hover:bg-hover'
                   }`}
                 >
                   <span
                     aria-hidden
-                    className={`flex h-6 w-6 shrink-0 items-center justify-center text-[11px] font-semibold transition-colors ${
-                      multi ? 'rounded-[8px]' : 'rounded-full'
+                    className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center border text-[9px] font-semibold transition-colors ${
+                      multi ? 'rounded-[3px]' : 'rounded-full'
                     } ${
-                      checked
-                        ? 'bg-accent text-accent-fg shadow-[0_5px_14px_-8px_var(--c-accent)]'
-                        : 'bg-panel text-muted ring-1 ring-inset ring-line-soft group-hover/option:text-accent'
+                      checked ? 'border-fg/35 text-fg' : 'border-line-soft text-muted'
                     }`}
                   >
-                    {checked ? <Icon name="check" size={11} /> : String.fromCharCode(65 + index)}
+                    {checked ? <Icon name="check" size={9} /> : String.fromCharCode(65 + index)}
                   </span>
-                  <span className="flex min-w-0 flex-1 flex-col gap-0.5 pt-0.5">
-                    <span className="break-words text-sm font-semibold leading-snug text-fg">
+                  <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                    <span className="break-words leading-snug text-fg/85">
                       {option.label}
                     </span>
-                    <span className="break-words text-xs leading-relaxed text-muted">
+                    <span className="break-words text-2xs leading-relaxed text-muted">
                       {option.description}
                     </span>
                   </span>
@@ -362,8 +343,8 @@ function QuestionCard({
             })}
           </div>
 
-          <label className="flex items-center gap-2 rounded-[12px] border border-line-soft bg-bg/55 px-2.5 transition-colors duration-fast focus-within:border-accent/45 focus-within:bg-bg">
-            <span aria-hidden className="shrink-0 text-muted/70">
+          <label className="flex items-center gap-2 rounded-[4px] border border-line-soft px-2.5 transition-colors duration-fast focus-within:border-line focus-within:bg-hover">
+            <span aria-hidden className="shrink-0 text-muted">
               <Icon name="edit" size={12} />
             </span>
             <span className="sr-only">{t('agent.question.custom')}</span>
@@ -391,7 +372,7 @@ function QuestionCard({
               type="button"
               disabled={!canSubmit}
               onClick={() => void submit()}
-              className="flex h-8 shrink-0 items-center gap-1.5 rounded-full bg-gradient-to-r from-accent to-accent/80 px-3.5 text-xs font-semibold text-accent-fg shadow-[0_8px_20px_-12px_var(--c-accent)] transition duration-fast hover:brightness-105 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-35 disabled:shadow-none"
+              className="flex h-8 shrink-0 items-center gap-1.5 rounded-[4px] border border-line-soft px-2.5 text-xs font-medium text-fg/85 transition-colors duration-fast hover:border-line hover:bg-hover disabled:cursor-not-allowed disabled:opacity-55"
             >
               <Icon name="arrow-up-right" size={12} />
               {t('agent.question.submit')}
@@ -452,8 +433,8 @@ function PlanCard({
   ] as const
 
   return (
-    <div className={planShellClass}>
-      <div className={planHeaderClass}>
+    <div className={optionCardShellClass}>
+      <div className={optionCardHeaderClass}>
         <Icon name="list-check" size={13} className="mt-0.5 shrink-0 text-muted" />
         <div className="flex min-w-0 flex-1 flex-col gap-1">
           <div className="text-2xs font-semibold tracking-wide text-muted">
@@ -489,7 +470,7 @@ function PlanCard({
             aria-label={t('agent.plan.instructions')}
             placeholder={t('agent.plan.instructions')}
             rows={2}
-            className="mt-1 w-full resize-y rounded-[4px] border border-line-soft bg-transparent px-2.5 py-2 text-xs text-fg outline-none transition-colors duration-fast placeholder:text-muted/55 focus:border-accent/45 disabled:opacity-60"
+            className="mt-1 w-full resize-y rounded-[4px] border border-line-soft bg-transparent px-2.5 py-2 text-xs text-fg outline-none transition-colors duration-fast placeholder:text-muted/55 focus:border-line disabled:opacity-60"
           />
         </div>
       ) : (

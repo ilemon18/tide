@@ -254,7 +254,6 @@ export const ja: Messages = {
   'settings.memory.card': 'メモリ',
   'settings.activityBar.card': 'アクティビティバー',
   'settings.activityBar.hint': 'エクスプローラーと検索は常に表示されます。アクティビティバーをダブルクリックすると、これらのアイコンをすばやく切り替えられます。',
-  'settings.activityBar.tasksDisabled': '先にタスクと問題を有効にしてください。',
   'settings.memory.lightweight': '軽量モード',
   'settings.memory.lightweightHint': 'バックグラウンド機能を停止してメモリを解放。開いているファイルは戻ると再読み込みされる場合があります。',
   'settings.memory.lightweightOn':
@@ -992,9 +991,6 @@ export const ja: Messages = {
   'tasks.noProblems': '問題はありません',
   'tasks.noProject': 'プロジェクトを開くとタスクを実行できます',
   'tasks.openProblem': '問題を開く',
-  'settings.tasks.card': 'プロジェクトタスク',
-  'settings.tasks.enable': 'タスクと問題を有効化',
-  'settings.tasks.enableHint': 'タスク入口を表示し、出力からファイルと行番号の診断を収集します。',
   'error.task.tooManyRunning': '実行中のタスクが多すぎます。新しいタスクを開始する前に、タスクを停止してください（上限: {limit}）。',
   'error.task.emptyCommand': 'タスクコマンドを空にできません',
   'error.task.spawnFailed': 'タスクを起動できません: {error}',

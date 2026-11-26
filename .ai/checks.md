@@ -65,7 +65,8 @@ typing suppression and lifecycle cancellation. Hover tests protect completed-con
 positioning, empty/error results, stale-response rejection, close/scroll behavior and memory reclamation.
 History-page tests use real symbol lifetimes and protect search reset when the same root is reopened, compact relative
 ages, hidden provider labels/IDs and Enter-confirmed deletion without changing other confirmations.
-Frontend regressions also cover named task controls and shortcut migration to the current settings schema.
+Frontend regressions also cover the merged Tasks and Problems switch (Settings and activity-bar menu), named
+task controls and shortcut migration to the current settings schema.
 `pnpm test:frontend` also covers blank loaded/filtered-empty file trees, reading/collapsed hints, and Agent
 following through shrink/regrowth scroll events, first-send and queued-card resizing, plus scrollbar pause/send resume.
 Deferred streamed Markdown code/table commits also retain bottom following without another store update or

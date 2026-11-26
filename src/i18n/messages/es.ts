@@ -255,7 +255,6 @@ export const es: Messages = {
   'settings.memory.card': 'Memoria',
   'settings.activityBar.card': 'Barra de actividades',
   'settings.activityBar.hint': 'Explorador y Buscar siempre se muestran. Haz doble clic en la barra de actividades para cambiarlos rápidamente.',
-  'settings.activityBar.tasksDisabled': 'Activa primero Tareas y problemas.',
   'settings.memory.lightweight': 'Modo ligero',
   'settings.memory.lightweightHint':
     'Libera memoria pausando funciones en segundo plano. Los archivos abiertos pueden recargarse al volver.',
@@ -1016,9 +1015,6 @@ export const es: Messages = {
   'tasks.noProblems': 'No hay problemas',
   'tasks.noProject': 'Abre un proyecto para ejecutar tareas',
   'tasks.openProblem': 'Abrir problema',
-  'settings.tasks.card': 'Tareas del proyecto',
-  'settings.tasks.enable': 'Activar tareas y problemas',
-  'settings.tasks.enableHint': 'Muestra las tareas y recopila diagnósticos de archivo y línea desde su salida.',
   'error.task.tooManyRunning': 'Hay demasiadas tareas en ejecución. Detén una antes de iniciar otra (límite: {limit}).',
   'error.task.emptyCommand': 'El comando de tarea no puede estar vacío',
   'error.task.spawnFailed': 'No se puede iniciar la tarea: {error}',

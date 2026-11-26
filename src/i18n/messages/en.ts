@@ -270,7 +270,6 @@ export const en = {
   'settings.memory.card': 'Memory',
   'settings.activityBar.card': 'Activity bar',
   'settings.activityBar.hint': 'Explorer and Search are always shown. Double-click the activity bar to change these quickly.',
-  'settings.activityBar.tasksDisabled': 'Enable tasks and Problems first.',
   'settings.memory.lightweight': 'Lightweight mode',
   'settings.memory.lightweightHint':
     'Frees memory by pausing background features. Open files may reload when you return.',
@@ -1053,9 +1052,6 @@ export const en = {
   'tasks.noProblems': 'No problems',
   'tasks.noProject': 'Open a project to run tasks',
   'tasks.openProblem': 'Open problem',
-  'settings.tasks.card': 'Project tasks',
-  'settings.tasks.enable': 'Enable tasks and Problems',
-  'settings.tasks.enableHint': 'Show the Tasks activity and collect file and line diagnostics from task output.',
   'error.task.tooManyRunning': 'Too many tasks are running. Stop a task before starting another (limit: {limit}).',
   'error.task.emptyCommand': 'The task command cannot be empty',
   'error.task.spawnFailed': 'Cannot start the task: {error}',

@@ -1036,37 +1036,26 @@ export function ExplorerHeader() {
 
   return (
     <div className="flex w-full min-w-0 items-center gap-2">
-      {/* Project name: a keyed masthead rather than a generic list row; it also collapses the whole tree */}
+      {/* Project name: the tree's root row is gone, so this doubles as the whole tree's collapse toggle */}
       <button
         type="button"
         onClick={() => {
           if (root) toggleRootCollapsed(root.id)
         }}
-        disabled={!root}
         data-tip={root?.id ?? t('app.project')}
         data-tip-side="bottom"
         aria-label={t('explorer.toggleProjectAria')}
-        aria-expanded={root ? !root.collapsed : undefined}
-        className="group flex h-7 min-w-0 flex-1 items-center gap-2 rounded-none border-l-2 border-accent/75 pl-2 pr-1 text-left outline-none transition-colors duration-fast hover:border-accent focus-visible:outline focus-visible:outline-1 focus-visible:-outline-offset-1 focus-visible:outline-accent disabled:cursor-default disabled:border-line"
+        className="flex min-w-0 flex-1 items-center gap-1 rounded-[var(--r-row)] px-1 py-[2px] text-left text-xs font-semibold text-fg/85 transition-colors duration-fast hover:bg-hover hover:text-fg"
       >
-        <span className="flex min-w-0 flex-1 flex-col justify-center">
-          <span className="truncate font-mono text-[9px] font-medium uppercase leading-[10px] tracking-[0.18em] text-muted">
-            {t('app.project')}
-          </span>
-          <span className="mt-0.5 flex min-w-0 items-center gap-1">
-            <span className="min-w-0 truncate text-xs font-semibold leading-[15px] text-fg transition-colors duration-fast group-disabled:text-muted group-hover:text-accent">
-              {root?.name ?? t('explorer.noProject')}
-            </span>
-            <Icon
-              name={root?.collapsed ? 'chevron-right' : 'chevron-down'}
-              size={11}
-              className="shrink-0 text-muted transition-colors duration-fast group-hover:text-accent"
-            />
-          </span>
-        </span>
+        <Icon
+          name={root?.collapsed ? 'chevron-right' : 'chevron-down'}
+          size={12}
+          className="shrink-0 text-muted"
+        />
+        <span className="min-w-0 truncate">{root?.name ?? t('explorer.noProject')}</span>
       </button>
 
-      <div className="flex h-6 shrink-0 items-center gap-0.5 border-l border-line-soft pl-1">
+      <div className="flex shrink-0 items-center gap-0.5">
         <HeaderButton icon="plus" tip={t('explorer.newFileTip')} onClick={() => void newEntry(root?.id ?? null, '', 'file')} disabled={!root} />
         <HeaderButton
           icon="folder-plus"
@@ -1107,7 +1096,7 @@ export function HeaderButton({
       aria-label={tip}
       disabled={disabled}
       onClick={onClick}
-      className={`flex h-6 w-6 items-center justify-center rounded-none text-muted outline-none transition-colors duration-fast hover:bg-hover hover:text-fg focus-visible:outline focus-visible:outline-1 focus-visible:-outline-offset-1 focus-visible:outline-accent disabled:opacity-30 disabled:hover:bg-transparent ${className ?? ''}`}
+      className={`flex h-6 w-6 items-center justify-center rounded-[var(--r-control)] text-muted transition-colors duration-fast hover:bg-hover hover:text-fg disabled:opacity-30 disabled:hover:bg-transparent ${className ?? ''}`}
     >
       <Icon name={icon} size={16} />
     </button>

@@ -61,20 +61,17 @@ describe('Activity bar visibility preferences', () => {
       activityBarWelcomeVisible: true,
       activityBarGitVisible: true,
       activityBarStructureVisible: true,
-      activityBarTasksVisible: true,
     })
     const legacy = { ...DEFAULT_SETTINGS, schemaVersion: 15 } as Partial<Settings>
     delete legacy.activityBarWelcomeVisible
     delete legacy.activityBarGitVisible
     delete legacy.activityBarStructureVisible
-    delete legacy.activityBarTasksVisible
     vi.mocked(api.loadSettings).mockResolvedValue({ ...legacy, fontSize: 18 } as Settings)
     await useSettings.getState().load()
     expect(useSettings.getState()).toMatchObject({
       activityBarWelcomeVisible: true,
       activityBarGitVisible: true,
       activityBarStructureVisible: true,
-      activityBarTasksVisible: true,
       schemaVersion: SETTINGS_SCHEMA_VERSION,
       fontSize: 18,
     })
@@ -87,6 +84,20 @@ describe('Activity bar visibility preferences', () => {
     vi.mocked(api.loadSettings).mockResolvedValue({ ...DEFAULT_SETTINGS, activityBarGitVisible: false })
     await useSettings.getState().load()
     expect(useSettings.getState().activityBarGitVisible).toBe(false)
+  })
+
+  it('retires the old Tasks visibility switch from state and saves', async () => {
+    vi.mocked(api.loadSettings).mockResolvedValue({
+      ...DEFAULT_SETTINGS,
+      activityBarTasksVisible: false,
+    } as unknown as Settings)
+    await useSettings.getState().load()
+    expect(useSettings.getState()).not.toHaveProperty('activityBarTasksVisible')
+
+    useSettings.getState().patch({ activityBarStructureVisible: false })
+    await vi.advanceTimersByTimeAsync(400)
+    const saved = vi.mocked(api.saveSettings).mock.calls.at(-1)?.[0]
+    expect(saved).not.toHaveProperty('activityBarTasksVisible')
   })
 
   it('persists visibility and syncs it across windows without changing local layout', async () => {
