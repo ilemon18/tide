@@ -32,98 +32,50 @@ keywords:
 
 ## Ownership
 
-Package scripts define commands; scripts/ai-docs-lib.mjs owns doc metadata/routing/budgets. CI runs guards;
-canonical gate procedures live in .ai/skills. Local execution remains explicitly user-triggered under AGENTS.md.
-`.ai/skills/git-commit-message` is the only skill that writes Git state: it commits the generated subject
-line, shows the body without committing it, and never pushes, amends or bypasses hooks.
+Package scripts define commands; `scripts/ai-docs-lib.mjs` owns metadata, routing and budgets; CI runs guards.
+Gate procedures live in `.ai/skills` and run only when the user triggers them (AGENTS.md).
+`.ai/skills/git-commit-message` is the only skill that writes Git state: subject-only commit, never push.
 
 ## Guard map
 
 | Command | Protects |
 |---|---|
-| `node --test scripts/release-git-state.test.mjs` | Release preflight treats local tracking-ref differences and missing refs as advisory without requiring a push/fetch |
-| `node --test scripts/dmg-contract.test.mjs` | Generated DMG artwork/layout agreement, missing or malformed PNGs, image/window dimensions and macOS-only Finder layout opt-in before the release build |
-| `pnpm release:check` | Local Git/version, release workflows, bundle (including DMG background dimensions/layout and CI Finder opt-in) and update-manifest contracts; HEAD need not match origin/main |
+| `node --test scripts/release-git-state.test.mjs` | Release preflight tolerates local tracking-ref drift without fetch/push |
+| `node --test scripts/dmg-contract.test.mjs` | DMG artwork/layout, dimensions and macOS Finder opt-in before packaging |
+| `pnpm release:check` | Local Git/version, workflows, bundle and update-manifest contracts |
 | `pnpm i18n` | Six-locale keys/placeholders/plurals and emitted error coverage |
-| `pnpm i18n:scan` | CJK UI literals; only explicit non-UI/IME/Unicode fixture allowlists |
-| `pnpm check:workflows` | Non-ASCII text immediately after shell variable expansions |
-| `pnpm test:frontend` | Configurable shortcuts (ownership transfer, explicit unbinding, recording/cancel/reserved keys, modifier icon previews, spaced settings labels, reset confirmation, portal recording dialog/focus/navigation, platform identities, focus scopes, live hints, migration and cross-window echoes), default context-menu suppression with custom-event propagation, confirmed optimistic history deletion/rollback/write draining/stale reads/retry/page preservation, update-caption deduplication, Agent/settings, including context snapshot extraction/UTF-8 limits, same-root draft routing, attachment queue/drain/failure/history preservation, plain-text preview/removal/copy and selection-reader lifecycle, Agent history and About update preference placement, removed Agent permission settings and automatic-save defaults/migration, sidebar-width commit persistence, header-bounded floating slash/mention/skill menus, folder/empty-folder mention ranking and stale-read/selection rejection, bare-slash triggering and complete scrolling command navigation, Git file double-click/context menus with metadata filtering/action isolation, optimistic index mutation queues/failure reconciliation, paged workspace entry reads, history drawer open/close/Escape/editor-region shrink, 15-summary paging, debounced name search with IME and stale-request isolation, theme-tinted provider icons across tabs, history, pickers and chat header/avatar, compact relative times, Enter-confirmed deletion, last-page deletion fallback, workspace shortcut isolation, blank-tab reference replacement/draft protection, native session restore and last-focused project persistence, first-prompt conversation/tab titles and truncation, empty-title fallback and live updates, stable follow-up titles and reset renaming, structured question completion-delayed options/gates and failed-launch unlock/retry with answer preservation, queued interjection ordering/recovery/edit-to-composer merge, in-place chat reset, same-tab clear-context plan execution and failed-launch retry restoration, running-Agent tab close protection across buttons, middle-click, context menus, bulk commands and shortcuts, complete local/prompt command help and slash ordering, session-only token rows, isolated live status rendering, stable HTML spinner nodes and live-reply paint policy, latest-message shortcuts/following and completion re-anchoring, Codex plan copy/action mapping/instructions order and flat plan/question card surfaces, send hints, welcome layout/composer height and first Open file action, blank tab-strip double-click/right-click menu and empty-pane strip, exact external-file open/save and session restore, forced Agent model catalog refresh/coalescing/model fallback, permission picker labels/actions/overflow recovery, empty-pane collapse, providers and installed/uninstalled detection folding, IME, terminal, tree/watch, diffs, updates, one-click install after background download and links |
+| `pnpm i18n:scan` | Hardcoded CJK UI literals outside explicit allowlists |
+| `pnpm check:workflows` | Non-ASCII after shell variable expansion |
+| `pnpm test:frontend` | Frontend behavior owned by the area docs; test files are the inventory |
 | `pnpm typecheck` | Types, missing runtime imports/hooks and complete locale records |
-| `pnpm check:rust` | Rust types/borrows without linking, including attachment DTOs, external-file grant normalization/authorization, Git repo-path fast paths and undo status results |
-| `pnpm docs:route` | All matching scopes; --explain reasons; --query metadata-only candidate search |
-| `pnpm docs:sync` | Deterministic context route table; only its marked region is written |
-| `pnpm check:docs` | Local verification gate: doc tests, metadata, path/query fixtures, budgets, index, wrappers, links and script names |
+| `pnpm check:rust` | Rust types/borrows without linking |
+| `pnpm docs:route` | Exact path matches, --explain reasons and --query candidates |
+| `pnpm docs:sync` | Deterministic route table; only the marked region is written |
+| `pnpm check:docs` | Doc tests, metadata, fixtures, budgets, index, wrappers and links |
 
-`pnpm check` runs frontend guards; `pnpm verify` adds Rust/doc checks. Outside CI follow
-[verify](./skills/release-verify/SKILL.md). Agent command tests protect prompt/read-only/question guidance.
-Automated tests do not establish native-account compatibility, IME ordering or native layout/scrolling;
-manual surfaces require an explicit request.
-
-Rust theme compatibility tests protect malformed shortcut fields, aliases, unknown ids and explicit unbinding.
-The `pnpm test:frontend` guard also protects debounced/serial blame prefetch, diff-gutter click-to-blame, shared requests, root isolation/LRU, failure retries,
-typing suppression and lifecycle cancellation. Hover tests protect completed-content first paint and measured
-positioning, empty/error results, stale-response rejection, close/scroll behavior and memory reclamation.
-History-page tests use real symbol lifetimes and protect search reset when the same root is reopened, compact relative
-ages, hidden provider labels/IDs and Enter-confirmed deletion without changing other confirmations.
-Frontend regressions also cover the merged Tasks and Problems switch (Settings and activity-bar menu), named
-task controls and shortcut migration to the current settings schema.
-`pnpm test:frontend` also covers blank loaded/filtered-empty file trees, reading/collapsed hints, and Agent
-following through shrink/regrowth scroll events, first-send and queued-card resizing, plus scrollbar pause/send resume.
-Deferred streamed Markdown code/table commits also retain bottom following without another store update or
-resize notification, while formatting after an upward reading gesture preserves the reading position.
-Agent frontend regressions also protect atomic draft consumption before first-send layout, save/launch
-failure recovery without overwriting edits/queues/reset chats, persisted reply provider attribution and
-provider-named output folds, plus localized user labels excluded from copies.
-
-Rust agent tests also protect context root/path/range/byte validation and quoted snapshot prompt round trips.
-Agent turn-change cards are covered by per-file status/count rendering, latest-reply-only undo, confirmation
-gating, stale/pruned-baseline handling and row expansion; the Git transaction tests protect save suspension,
-created-file deletion, renamed-path suspension, partial failures and stale baselines. Rust tests protect
-tree-to-tree counts for add/edit/delete/rename/binary, exact restore of already-dirty files, index restore,
-commit-preserving undo, pruned snapshots, escaping paths and directory-blocked restores.
-Rust history tests cover 0/15/16/30/31-entry page boundaries/totals, project-scoped title search before paging (IDs excluded), Unicode/literal matching and exclusion of message bodies.
-Rust transcript deletion tests cover project ownership, idempotent removal and preservation of corrupt records.
+`pnpm check` runs frontend guards; `pnpm verify` adds Rust and doc checks. Native account compatibility,
+IME ordering and native layout/scrolling need explicit manual verification; automated tests do not prove them.
 
 ## Documentation contract
 
-- Top-level .ai Markdown (except context) has one-line summary, nonempty scope globs and short English/
-  Chinese keywords in block lists. Scope is repository-relative POSIX and each glob must match real files.
-  Shared files may route several docs. Each area doc also scopes itself, so maintenance loads its contract.
-- Scope is authoritative. Query normalizes case/Unicode/whitespace, matches Latin words and CJK phrases,
-  scores keyword hits above summary words, and breaks ties by filename. Output is candidate advice; locate
-  code and confirm paths. Queries never search bodies or silently load all docs. Paths never drop matches
-  to meet a budget. Use -- before dash-prefixed filenames; do not combine paths and --query.
-- docs:sync generates the context table from metadata; never hand-edit that region. check:docs rejects stale
-  tables, invalid metadata, unmatched globs, missing paths/links/scripts and inaccurate fixture doc sets.
-  Repeated long prose produces advisory warnings, never automatic deletion.
-- Hard limits: context ≤2KB, AGENTS + context ≤4KB, fixture bundle ≤24KB. Bundle includes resident context
-  and all routed docs. Target ≤16KB; warn above 6KB/document and 36KB .ai Markdown. Prefer deduplication
-  before splitting; split only where independent scopes reduce reads. Token counts are rough bytes/4;
-  metadata reads retain the separate 16KB cap. Routing output reports resident/docs/total separately.
-- Skill wrappers require directory-matching name, description and a canonical .ai/skills link. CLAUDE.md
-  imports AGENTS.md; .agents/skills links .claude/skills, deduplicated by real path. Preserve existing gate
-  names, trigger restrictions and release behavior when editing documentation.
+- Top-level `.ai` docs use one-line summary, nonempty scope globs and short English/Chinese keywords. Scope is
+  repository-relative POSIX, each glob matches real files, and each doc scopes itself.
+- Scope is authoritative; query is metadata-only advice. Queries never search bodies or drop path matches.
+- `docs:sync` regenerates the context table; `check:docs` rejects stale tables, bad metadata, unmatched globs
+  and missing paths/links/scripts. Repeated prose warns, never deletes.
+- Hard limits: context ≤2KB, AGENTS+context ≤4KB, fixture bundle ≤24KB. Targets: bundle ≤16KB, doc ≤6KB,
+  `.ai` ≤36KB. Token counts are rough bytes/4; metadata reads cap at 16KB.
+- Skill wrappers need a directory-matching name, description and canonical skill link. CLAUDE.md imports
+  AGENTS.md; preserve gate names, triggers and release behavior.
 
-## Change map and verification
+## Change map
 
-macOS DMG layout is owned by `src-tauri/tauri.conf.json`; regenerate its committed artwork with
-`node scripts/make-dmg-background.mjs` after changing dimensions or icon positions. The generator draws
-only the arrow/waves; Tauri supplies the native app and `/Applications` drop link. `scripts/dmg-contract.mjs`
-owns the shared layout/resource/workflow checks used by release preflight. CI and release prerequisites
-run its regression tests without Finder or packaging. The release build opts into Finder automation only
-on macOS and propagates layout failures before collecting artifacts. READMEs describe DMG installation first.
+DMG layout is owned by `src-tauri/tauri.conf.json`; regenerate artwork with
+`node scripts/make-dmg-background.mjs` after changing dimensions or icon positions. Shared layout checks live
+in `scripts/dmg-contract.mjs`. Resource ceilings stay in `src/lib/memoryBudget.ts` and
+`src-tauri/src/commands/tasks.rs`.
 
-Tasks and Problems changes require frontend tests for task discovery, execution state, output parsing, path
-filtering, custom cwd, aggregate diagnostics, settings migration, Problem navigation, early events, failed
-launch/stop retries, stale discovery and bounded history/output. Rust tests cover command discovery, bounded
-config validation, split UTF-8, process/group cleanup, ownership and workspace/symlink containment. Resource
-ceilings are owned by src/lib/memoryBudget.ts and src-tauri/src/commands/tasks.rs.
-
-Keep metadata parser, route/sync, guard and tests aligned; scope/index changes update fixtures and regenerated
-context together. Guard changes also update this map and [verify](./skills/release-verify/SKILL.md).
-Keep tests beside owners. Run targeted tests through the requested gate when test code or update/path/
-settings/Git/provider behavior changes; installer work belongs to [release-check](./skills/release-check/SKILL.md).
-Never weaken/delete a guard or test to pass.
-
-CI runs frontend guards/tests/build and Rust tests on supported platforms.
-The tag-driven release workflow remains separate and does not replace release-check.
+Keep metadata parser, route/sync, guard and tests aligned; scope/index changes also update fixtures and the
+regenerated context. Never weaken or delete a guard to pass. CI runs frontend guards/tests/build and Rust
+tests; the tag-driven release workflow does not replace
+[release-check](./skills/release-check/SKILL.md).

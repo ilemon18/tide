@@ -1,12 +1,12 @@
 # Tide — AI Context
 
-Follow AGENTS.md; route paths, read matching sections, follow links only across task boundaries.
+Follow AGENTS.md; route paths, read matching sections, follow links only across tasks.
 
 ## Map
 
 React: components=UI, store=state, editor=CodeMirror under src/. Rust: commands=IPC, agent=providers/storage
-under src-tauri/src/. Frontend protocol: `src/lib/ipc.ts`.
-Generated icons/vendor/Tauri output belong to their generators; `src/lib/memoryBudget.ts` owns memory limits.
+under src-tauri/src/. Protocol: `src/lib/ipc.ts`. Generated output belongs to generators;
+`src/lib/memoryBudget.ts` owns memory limits.
 
 <!-- BEGIN GENERATED ROUTES -->
 | Doc | Summary |
@@ -27,11 +27,9 @@ Generated icons/vendor/Tauri output belong to their generators; `src/lib/memoryB
 
 ## Shared contracts
 
-- IPC: UI/stores use `api.*`, never `invoke`. Rust camel-case DTOs match TypeScript; update emitters,
-  listeners and IPC types together.
-- Paths: file commands take `(root, rel)`. Authorize roots, canonicalize and prefix-check containment;
-  reject traversal/symlink escapes and preserve Windows verbatim semantics.
-- Writes: flush a temporary sibling, then rename over the target; never overwrite user files in place.
-- Errors: `AppResult<T>` with `AppError::c` / `p` for codes/params; `new` only for raw external-tool output.
-  Never `unwrap()` user input.
-- Resources: Rust creates/reaps PTYs, turns, process groups, grants and watchers; the webview drives them.
+- IPC: UI/stores use `api.*`, never `invoke`; Rust DTOs match TypeScript.
+- Paths: file commands take `(root, rel)`; authorize, canonicalize and prefix-check roots, reject traversal/
+  symlink escapes and preserve Windows verbatim semantics.
+- Writes: flush a temporary sibling, then rename over the target.
+- Errors: `AppResult<T>` with `AppError::c` / `p`; never `unwrap()` user input.
+- Resources: Rust creates/reaps PTYs, turns, process groups, grants and watchers.
