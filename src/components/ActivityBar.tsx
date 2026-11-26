@@ -22,7 +22,6 @@ type Props = {
   onChange: (view: ActivityView) => void
   welcomeActive: boolean
   visibility: ActivityBarVisibility
-  tasksEnabled: boolean
   onOpenSettings: () => void
 }
 
@@ -69,7 +68,6 @@ export function ActivityBar({
   onChange,
   welcomeActive,
   visibility,
-  tasksEnabled,
   onOpenSettings,
 }: Props) {
   const t = useT()
@@ -106,11 +104,9 @@ export function ActivityBar({
 
   const menuItems: MenuItem[] = ACTIVITY_BAR_ITEMS.map((item) => {
     const visible = visibility[item.id]
-    const disabled = item.id === 'tasks' && !tasksEnabled
     return {
       label: t(item.labelKey),
       checked: visible,
-      disabled,
       keepOpen: true,
       onClick: () => {
         useSettings.getState().patch({ [item.settingKey]: !visible })
@@ -165,7 +161,7 @@ export function ActivityBar({
             onClick={() => onChange('structure')}
           />
         ) : null}
-        {tasksEnabled && visibility.tasks ? (
+        {visibility.tasks ? (
           <Item
             icon="warning"
             label={tasksTip}

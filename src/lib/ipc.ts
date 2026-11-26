@@ -175,7 +175,6 @@ export type Settings = {
   activityBarWelcomeVisible: boolean
   activityBarGitVisible: boolean
   activityBarStructureVisible: boolean
-  activityBarTasksVisible: boolean
   /** Provider / model / effort new chats start with; empty = auto or the CLI default */
   agentDefaultProvider: string
   agentDefaultModel: string

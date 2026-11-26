@@ -96,6 +96,7 @@ it('shows the plan once followed by three next actions and optional instructions
   render(view())
   expect(screen.getAllByText('The agreed plan')).toHaveLength(1)
   expect(screen.getAllByRole('button')).toHaveLength(3)
+  for (const button of screen.getAllByRole('button')) expect(button.className).not.toContain('accent')
   const instructions = screen.getByRole('textbox', { name: 'agent.plan.instructions' })
   for (const button of screen.getAllByRole('button')) {
     expect(button.compareDocumentPosition(instructions) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
@@ -156,6 +157,24 @@ const questionMessage = (multiSelect = false, answer?: string): AgentMessage => 
 const questionView = (message = questionMessage(), running = false, pendingQuestionId: string | null = 'question') => (
   <AssistantMessage chatId="chat" providerLabel="Codex" message={message} running={running} pendingQuestionId={pendingQuestionId} />
 )
+
+it('renders question choices as a neutral vertical list without gradients', () => {
+  const { container } = render(questionView())
+  const group = screen.getByRole('radiogroup')
+  expect(group.className).toContain('flex-col')
+  expect(group.className).not.toContain('grid-cols')
+  expect(container.querySelector('[class*="bg-gradient"]')).toBeNull()
+
+  const option = screen.getByRole('radio', { name: /Option A/ }) as HTMLButtonElement
+  fireEvent.click(option)
+  expect(option.getAttribute('aria-checked')).toBe('true')
+  expect(option.className).toContain('bg-hover')
+  expect(option.className).not.toContain('accent')
+
+  const submit = screen.getByRole('button', { name: 'agent.question.submit' })
+  expect(submit.className).not.toContain('bg-gradient')
+  expect(submit.className).not.toContain('accent')
+})
 
 it('hides structured question options until streaming completes', async () => {
   const streaming = questionMessage()

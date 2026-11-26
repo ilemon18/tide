@@ -254,7 +254,6 @@ export const ko: Messages = {
   'settings.memory.card': '메모리',
   'settings.activityBar.card': '활동 표시줄',
   'settings.activityBar.hint': '탐색기와 검색은 항상 표시됩니다. 활동 표시줄을 두 번 클릭하면 이 아이콘을 빠르게 전환할 수 있습니다.',
-  'settings.activityBar.tasksDisabled': '먼저 작업 및 문제를 활성화하세요.',
   'settings.memory.lightweight': '라이트 모드',
   'settings.memory.lightweightHint': '백그라운드 기능을 중지해 메모리를 확보합니다. 돌아오면 열린 파일을 다시 불러올 수 있습니다.',
   'settings.memory.lightweightOn':
@@ -1009,9 +1008,6 @@ export const ko: Messages = {
   'tasks.noProblems': '문제 없음',
   'tasks.noProject': '작업을 실행하려면 프로젝트를 여세요',
   'tasks.openProblem': '문제 열기',
-  'settings.tasks.card': '프로젝트 작업',
-  'settings.tasks.enable': '작업 및 문제 활성화',
-  'settings.tasks.enableHint': '작업 입구를 표시하고 출력에서 파일 및 줄 진단을 수집합니다.',
   'error.task.tooManyRunning': '실행 중인 작업이 너무 많습니다. 새 작업을 시작하기 전에 작업을 중지하세요(최대 {limit}개).',
   'error.task.emptyCommand': '작업 명령은 비워 둘 수 없습니다',
   'error.task.spawnFailed': '작업을 시작할 수 없습니다: {error}',

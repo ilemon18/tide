@@ -225,29 +225,15 @@ export function SettingsView() {
           <div className="border-b border-line/60 px-4 py-2.5 text-xs leading-relaxed text-muted">
             {t('settings.activityBar.hint')}
           </div>
-          {ACTIVITY_BAR_ITEMS.map((item) => {
-            const tasksDisabled = item.id === 'tasks' && !settings.tasksEnabled
-            return (
-              <Row
-                key={item.id}
-                label={t(item.labelKey)}
-                hint={tasksDisabled ? t('settings.activityBar.tasksDisabled') : undefined}
-              >
-                <Toggle
-                  value={settings[item.settingKey]}
-                  disabled={tasksDisabled}
-                  onChange={(value) => set(item.settingKey, value)}
-                  ariaLabel={t(item.labelKey)}
-                />
-              </Row>
-            )
-          })}
-        </Card>
-
-        <Card title={t('settings.tasks.card')}>
-          <Row label={t('settings.tasks.enable')} hint={t('settings.tasks.enableHint')}>
-            <Toggle value={settings.tasksEnabled} onChange={(value) => set('tasksEnabled', value)} ariaLabel={t('settings.tasks.enable')} />
-          </Row>
+          {ACTIVITY_BAR_ITEMS.map((item) => (
+            <Row key={item.id} label={t(item.labelKey)}>
+              <Toggle
+                value={settings[item.settingKey]}
+                onChange={(value) => set(item.settingKey, value)}
+                ariaLabel={t(item.labelKey)}
+              />
+            </Row>
+          ))}
         </Card>
 
         <Card title={t('settings.language.card')}>

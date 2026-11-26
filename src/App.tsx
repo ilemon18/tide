@@ -75,7 +75,6 @@ export function App() {
   const activityBarWelcomeVisible = useSettings((s) => s.activityBarWelcomeVisible)
   const activityBarGitVisible = useSettings((s) => s.activityBarGitVisible)
   const activityBarStructureVisible = useSettings((s) => s.activityBarStructureVisible)
-  const activityBarTasksVisible = useSettings((s) => s.activityBarTasksVisible)
   const historyOpen = useUi(s => s.historyOpen) && historyEnabled
   useEffect(() => {
     if (!historyEnabled) {
@@ -429,10 +428,8 @@ export function App() {
     }
   }, [activityBarStructureVisible, setActivityView])
   useEffect(() => {
-    if (!tasksEnabled || !activityBarTasksVisible) {
-      if (useUi.getState().activityView === 'tasks') setActivityView('explorer')
-    }
-  }, [tasksEnabled, activityBarTasksVisible, setActivityView])
+    if (!tasksEnabled && useUi.getState().activityView === 'tasks') setActivityView('explorer')
+  }, [tasksEnabled, setActivityView])
   useEffect(() => {
     if (tasksEnabled) return
     const tasks = useTaskStore.getState()
@@ -488,9 +485,8 @@ export function App() {
             activityBarWelcomeVisible,
             activityBarGitVisible,
             activityBarStructureVisible,
-            activityBarTasksVisible,
+            tasksEnabled,
           })}
-          tasksEnabled={tasksEnabled}
           onOpenSettings={() => openSettings()}
         />
 

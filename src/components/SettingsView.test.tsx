@@ -14,7 +14,7 @@ vi.mock('../store/settings', async () => {
     terminalFontSize: 13, terminalScrollback: 2000, terminalWebgl: false, agentEnabled: true, tasksEnabled: true,
     agentDefaultProvider: '', agentDefaultModel: '', agentDefaultEffort: '',
     agentDefaultPermissionMode: 'workspace-write', agentHistoryEnabled: true, autoUpdate: false,
-    activityBarWelcomeVisible: true, activityBarGitVisible: true, activityBarStructureVisible: true, activityBarTasksVisible: true,
+    activityBarWelcomeVisible: true, activityBarGitVisible: true, activityBarStructureVisible: true,
     patch: vi.fn(),
   })) }
 })
@@ -73,14 +73,15 @@ function selectSection(section: SettingsSectionId) {
   fireEvent.click(screen.getByRole('button', { name: t(`settings.section.${section}.label`) }))
 }
 
-it('exposes the project task toggle under General', () => {
+it('exposes one Tasks and Problems switch in the activity bar card', () => {
   render(<SettingsView />)
-  const toggle = screen.getByRole('button', { name: t('settings.tasks.enable') })
-  expect(toggle.getAttribute('aria-pressed')).toBe('true')
-  fireEvent.click(toggle)
+  const card = screen.getByRole('heading', { name: t('settings.activityBar.card') }).closest('section')!
+  const toggles = within(card).getAllByRole('button', { name: t('activity.tasksTip') })
+  expect(toggles).toHaveLength(1)
+  expect(toggles[0].getAttribute('aria-pressed')).toBe('true')
+  fireEvent.click(toggles[0])
   expect(useSettings.getState().patch).toHaveBeenCalledExactlyOnceWith({ tasksEnabled: false })
 })
-
 
 it('exposes activity bar visibility toggles under General', () => {
   render(<SettingsView />)
