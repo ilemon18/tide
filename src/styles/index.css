@@ -328,6 +328,51 @@
     -webkit-user-select: none;
   }
 
+  /* Git change bar at the left edge of the line-number gutter. One marker per changed line:
+     green = added, amber = modified, red = deleted (same semantics as the file tree). */
+  .cm-diff-gutter {
+    width: 5px;
+  }
+
+  .cm-diff-gutter .cm-gutterElement {
+    display: flex;
+    align-items: stretch;
+    justify-content: center;
+    width: 5px;
+    padding: 0;
+  }
+
+  .cm-diff-mark {
+    display: block;
+    width: 3px;
+    margin: 1px 0;
+    border-radius: 1px;
+    opacity: 0.8;
+    transition: opacity var(--dur-fast) var(--ease-islands);
+  }
+
+  .cm-diff-mark-add {
+    background: var(--c-success);
+  }
+
+  .cm-diff-mark-mod {
+    background: var(--c-warning);
+  }
+
+  .cm-diff-mark-del {
+    background: var(--c-danger);
+  }
+
+  .cm-diff-mark-spacer {
+    background: transparent;
+  }
+
+  .cm-diff-gutter:hover .cm-diff-mark-add,
+  .cm-diff-gutter:hover .cm-diff-mark-mod,
+  .cm-diff-gutter:hover .cm-diff-mark-del {
+    opacity: 1;
+  }
+
   /* Tab strip: the horizontal scrollbar shouldn't take content height or cover the tab bottoms */
   .tab-strip {
     scrollbar-width: none;

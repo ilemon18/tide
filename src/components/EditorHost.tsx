@@ -23,6 +23,9 @@ import {
 import { ensureEditorState } from '../editor/openState'
 import { stickyRange } from '../editor/highlight'
 import { setEditorView, setFocusedGroup } from '../editor/viewRef'
+import { applyDiffMarks } from '../editor/diffGutter'
+import { useFileDiffMarks, diffMarksFor } from '../store/diffMarks'
+import type { DiffMark } from '../lib/diffMarks'
 import { linkMirror, unlinkMirror, unlinkView } from '../editor/mirror'
 import { signals } from '../editor/signals'
 import {
@@ -68,6 +71,9 @@ function swapState(
   restoreScroll(view, id, fallback, keepCurrent, ratio)
 }
 
+/** Stable empty array: applying it clears marks without dispatching on every render. */
+const NO_DIFF_MARKS: DiffMark[] = []
+
 /** These tabs show no editor: images / diffs mount other content, SVG preview gives the area to the image. */
 function isEditorHidden(tab: Tab | null): boolean {
   if (!tab) return false
@@ -112,6 +118,12 @@ function applyReveal(view: EditorView, request: RevealRequest) {
   view.focus()
 }
 
+/** Apply the latest disk-based git marks after a state swap (the new state starts with an empty gutter). */
+function applyTabDiffMarks(view: EditorView, tab: Tab) {
+  if (tab.kind !== 'file' || tab.external) return
+  applyDiffMarks(view, diffMarksFor(tab.root, tab.rel))
+}
+
 /**
  * One pane's CodeMirror view (there is only one in the whole app when unsplit). Switching tabs only
  * calls setState, never rebuilds the DOM; LRU evictions are rebuilt on demand (unmodified files re-read from disk).
@@ -137,6 +149,22 @@ export function EditorHost({ groupId }: { groupId: TabGroupId }) {
   const blameData = useBlame((s) => (activeId ? s.byTab[activeId] : null))
   const activeTab = tabs.find((t) => t.id === activeId) ?? null
   const hidden = isEditorHidden(activeTab)
+  /** Plain files inside a Git repo get the right-edge ruler and the matching line-number gutter. */
+  const isGitRepo = useWorkspace(
+    (s) => s.roots.find((root) => root.id === activeTab?.root)?.isGitRepo ?? false,
+  )
+  const showRuler = Boolean(activeTab?.kind === 'file' && !activeTab.preview && isGitRepo)
+  const diffEpoch = useTabs((s) =>
+    activeTab ? (s.diffEpoch[activeTab.root] ?? 0) + (s.diffEpoch[activeTab.id] ?? 0) : 0,
+  )
+  const diffEntry = useFileDiffMarks(
+    activeTab?.root ?? '',
+    activeTab?.rel ?? '',
+    showRuler && !activeTab?.external,
+    activeTab?.dirty ?? false,
+    activeTab?.mtime ?? 0,
+    diffEpoch,
+  )
   const groups = useTabs((s) => s.groups)
   const markdownPreviewRatio =
     activeTab?.kind === 'file' && isMarkdownPath(activeTab.rel)
@@ -307,6 +335,7 @@ export function EditorHost({ groupId }: { groupId: TabGroupId }) {
           takeScrollRatio(activeId),
         )
       }
+      applyTabDiffMarks(view, tab)
       shownIdRef.current = activeId
       editorSelections.notify(groupId)
       linkMirror(activeId, groupId, view)
@@ -357,6 +386,7 @@ export function EditorHost({ groupId }: { groupId: TabGroupId }) {
           takeScrollRatio(activeId),
         )
       }
+      applyTabDiffMarks(view, tab)
       // A freshly mounted side pane may not be measured yet (width 0 makes CodeMirror compute no viewport),
       // so measure once after setState and once more on the next frame as a fallback
       view.requestMeasure()
@@ -405,6 +435,13 @@ export function EditorHost({ groupId }: { groupId: TabGroupId }) {
     applyBlameToView(view, blameData ?? null)
   }, [blameData, activeId])
 
+  // Marks arrive asynchronously after the state swap; dispatch only the gutter effect, never a full swap.
+  useEffect(() => {
+    const view = viewRef.current
+    if (!view || !activeTab || activeTab.kind !== 'file' || activeTab.external) return
+    applyDiffMarks(view, diffEntry?.marks ?? NO_DIFF_MARKS)
+  }, [diffEntry, activeId, stateEpoch])
+
   useEffect(() => {
     const view = viewRef.current
     if (view) reconfigureTheme(view)
@@ -448,13 +485,6 @@ export function EditorHost({ groupId }: { groupId: TabGroupId }) {
       useTabs.getState().setActiveGroup(groupId)
     }
   }
-
-  // The change-overview bar shows only for "plain files inside a git repo":
-  // it is always empty in non-git projects, so 10px of width would be wasted
-  const isGitRepo = useWorkspace(
-    (s) => s.roots.find((root) => root.id === activeTab?.root)?.isGitRepo ?? false,
-  )
-  const showRuler = Boolean(activeTab?.kind === 'file' && !activeTab.preview && isGitRepo)
 
   const ratio = markdownPreviewRatio ?? 0.5
   const editorStyle = markdownPreviewOpen

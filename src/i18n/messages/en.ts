@@ -408,6 +408,9 @@ export const en = {
   'dialog.gitUndoCommit.message':
     'The last commit is taken back, its changes stay staged and the message returns to the input. Pushed commits will rewrite remote history.',
   'dialog.gitUndoCommit.confirm': 'Undo commit',
+  'dialog.gitResetAll.title': 'Reset all changes?',
+  'dialog.gitResetAll.message': 'Every staged and unstaged tracked change is discarded and the files return to HEAD. Untracked files are kept. Unsaved editor changes in open files are lost. This cannot be undone.',
+  'dialog.gitResetAll.confirm': 'Reset all',
   'dialog.gitAbort.title': 'Abort operation',
   'dialog.gitAbort.message':
     'Aborts the running merge / cherry-pick / rebase and restores the worktree to its previous state.',
@@ -448,6 +451,9 @@ export const en = {
   'toast.pushDone': 'Push complete',
   'toast.fetchDone': 'Remote branches synced',
   'toast.gitSkipped': 'Skipped the current step; the conflict list is updated',
+  'toast.gitStashed': 'Changes stashed',
+  'toast.gitStashPopped': 'Stash applied',
+  'toast.gitResetAll': 'All tracked changes were reset',
   'toast.replaced':
     'Replaced {matches} occurrences in {count} file | Replaced {matches} occurrences in {count} files',
   'toast.replacedDirty':
@@ -648,6 +654,12 @@ export const en = {
   'git.moreActions': 'More actions',
   'git.openChanges': 'Open changes',
   'git.undoLastCommit': 'Undo last commit',
+  'git.stashChanges': 'Stash changes',
+  'git.stashChangesHint': 'Tracked changes only · untracked files stay',
+  'git.popStash': 'Pop stash',
+  'git.popStashCount': 'Pop stash ({count})',
+  'git.resetAll': 'Reset all changes',
+  'git.resetAllHint': 'Staged and unstaged tracked changes',
   'git.conflictsCount': '{count} conflict | {count} conflicts',
   'git.markResolvedFirst': 'Mark the conflicted files as resolved first',
   'git.commitPlaceholderOp': '{label}: commit message (from the other side)',
@@ -820,6 +832,7 @@ export const en = {
   'error.git.notRepo': 'This folder is not a Git repository',
   'error.git.notTracked': 'Cannot restore {path}: the file is no longer in the index.',
   'error.git.noCommitToUndo': 'The current branch has no commit to undo',
+  'error.git.noCommitToReset': 'The current branch has no commit to reset to',
   'error.git.detachedUndo': 'HEAD is detached; the only commit cannot be undone',
   'error.git.noRemote': 'This repository has no remote configured',
   'error.git.invalidSha': 'Invalid commit id',

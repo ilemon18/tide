@@ -177,3 +177,12 @@ it('does not restore an expand-chain result into a reopened workspace with the s
   await work
   expect(useWorkspace.getState().roots[0].tree.a).toBeUndefined()
 })
+
+it('keeps the centered reveal flag on tree reveal requests', () => {
+  useWorkspace.setState({ treeReveal: null })
+  useWorkspace.getState().requestTreeReveal({ root, rel: 'src/a.ts', isDir: false, center: true })
+  const reveal = useWorkspace.getState().treeReveal
+  expect(reveal).toMatchObject({ root, rel: 'src/a.ts', isDir: false, center: true })
+  useWorkspace.getState().clearTreeReveal(reveal!.nonce)
+  expect(useWorkspace.getState().treeReveal).toBeNull()
+})

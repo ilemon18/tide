@@ -1141,11 +1141,10 @@ pub fn git_undo_commit(state: State<'_, AppState>, root: String) -> AppResult<Gi
     undo_commit(&root_path)
 }
 
-fn undo_commit(root_path: &Path) -> AppResult<GitUndoResult> {
-    let root_str = root_path.to_string_lossy().to_string();
-
-    // No history rewriting while merge / rebase etc. is running; let the user finish it first
-    match repo_paths(&root_str)? {
+/// Reject history / worktree rewrites while merge, rebase, cherry-pick, revert or `git am` is running.
+/// Shared by undo-last-commit and reset-all so both fail with the same localized operation error.
+fn ensure_no_operation(root_str: &str) -> AppResult<()> {
+    match repo_paths(root_str)? {
         Some(paths) => {
             if let Some(op) = detect_operation(&paths.gitdir) {
                 // One code per operation so each language can phrase it naturally
@@ -1162,9 +1161,15 @@ fn undo_commit(root_path: &Path) -> AppResult<GitUndoResult> {
             if paths.gitdir.join("sequencer").is_dir() {
                 return Err(AppError::c("git.sequencerRunning"));
             }
+            Ok(())
         }
-        None => return Err(AppError::c("git.notRepo")),
+        None => Err(AppError::c("git.notRepo")),
     }
+}
+
+fn undo_commit(root_path: &Path) -> AppResult<GitUndoResult> {
+    let root_str = root_path.to_string_lossy().to_string();
+    ensure_no_operation(&root_str)?;
 
     // HEAD must exist
     let (head_ok, _) = run_text(&root_str, &["rev-parse", "--verify", "HEAD"])?;
@@ -1194,6 +1199,83 @@ fn undo_commit(root_path: &Path) -> AppResult<GitUndoResult> {
     }
     let status = read_status(root_path).ok();
     Ok(GitUndoResult { message, status })
+}
+
+#[tauri::command(async)]
+pub fn git_stash(state: State<'_, AppState>, root: String) -> AppResult<String> {
+    let root_path = state.authorize(&root)?;
+    stash_push(&root_path)
+}
+
+/// Stash the tracked index + worktree changes. Untracked files stay in place: a GUI "stash" that
+/// silently hides newly created files is more surprising than git's own default.
+fn stash_push(root: &Path) -> AppResult<String> {
+    let root_str = root.to_string_lossy().to_string();
+    ensure_no_operation(&root_str)?;
+    let (ok, text) = run_text(&root_str, &["stash", "push"])?;
+    if !ok {
+        return Err(AppError::new(text.trim().to_string()));
+    }
+    Ok(text)
+}
+
+#[tauri::command(async)]
+pub fn git_stash_pop(state: State<'_, AppState>, root: String) -> AppResult<String> {
+    let root_path = state.authorize(&root)?;
+    stash_pop(&root_path)
+}
+
+/// Pop the latest stash. A conflict makes git exit non-zero after partially applying the stash;
+/// the raw git output is returned so the frontend can refresh first and then show the conflict.
+fn stash_pop(root: &Path) -> AppResult<String> {
+    let root_str = root.to_string_lossy().to_string();
+    let (ok, text) = run_text(&root_str, &["stash", "pop"])?;
+    if !ok {
+        return Err(AppError::new(text.trim().to_string()));
+    }
+    Ok(text)
+}
+
+#[tauri::command(async)]
+pub fn git_stash_count(state: State<'_, AppState>, root: String) -> AppResult<u32> {
+    let root_path = state.authorize(&root)?;
+    stash_count(&root_path)
+}
+
+/// Number of stash entries; only asked when the "more actions" menu opens, never on status polls.
+fn stash_count(root: &Path) -> AppResult<u32> {
+    let root_str = root.to_string_lossy().to_string();
+    let (ok, stdout, stderr) = run_bytes(&root_str, &["stash", "list"])?;
+    if !ok {
+        return Err(AppError::new(stderr.trim().to_string()));
+    }
+    Ok(stdout
+        .split(|byte| *byte == b'\n')
+        .filter(|line| !line.is_empty())
+        .count() as u32)
+}
+
+#[tauri::command(async)]
+pub fn git_reset_all(state: State<'_, AppState>, root: String) -> AppResult<()> {
+    let root_path = state.authorize(&root)?;
+    reset_all(&root_path)
+}
+
+/// `git reset --hard HEAD`: clears staged and unstaged tracked changes, keeps untracked files.
+fn reset_all(root: &Path) -> AppResult<()> {
+    let root_str = root.to_string_lossy().to_string();
+    ensure_no_operation(&root_str)?;
+
+    let (head_ok, _) = run_text(&root_str, &["rev-parse", "--verify", "HEAD"])?;
+    if !head_ok {
+        return Err(AppError::c("git.noCommitToReset"));
+    }
+
+    let (ok, text) = run_text(&root_str, &["reset", "--hard", "HEAD"])?;
+    if !ok {
+        return Err(AppError::new(text.trim().to_string()));
+    }
+    Ok(())
 }
 
 #[tauri::command(async)]
@@ -1819,7 +1901,7 @@ pub fn git_conflict_reset(
 
 #[cfg(test)]
 mod tests {
-    use super::{apply_discard_change, discard_changes, discard_changes_with, discard_paths, git_cmd, local_repo_paths, repo_paths, run_text, truncate_patch, undo_commit};
+    use super::{apply_discard_change, discard_changes, discard_changes_with, discard_paths, git_cmd, local_repo_paths, read_status, repo_paths, reset_all, run_text, stash_count, stash_pop, stash_push, truncate_patch, undo_commit};
     use std::io::Write;
     use std::path::PathBuf;
     use std::process::Stdio;
@@ -1921,6 +2003,58 @@ mod tests {
         assert_eq!(status.staged.len(), 1);
         assert_eq!(status.staged[0].path, "a.txt");
         assert_eq!(repo.read("a.txt"), "two\n");
+    }
+
+    #[test]
+    fn stash_push_and_pop_round_trip() {
+        let repo = TestRepo::new();
+        repo.write("a.txt", "head\n");
+        repo.commit();
+        repo.write("a.txt", "work\n");
+
+        assert_eq!(stash_count(&repo.root).unwrap(), 0);
+        stash_push(&repo.root).unwrap();
+        assert_eq!(repo.read("a.txt"), "head\n");
+        assert_eq!(stash_count(&repo.root).unwrap(), 1);
+
+        stash_pop(&repo.root).unwrap();
+        assert_eq!(repo.read("a.txt"), "work\n");
+        assert_eq!(stash_count(&repo.root).unwrap(), 0);
+    }
+
+    #[test]
+    fn reset_all_clears_staged_and_unstaged_but_keeps_untracked() {
+        let repo = TestRepo::new();
+        for path in ["staged.txt", "unstaged.txt"] {
+            repo.write(path, "head\n");
+        }
+        repo.commit();
+
+        repo.write("staged.txt", "staged work\n");
+        repo.write("unstaged.txt", "unstaged work\n");
+        repo.git(&["add", "staged.txt"]);
+        repo.write("untracked.txt", "keep me\n");
+
+        reset_all(&repo.root).unwrap();
+
+        assert_eq!(repo.read("staged.txt"), "head\n");
+        assert_eq!(repo.read("unstaged.txt"), "head\n");
+        assert_eq!(repo.read("untracked.txt"), "keep me\n");
+        let status = read_status(&repo.root).unwrap();
+        assert!(status.staged.is_empty());
+        assert!(status.changes.is_empty());
+        assert_eq!(status.untracked.len(), 1);
+    }
+
+    #[test]
+    fn reset_all_rejects_during_an_operation() {
+        let repo = TestRepo::new();
+        repo.write("a.txt", "head\n");
+        repo.commit();
+        std::fs::write(repo.root.join(".git/MERGE_HEAD"), "deadbeef\n").unwrap();
+
+        let error = reset_all(&repo.root).unwrap_err();
+        assert_eq!(error.code, "git.mergeInProgress");
     }
 
     #[test]

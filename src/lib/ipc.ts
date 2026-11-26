@@ -564,6 +564,14 @@ export const api = {
   gitCommit: (root: string, message: string) => invoke<string>('git_commit', { root, message }),
   /** Undo the last commit (soft reset); returns that commit's message and, when available, fresh status */
   gitUndoCommit: (root: string) => invoke<GitUndoResult>('git_undo_commit', { root }),
+  /** Stash tracked index + worktree changes; untracked files stay in place */
+  gitStash: (root: string) => invoke<string>('git_stash', { root }),
+  /** Pop the latest stash; a conflict returns raw git output after partially applying it */
+  gitStashPop: (root: string) => invoke<string>('git_stash_pop', { root }),
+  /** Number of stash entries, asked only when the more-actions menu opens */
+  gitStashCount: (root: string) => invoke<number>('git_stash_count', { root }),
+  /** `git reset --hard HEAD`: staged + unstaged tracked changes, untracked files kept */
+  gitResetAll: (root: string) => invoke<void>('git_reset_all', { root }),
   gitPull: (root: string) => invoke<string>('git_pull', { root }),
   gitPush: (root: string) => invoke<string>('git_push', { root }),
   gitFetch: (root: string) => invoke<string>('git_fetch', { root }),

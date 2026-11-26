@@ -9,6 +9,7 @@ import {
 import { api } from '../lib/ipc'
 import { dirname } from '../lib/paths'
 import { signals } from './signals'
+import { jumpToImport } from './importJump'
 
 export type ImportLinkContext = {
   /** Workspace root (absolute path) */
@@ -273,7 +274,13 @@ export function importLinkExtension(
         const pos = view.posAtCoords({ x: event.clientX, y: event.clientY })
         if (pos == null) return false
         const spec = specAt(view, pos)
-        if (!spec) return false
+        if (!spec) {
+          // Not on an import path: a symbol that comes from an import jumps to that binding's line.
+          // Anything else falls through to normal editing.
+          if (!jumpToImport(view, pos)) return false
+          event.preventDefault()
+          return true
+        }
         // Consume the default so ⌘-click does not also move the cursor
         event.preventDefault()
         const context = readCtx()

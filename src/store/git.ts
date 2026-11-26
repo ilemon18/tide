@@ -36,6 +36,12 @@ type GitStore = {
   commit: (root: string, message: string) => Promise<boolean>
   /** Undo the last commit (soft reset): changes stay staged, returns the previous commit message */
   undoLastCommit: (root: string) => Promise<string | null>
+  /** Stash tracked index + worktree changes; untracked files stay in place */
+  stashChanges: (root: string) => Promise<void>
+  /** Pop the latest stash; a conflicted partial apply still refreshes the worktree */
+  popStash: (root: string) => Promise<void>
+  /** `git reset --hard HEAD`: staged + unstaged tracked changes, untracked files kept */
+  resetAll: (root: string) => Promise<void>
   /** Continue an in-progress merge / cherry-pick / revert / rebase */
   continueOperation: (root: string, message: string) => Promise<boolean>
   abortOperation: (root: string) => Promise<boolean>
@@ -571,6 +577,155 @@ export const useGit = create<GitStore>((set, get) => ({
       useUi.getState().toast(errorText(e), 'error')
       return null
     } finally {
+      set({ busy: null })
+    }
+  },
+
+  stashChanges: async (root) => {
+    if (get().busy || useUi.getState().confirmReq) return
+    set({ busy: 'stash' })
+    let resume: ((reschedule?: boolean | readonly string[]) => void) | undefined
+    try {
+      await waitForIndexQueue(root)
+      const { useTabs, suspendFileSaves } = await import('./tabs')
+
+      // Save dirty project files first so the stash contains the user's latest edits. Untitled
+      // buffers are deliberately skipped: saving one would open a Save As dialog.
+      for (const tab of useTabs.getState().tabs) {
+        if (tab.root !== root || tab.kind !== 'file' || tab.external || !tab.dirty) continue
+        if (!(await useTabs.getState().save(tab.id))) return
+      }
+
+      const snapshot = get().statuses[root]
+      // A staged added/copied/renamed destination is removed from the worktree by `git stash push`;
+      // its tab must close instead of being force-reloaded as a missing file.
+      const removed = new Set(
+        (snapshot?.staged ?? [])
+          .filter((file) => /^[ARC]/.test(file.status.trim()))
+          .map((file) => file.path),
+      )
+      const live = useTabs.getState()
+      const paths = [...new Set(
+        live.tabs
+          .filter((tab) => tab.root === root && tab.kind === 'file' && !tab.external && tab.rel)
+          .map((tab) => tab.rel),
+      )]
+      if (paths.length) resume = await suspendFileSaves(root, paths)
+
+      await api.gitStash(root)
+      signatures.delete(root)
+      await get().refresh(root, true)
+      for (const rel of removed) useTabs.getState().onDeleted(root, rel)
+      const reload = paths.filter((rel) => !removed.has(rel))
+      if (reload.length) {
+        await useTabs.getState().refreshFromDisk(root, { force: true, paths: reload })
+      }
+      resume?.(false)
+      resume = undefined
+      useUi.getState().toast(t('toast.gitStashed'), 'success')
+    } catch (e) {
+      useUi.getState().toast(errorText(e), 'error')
+    } finally {
+      resume?.()
+      set({ busy: null })
+    }
+  },
+
+  popStash: async (root) => {
+    if (get().busy || useUi.getState().confirmReq) return
+    set({ busy: 'stash-pop' })
+    let resume: ((reschedule?: boolean | readonly string[]) => void) | undefined
+    try {
+      await waitForIndexQueue(root)
+      const { useTabs, suspendFileSaves } = await import('./tabs')
+
+      for (const tab of useTabs.getState().tabs) {
+        if (tab.root !== root || tab.kind !== 'file' || tab.external || !tab.dirty) continue
+        if (!(await useTabs.getState().save(tab.id))) return
+      }
+
+      const live = useTabs.getState()
+      const paths = [...new Set(
+        live.tabs
+          .filter((tab) => tab.root === root && tab.kind === 'file' && !tab.external && tab.rel)
+          .map((tab) => tab.rel),
+      )]
+      if (paths.length) resume = await suspendFileSaves(root, paths)
+
+      let applied = false
+      try {
+        await api.gitStashPop(root)
+        applied = true
+        useUi.getState().toast(t('toast.gitStashPopped'), 'success')
+      } catch (e) {
+        // A conflict exits non-zero after partially writing conflict markers. Refresh regardless,
+        // then surface git's own message; the stash entry is kept by git.
+        applied = true
+        useUi.getState().toast(errorText(e), 'error')
+      }
+
+      signatures.delete(root)
+      await get().refresh(root, true)
+      if (applied && paths.length) {
+        await useTabs.getState().refreshFromDisk(root, { force: true, paths })
+      }
+      resume?.(false)
+      resume = undefined
+    } catch (e) {
+      useUi.getState().toast(errorText(e), 'error')
+    } finally {
+      resume?.()
+      set({ busy: null })
+    }
+  },
+
+  resetAll: async (root) => {
+    if (get().busy || useUi.getState().confirmReq) return
+    const ok = await useUi.getState().confirm({
+      title: t('dialog.gitResetAll.title'),
+      message: t('dialog.gitResetAll.message'),
+      confirmText: t('dialog.gitResetAll.confirm'),
+      danger: true,
+      confirmOnEnter: false,
+    })
+    if (!ok) return
+
+    set({ busy: 'reset-all' })
+    let resume: ((reschedule?: boolean | readonly string[]) => void) | undefined
+    try {
+      await waitForIndexQueue(root)
+      const { useTabs, suspendFileSaves } = await import('./tabs')
+      const snapshot = get().statuses[root]
+      // Staged added/copied/renamed destinations are deleted from the worktree by reset --hard;
+      // close their tabs instead of trying to reload a path that no longer exists.
+      const removed = new Set(
+        (snapshot?.staged ?? [])
+          .filter((file) => /^[ARC]/.test(file.status.trim()))
+          .map((file) => file.path),
+      )
+      const live = useTabs.getState()
+      const paths = [...new Set(
+        live.tabs
+          .filter((tab) => tab.root === root && tab.kind === 'file' && !tab.external && tab.rel)
+          .map((tab) => tab.rel),
+      )]
+      if (paths.length) resume = await suspendFileSaves(root, paths)
+
+      await api.gitResetAll(root)
+      signatures.delete(root)
+      await get().refresh(root, true)
+      for (const rel of removed) useTabs.getState().onDeleted(root, rel)
+      const reload = paths.filter((rel) => !removed.has(rel))
+      if (reload.length) {
+        await useTabs.getState().refreshFromDisk(root, { force: true, paths: reload })
+      }
+      resume?.(false)
+      resume = undefined
+      useUi.getState().toast(t('toast.gitResetAll'), 'success')
+    } catch (e) {
+      useUi.getState().toast(errorText(e), 'error')
+    } finally {
+      resume?.()
       set({ busy: null })
     }
   },

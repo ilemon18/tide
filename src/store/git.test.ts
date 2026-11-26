@@ -2,7 +2,7 @@
 import { beforeEach, expect, it, vi } from 'vitest'
 import type { GitStatus } from '../lib/ipc'
 
-const { api, workspace, ui } = vi.hoisted(() => ({
+const { api, workspace, ui, tabs } = vi.hoisted(() => ({
   api: {
     gitStatus: vi.fn(),
     gitStage: vi.fn(),
@@ -11,6 +11,9 @@ const { api, workspace, ui } = vi.hoisted(() => ({
     gitCommit: vi.fn(),
     gitBranches: vi.fn(),
     gitUndoCommit: vi.fn(),
+    gitStash: vi.fn(),
+    gitStashPop: vi.fn(),
+    gitResetAll: vi.fn(),
   },
   workspace: {
     roots: [{ id: '/repo', name: 'Repo', isGitRepo: true }],
@@ -21,6 +24,13 @@ const { api, workspace, ui } = vi.hoisted(() => ({
     toast: vi.fn(),
     confirmReq: null,
   },
+  tabs: {
+    tabs: [] as Array<Record<string, unknown>>,
+    save: vi.fn(),
+    onDeleted: vi.fn(),
+    refreshFromDisk: vi.fn(),
+    suspend: vi.fn(),
+  },
 }))
 
 vi.mock('../lib/ipc', () => ({
@@ -28,6 +38,10 @@ vi.mock('../lib/ipc', () => ({
   errorText: (error: unknown) => String(error),
 }))
 vi.mock('./workspace', () => ({ useWorkspace: { getState: () => workspace } }))
+vi.mock('./tabs', () => ({
+  useTabs: { getState: () => tabs },
+  suspendFileSaves: tabs.suspend,
+}))
 vi.mock('./ui', () => ({ useUi: { getState: () => ui } }))
 vi.mock('../i18n', () => ({ t: (key: string) => key }))
 
@@ -66,10 +80,18 @@ beforeEach(() => {
   useGit.getState().reset()
   workspace.roots = [{ id: '/repo', name: 'Repo', isGitRepo: true }]
   ui.confirm.mockResolvedValue(true)
+  tabs.tabs = []
+  tabs.save.mockReset().mockResolvedValue(true)
+  tabs.onDeleted.mockReset()
+  tabs.refreshFromDisk.mockReset().mockResolvedValue(undefined)
+  tabs.suspend.mockReset().mockResolvedValue(vi.fn())
   api.gitStage.mockResolvedValue(undefined)
   api.gitUnstage.mockResolvedValue(undefined)
   api.gitDiscard.mockResolvedValue(undefined)
   api.gitCommit.mockResolvedValue('')
+  api.gitStash.mockResolvedValue('')
+  api.gitStashPop.mockResolvedValue('')
+  api.gitResetAll.mockResolvedValue(undefined)
   api.gitStatus.mockResolvedValue(status())
   useGit.setState({
     statuses: { '/repo': status({ changes: [{ path: 'a.ts', status: 'M' }] }) },
@@ -141,6 +163,82 @@ it('restores authoritative rows after a failed optimistic mutation', async () =>
   expect(ui.toast).toHaveBeenCalledOnce()
   expect(useGit.getState().statuses['/repo'].changes).toEqual([{ path: 'a.ts', status: 'M' }])
   expect(useGit.getState().statuses['/repo'].staged).toEqual([])
+})
+
+it('suspends open file saves, stashes and force-reloads them', async () => {
+  tabs.tabs = [
+    { id: 't1', root: '/repo', rel: 'a.ts', kind: 'file', external: false, dirty: false },
+    { id: 't2', root: '/other', rel: 'b.ts', kind: 'file', external: false, dirty: false },
+  ]
+
+  await useGit.getState().stashChanges('/repo')
+
+  expect(tabs.suspend).toHaveBeenCalledWith('/repo', ['a.ts'])
+  expect(api.gitStash).toHaveBeenCalledWith('/repo')
+  expect(tabs.refreshFromDisk).toHaveBeenCalledWith('/repo', { force: true, paths: ['a.ts'] })
+  expect(useGit.getState().busy).toBeNull()
+  expect(ui.toast).toHaveBeenCalledWith('toast.gitStashed', 'success')
+})
+
+it('saves dirty project files before stashing and aborts when a save fails', async () => {
+  tabs.tabs = [
+    { id: 't1', root: '/repo', rel: 'a.ts', kind: 'file', external: false, dirty: true },
+  ]
+  tabs.save.mockResolvedValue(false)
+
+  await useGit.getState().stashChanges('/repo')
+
+  expect(tabs.save).toHaveBeenCalledWith('t1')
+  expect(api.gitStash).not.toHaveBeenCalled()
+  expect(useGit.getState().busy).toBeNull()
+})
+
+it('closes tabs of staged-added files removed by a stash', async () => {
+  useGit.setState({
+    statuses: {
+      '/repo': status({ staged: [{ path: 'new.ts', status: 'A' }], changes: [] }),
+    },
+  })
+  tabs.tabs = [
+    { id: 't1', root: '/repo', rel: 'new.ts', kind: 'file', external: false, dirty: false },
+  ]
+
+  await useGit.getState().stashChanges('/repo')
+
+  expect(tabs.onDeleted).toHaveBeenCalledWith('/repo', 'new.ts')
+  expect(tabs.refreshFromDisk).not.toHaveBeenCalled()
+})
+
+it('refreshes the worktree after a conflicted stash pop and still reports the error', async () => {
+  api.gitStashPop.mockRejectedValue(new Error('conflict'))
+  tabs.tabs = [
+    { id: 't1', root: '/repo', rel: 'a.ts', kind: 'file', external: false, dirty: false },
+  ]
+
+  await useGit.getState().popStash('/repo')
+
+  expect(ui.toast).toHaveBeenCalledWith('Error: conflict', 'error')
+  expect(api.gitStatus).toHaveBeenCalled()
+  expect(tabs.refreshFromDisk).toHaveBeenCalledWith('/repo', { force: true, paths: ['a.ts'] })
+  expect(useGit.getState().busy).toBeNull()
+})
+
+it('requires confirmation before resetting all changes', async () => {
+  ui.confirm.mockResolvedValue(false)
+  await useGit.getState().resetAll('/repo')
+  expect(api.gitResetAll).not.toHaveBeenCalled()
+
+  ui.confirm.mockResolvedValue(true)
+  tabs.tabs = [
+    { id: 't1', root: '/repo', rel: 'a.ts', kind: 'file', external: false, dirty: false },
+  ]
+  await useGit.getState().resetAll('/repo')
+  expect(ui.confirm).toHaveBeenCalledWith(expect.objectContaining({
+    danger: true,
+    confirmOnEnter: false,
+  }))
+  expect(api.gitResetAll).toHaveBeenCalledWith('/repo')
+  expect(tabs.refreshFromDisk).toHaveBeenCalledWith('/repo', { force: true, paths: ['a.ts'] })
 })
 
 it('makes commit wait for queued index work', async () => {

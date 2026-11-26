@@ -75,6 +75,8 @@ export type TreeReveal = {
   rel: string
   isDir: boolean
   nonce: number
+  /** Centre the revealed row in the tree viewport instead of only scrolling it into view */
+  center?: boolean
 }
 
 let nextRevealNonce = 1

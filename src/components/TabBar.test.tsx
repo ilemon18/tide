@@ -32,12 +32,12 @@ vi.mock('./ContextMenu', () => ({ ContextMenu: (props: { items: Array<{ label: s
   return null
 } }))
 vi.mock('../lib/groupDrop', () => ({ groupUnderPointer: vi.fn(), highlightPane: vi.fn(), insertionIndex: vi.fn() }))
-vi.mock('../lib/actions', () => ({ openFileDialog: vi.fn() }))
+vi.mock('../lib/actions', () => ({ openFileDialog: vi.fn(), revealInExplorer: vi.fn() }))
 
 import { useTabs } from '../store/tabs'
 import { useAgent } from '../store/agent'
 import { TabBar } from './TabBar'
-import { openFileDialog } from '../lib/actions'
+import { openFileDialog, revealInExplorer } from '../lib/actions'
 
 const tab = (id: string, kind: Tab['kind'] = 'chat', pinned = false): Tab => ({
   id, kind, pinned, root: '/repo', rel: kind === 'file' ? 'example.ts' : '', name: 'Example',
@@ -69,6 +69,24 @@ it('shows saved conversation titles and retains provider icons and execution sta
   expect(item.querySelector('[data-provider-icon]')).toBeTruthy()
   expect(within(item).getByRole('img', { name: 'agent.working' })).toBeTruthy()
   expect(within(item).queryByText('agent.tabLabel')).toBeNull()
+})
+
+it('promotes a file tab and reveals it centred in the explorer on double-click', () => {
+  const { container } = render(<TabBar groupId="primary" />)
+  const item = container.querySelector<HTMLElement>('[data-tab-id="example"]')!
+  fireEvent.doubleClick(item, { clientX: 40, clientY: 10 })
+  expect(useTabs.getState().promoteTab).toHaveBeenCalledWith('example')
+  expect(revealInExplorer).toHaveBeenCalledWith('/repo', 'example.ts', false, { center: true })
+})
+
+it('does not reveal external tabs', () => {
+  useTabs.setState({
+    tabs: [{ ...tab('outside', 'file'), external: true, root: '/outside/file.ts', rel: '' }],
+    groups: [{ id: 'primary', activeId: 'outside', order: ['outside'] }],
+  })
+  const { container } = render(<TabBar groupId="primary" />)
+  fireEvent.doubleClick(container.querySelector<HTMLElement>('[data-tab-id="outside"]')!)
+  expect(revealInExplorer).not.toHaveBeenCalled()
 })
 
 it('falls back to new chat and updates its label and tooltip when the title changes or resets', () => {

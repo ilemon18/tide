@@ -31,7 +31,7 @@ vi.mock('../i18n', () => ({ useT: () => (key: string) => key, useLocale: () => '
 vi.mock('./FileIcon', () => ({ FileIcon: () => null }))
 vi.mock('./Icon', () => ({ Icon: () => null }))
 vi.mock('./ContextMenu', () => ({ ContextMenu: () => null }))
-import { FileTree } from './FileTree'
+import { FileTree, ROW_H, centeredTreeTop } from './FileTree'
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -77,4 +77,12 @@ it('keeps the collapsed hint actionable even when the roots have not been read',
   expect(screen.queryByText('explorer.reading')).toBeNull()
   fireEvent.click(screen.getByRole('button', { name: 'explorer.collapsed' }))
   expect(toggleRootCollapsed.mock.calls).toEqual([['/repo'], ['/other']])
+})
+
+
+it('centers a row in the tree viewport and clamps at both ends', () => {
+  expect(centeredTreeTop(0, 10 * ROW_H, 100)).toBe(0)
+  expect(centeredTreeTop(50, 10 * ROW_H, 100)).toBe(50 * ROW_H - (10 * ROW_H - ROW_H) / 2)
+  expect(centeredTreeTop(99, 10 * ROW_H, 100)).toBe(100 * ROW_H - 10 * ROW_H)
+  expect(centeredTreeTop(3, 20 * ROW_H, 5)).toBe(0)
 })

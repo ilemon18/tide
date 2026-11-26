@@ -8,11 +8,12 @@ const { git, workspace, settings, tabs, actions, drag } = vi.hoisted(() => ({
   git: {
     statuses: {} as Record<string, GitStatus>, busy: null as string | null,
     refresh: vi.fn(), stage: vi.fn(), unstage: vi.fn(), discard: vi.fn(), resetConflict: vi.fn(),
+    stashChanges: vi.fn(), popStash: vi.fn(), resetAll: vi.fn(),
   },
   workspace: { roots: [{ id: '/repo', name: 'Repo', isGitRepo: true }] },
   settings: { agentEnabled: true },
   tabs: { tabs: [], activeId: null, openDiff: vi.fn(), openFile: vi.fn(), refreshFromDisk: vi.fn() },
-  actions: { readDir: vi.fn(), renameEntryFlow: vi.fn(), deleteEntryFlow: vi.fn(), revealEntry: vi.fn(), copyText: vi.fn(), newChat: vi.fn() },
+  actions: { readDir: vi.fn(), renameEntryFlow: vi.fn(), deleteEntryFlow: vi.fn(), revealEntry: vi.fn(), copyText: vi.fn(), newChat: vi.fn(), gitStashCount: vi.fn() },
   drag: { finished: false, begin: vi.fn() },
 }))
 vi.mock('../store/git', () => ({ useGit: (select: (state: unknown) => unknown) => select(git) }))
@@ -21,7 +22,7 @@ vi.mock('../store/settings', () => ({ useSettings: (select: (state: unknown) => 
 vi.mock('../store/tabs', () => ({ useTabs: Object.assign((select: (state: unknown) => unknown) => select(tabs), { getState: () => tabs }) }))
 vi.mock('../store/blame', () => ({ useBlame: { getState: () => ({ clear: vi.fn(), scheduleFetch: vi.fn() }) } }))
 vi.mock('../store/agent', () => ({ useAgent: { getState: () => ({ newChat: actions.newChat }) } }))
-vi.mock('../lib/ipc', () => ({ api: { readDir: actions.readDir }, errorCode: (error: { code?: string }) => error.code ?? null }))
+vi.mock('../lib/ipc', () => ({ api: { readDir: actions.readDir, gitStashCount: actions.gitStashCount }, errorCode: (error: { code?: string }) => error.code ?? null }))
 vi.mock('../lib/actions', () => ({ renameEntryFlow: actions.renameEntryFlow, deleteEntryFlow: actions.deleteEntryFlow, revealEntry: actions.revealEntry }))
 vi.mock('../lib/clipboard', () => ({ copyText: actions.copyText }))
 vi.mock('../lib/fileDragState', () => ({ beginFilePointerDrag: drag.begin, wasFileDragJustFinished: () => drag.finished }))
@@ -37,6 +38,7 @@ const entry = (path = 'src/a.ts', extra: Partial<DirEntryInfo> = {}): DirEntryIn
 beforeEach(() => {
   vi.clearAllMocks()
   actions.readDir.mockReset().mockResolvedValue({ entries: [entry()], hasMore: false })
+  actions.gitStashCount.mockReset().mockResolvedValue(2)
   git.busy = null
   git.statuses = { '/repo': {
     isRepo: true, branch: 'main', head: 'abc', ahead: 0, behind: 0,
@@ -124,6 +126,33 @@ it('uses worktree metadata even when a staged deletion has a replacement file', 
   await openMenu()
   expect(button('diff.openFile')).toBeTruthy()
   expect(button('explorer.rename')).toBeTruthy()
+})
+
+it('offers stash, pop and reset in the more-actions menu', async () => {
+  const { container } = render(<GitPanel />)
+  fireEvent.click(container.querySelector('[data-tip="git.moreActions"]') as HTMLElement)
+  await waitFor(() => expect(actions.gitStashCount).toHaveBeenCalledWith('/repo'))
+  await screen.findByRole('button', { name: 'git.popStashCount' })
+
+  fireEvent.click(button('git.stashChangesgit.stashChangesHint'))
+  expect(git.stashChanges).toHaveBeenCalledWith('/repo')
+
+  fireEvent.click(container.querySelector('[data-tip="git.moreActions"]') as HTMLElement)
+  fireEvent.click(await screen.findByRole('button', { name: 'git.popStashCount' }))
+  expect(git.popStash).toHaveBeenCalledWith('/repo')
+
+  fireEvent.click(container.querySelector('[data-tip="git.moreActions"]') as HTMLElement)
+  fireEvent.click(await screen.findByRole('button', { name: 'git.resetAllgit.resetAllHint' }))
+  expect(git.resetAll).toHaveBeenCalledWith('/repo')
+})
+
+it('disables stash and reset when there are no tracked changes', async () => {
+  git.statuses['/repo'].changes = []
+  const { container } = render(<GitPanel />)
+  fireEvent.click(container.querySelector('[data-tip="git.moreActions"]') as HTMLElement)
+  await screen.findByRole('button', { name: 'git.resetAllgit.resetAllHint' })
+  expect(button('git.stashChangesgit.stashChangesHint').disabled).toBe(true)
+  expect(button('git.resetAllgit.resetAllHint').disabled).toBe(true)
 })
 
 it('shows conflict actions and opens the worktree on single click', async () => {

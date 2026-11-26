@@ -89,6 +89,21 @@ and subprocess policy. DiffView/diffScroll own positioning; editor/conflicts own
   tabs to prevent writeback. IPC failure restores the whole snapshot; partial backend failure restores only
   unprocessed rows. Status refresh waits for older requests.
 
+## Stash and reset
+
+- useGit.stashChanges saves dirty project files first (never untitled buffers), suspends open-file saves,
+  then runs `git stash push` (tracked index + worktree; untracked files stay). Staged-new tabs close because
+  the file leaves the worktree; the rest force-reload. Failure resumes autosave from the successful snapshot.
+- useGit.popStash saves/suspends the same way, then `git stash pop` on the latest entry (no `--index`). A
+  conflict exits non-zero after partially applying the stash, so status and open files are refreshed even
+  on failure before the raw git error is shown; git keeps the stash entry.
+- useGit.resetAll requires a danger confirmation with Enter disabled, then runs `git reset --hard HEAD`
+  without saving: staged + unstaged tracked changes are discarded, untracked files stay, staged-new tabs
+  close and other open files force-reload. Undo-last-commit and reset share the no-operation guard; reset
+  without HEAD reports `git.noCommitToReset`.
+- `git stash list` is read only when the more-actions menu opens; status polling never adds a process.
+  All three mutations wait for the per-root index queue and take the global busy lock.
+
 ## Diff and conflict contracts
 
 - Compare against /dev/null only for untracked files (is_tracked). Empty unstaged worktree=index or staged

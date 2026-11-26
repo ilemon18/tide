@@ -386,6 +386,9 @@ export const es: Messages = {
   'dialog.gitUndoCommit.message':
     'Se retira el último commit, sus cambios quedan preparados y el mensaje vuelve al campo. Los commits ya publicados reescribirán el historial remoto.',
   'dialog.gitUndoCommit.confirm': 'Deshacer commit',
+  'dialog.gitResetAll.title': '¿Restablecer todos los cambios?',
+  'dialog.gitResetAll.message': 'Se descartan todos los cambios rastreados preparados y no preparados, y los archivos vuelven a HEAD. Los archivos sin seguimiento se conservan. Los cambios sin guardar en archivos abiertos se pierden. Esta acción no se puede deshacer.',
+  'dialog.gitResetAll.confirm': 'Restablecer todo',
   'dialog.gitAbort.title': 'Abortar la operación',
   'dialog.gitAbort.message':
     'Aborta el merge / cherry-pick / rebase en curso y devuelve el árbol de trabajo a su estado anterior.',
@@ -427,6 +430,9 @@ export const es: Messages = {
   'toast.pushDone': 'Push completado',
   'toast.fetchDone': 'Ramas remotas sincronizadas',
   'toast.gitSkipped': 'Se omitió el paso actual; la lista de conflictos está actualizada',
+  'toast.gitStashed': 'Cambios guardados en stash',
+  'toast.gitStashPopped': 'Stash aplicado',
+  'toast.gitResetAll': 'Se restablecieron todos los cambios rastreados',
   'toast.replaced':
     'Se reemplazaron {matches} coincidencias en {count} archivo | Se reemplazaron {matches} coincidencias en {count} archivos',
   'toast.replacedDirty':
@@ -619,6 +625,12 @@ export const es: Messages = {
   'git.moreActions': 'Más acciones',
   'git.openChanges': 'Abrir cambios',
   'git.undoLastCommit': 'Deshacer el último commit',
+  'git.stashChanges': 'Guardar cambios en stash',
+  'git.stashChangesHint': 'Solo cambios rastreados · los archivos sin seguimiento se quedan',
+  'git.popStash': 'Aplicar stash',
+  'git.popStashCount': 'Aplicar stash ({count})',
+  'git.resetAll': 'Restablecer todos los cambios',
+  'git.resetAllHint': 'Cambios rastreados preparados y no preparados',
   'git.conflictsCount': '{count} conflicto | {count} conflictos',
   'git.markResolvedFirst': 'Primero marca los archivos en conflicto como resueltos',
   'git.commitPlaceholderOp': '{label}: mensaje del commit (del otro lado)',
@@ -789,6 +801,7 @@ export const es: Messages = {
   'error.git.notRepo': 'Esta carpeta no es un repositorio Git',
   'error.git.notTracked': 'No se puede restaurar {path}: el archivo ya no está en el índice.',
   'error.git.noCommitToUndo': 'La rama actual no tiene ningún commit que deshacer',
+  'error.git.noCommitToReset': 'La rama actual no tiene ningún commit al que restablecer',
   'error.git.detachedUndo': 'HEAD está separado; no se puede deshacer el único commit',
   'error.git.noRemote': 'Este repositorio no tiene remoto configurado',
   'error.git.invalidSha': 'Id de commit no válido',

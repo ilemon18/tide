@@ -19,7 +19,7 @@ import { useSettings } from '../store/settings'
 import { Icon, type IconName } from './Icon'
 import { FileIcon } from './FileIcon'
 import { ContextMenu, type MenuItem } from './ContextMenu'
-import type { DirEntryInfo, GitFile } from '../lib/ipc'
+import { api, type DirEntryInfo, type GitFile } from '../lib/ipc'
 import { basename, dirname } from '../lib/paths'
 import { readWorkspaceEntry } from '../lib/workspaceEntries'
 import { deleteEntryFlow, renameEntryFlow, revealEntry } from '../lib/actions'
@@ -350,6 +350,9 @@ const RepoSection = memo(function RepoSection({
   const pull = useGit((s) => s.pull)
   const push = useGit((s) => s.push)
   const undoLastCommit = useGit((s) => s.undoLastCommit)
+  const stashChanges = useGit((s) => s.stashChanges)
+  const popStash = useGit((s) => s.popStash)
+  const resetAll = useGit((s) => s.resetAll)
   const openDiff = useTabs((s) => s.openDiff)
   const openFile = useTabs((s) => s.openFile)
   const refreshFromDisk = useTabs((s) => s.refreshFromDisk)
@@ -363,6 +366,8 @@ const RepoSection = memo(function RepoSection({
   const touched = useRef(false)
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
+  /** null = not asked yet; only read when the more-actions menu opens */
+  const [stashCount, setStashCount] = useState<number | null>(null)
   const [fileMenu, setFileMenu] = useState<{
     x: number; y: number; file: GitFile; group: FileGroup; request: symbol; entry?: DirEntryInfo; loading: boolean; metadataFailed?: boolean
   } | null>(null)
@@ -653,6 +658,7 @@ const RepoSection = memo(function RepoSection({
     )
   }
 
+  const trackedChanges = status.staged.length + status.changes.length
   const moreItems: MenuItem[] = [
     {
       label: t('git.undoLastCommit'),
@@ -667,6 +673,28 @@ const RepoSection = memo(function RepoSection({
           refreshBlame()
         })
       },
+    },
+    { type: 'separator' },
+    {
+      label: t('git.stashChanges'),
+      description: t('git.stashChangesHint'),
+      disabled: busy !== null || Boolean(operation) || trackedChanges === 0,
+      onClick: () => void stashChanges(root.id),
+    },
+    {
+      label: stashCount && stashCount > 0
+        ? t('git.popStashCount', { count: stashCount })
+        : t('git.popStash'),
+      disabled: busy !== null || Boolean(operation) || stashCount === 0,
+      onClick: () => void popStash(root.id),
+    },
+    { type: 'separator' },
+    {
+      label: t('git.resetAll'),
+      description: t('git.resetAllHint'),
+      danger: true,
+      disabled: busy !== null || Boolean(operation) || !status.head || trackedChanges === 0,
+      onClick: () => void resetAll(root.id),
     },
   ]
   // Once every conflict is resolved the operation card disappears; keep skip / abort reachable here.
@@ -715,6 +743,8 @@ const RepoSection = memo(function RepoSection({
             onClick={(e) => {
               const rect = e.currentTarget.getBoundingClientRect()
               setFileMenu(null)
+              setStashCount(null)
+              void api.gitStashCount(root.id).then(setStashCount).catch(() => setStashCount(null))
               setMenu({ x: rect.right - 190, y: rect.bottom + 4 })
             }}
           />

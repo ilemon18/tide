@@ -12,6 +12,7 @@ import { blameExtension, blameField, setBlameEffect } from './blame'
 import type { BlameResult } from '../lib/ipc'
 import { flashExtension } from './highlight'
 import { importLinkExtension, supportsImportLinks } from './importLinks'
+import { diffMarksGutter } from './diffGutter'
 import { conflictExtension, conflictRulerExtension, looksLikeConflict } from './conflicts'
 import { mirrorKey } from './stateKeys'
 import { publishMarkdownDoc } from './markdownDocs'
@@ -254,6 +255,8 @@ type CreateFileOpts = {
   conflicted?: boolean
   /** Import-link extension; false for external files (their root is the file, not a project) */
   importLinks?: boolean
+  /** Git change bar in the line-number gutter; omitted for untitled / external / preview states */
+  diffGutter?: boolean
   blame?: BlameResult | null
   /** Where the caret goes: the remembered position (restored tab / cache rebuild), 1-based */
   cursor?: { line: number; col: number }
@@ -261,6 +264,9 @@ type CreateFileOpts = {
 
 export async function createFileState(opts: CreateFileOpts): Promise<EditorState> {
   const lang = opts.tier === 'preview' ? null : await loadLanguage(opts.rel)
+  // Project files get the change bar by default; external files pass importLinks: false and
+  // untitled buffers opt out explicitly.
+  const diffGutter = opts.diffGutter ?? (opts.importLinks !== false)
   const tabId = opts.tabId ?? opts.id
   const slot = { id: tabId, rel: opts.rel }
   slots.set(opts.id, slot)
@@ -269,6 +275,8 @@ export async function createFileState(opts: CreateFileOpts): Promise<EditorState
   const state = EditorState.create({
     doc: opts.content,
     extensions: [
+      // Registered before the line numbers, so the 4px change bar sits at the gutter's left edge.
+      diffGutter && opts.tier !== 'preview' ? diffMarksGutter : [],
       buildBaseExtensions({
         tabSize: opts.tabSize,
         useTabs: opts.useTabs,

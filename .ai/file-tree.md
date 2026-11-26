@@ -39,6 +39,10 @@ pages and leaves scan caps to Rust read_dir. Permission/other failures stay dist
 - Tree and chain probes share one filter: .DS_Store and (when hidden files are off) dot-entries. Follow
   each file once through the followed ref; scroll only its directory row, never alter expansion or refollow
   on row rebuilds. Rust resolve_dir_chain and frontend buildRows resolve visible rows with local bounds.
+- TreeReveal.center is an explicit re-reveal (tab double-click): after expanding, FileTree centres the
+  target (or its folded compact row) with `centeredTreeTop`, clamped to the list bounds, even when it is
+  already selected (a reveal tick forces the layout effect). Plain reveals keep the minimal "scroll into
+  view" behaviour and never move a row that is already visible.
 - isSymlink comes from link metadata. All symlinks are leaves (isDir=false), even directory links.
   Single click, ⌘↓ and pane drop reject open/expand with error.fs.symlinkUnsupported; rename/delete/move
   operate on the link itself. Double-click remains the tree gesture; its second click must not repeat

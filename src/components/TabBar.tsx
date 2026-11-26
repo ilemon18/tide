@@ -24,7 +24,7 @@ import { useAgent } from '../store/agent'
 import { AgentProviderIcon } from './AgentProviderIcon'
 import { AgentTabStatus } from './AgentTabStatus'
 import { EditorContextActions } from './EditorContextActions'
-import { openFileDialog } from '../lib/actions'
+import { openFileDialog, revealInExplorer } from '../lib/actions'
 
 const GAP = 2
 /** Position estimate only, until the intrinsic tab width has been measured. */
@@ -513,7 +513,18 @@ export function TabBar({ groupId }: { groupId: TabGroupId }) {
     // Double-clicking the close button is a double-close misclick, not a tab promotion
     if ((event.target as HTMLElement).closest('button')) return
     promoteTab(id)
-  }, [promoteTab])
+    // Second gesture on a file tab: show it again in the explorer, centred in the tree viewport.
+    const tab = allTabs.find((item) => item.id === id)
+    if (
+      tab &&
+      (tab.kind === 'file' || tab.kind === 'diff') &&
+      !tab.external &&
+      tab.root &&
+      tab.rel
+    ) {
+      revealInExplorer(tab.root, tab.rel, false, { center: true })
+    }
+  }, [allTabs, promoteTab])
 
   const onClose = useCallback((id: string) => {
     if (isRunningTabId(id)) return

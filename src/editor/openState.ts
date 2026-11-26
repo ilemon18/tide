@@ -27,6 +27,7 @@ async function buildFromDisk(tab: Tab): Promise<EditorState | null> {
       wordWrap: tab.wordWrap ?? settings.wordWrap,
       indentGuides: settings.indentGuides,
       inlineBlame: false,
+      diffGutter: false,
     })
     // An untitled buffer has no file behind it: "unmodified" means empty. A draft restored with text stays marked
     // as unsaved until it is cleared again (its seed text is not a saved baseline)

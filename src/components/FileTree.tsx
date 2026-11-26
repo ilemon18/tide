@@ -21,11 +21,18 @@ import { dirname, parentChain, basename, isUnder } from '../lib/paths'
 import { t as translate, useLocale, useT } from '../i18n'
 import { copyText } from '../lib/clipboard'
 
-const ROW_H = 24
+export const ROW_H = 24
 const OVERSCAN = 10
 const INDENT = 14
 /** Wait this long after the last scroll event before resolving folder chains for the new viewport. */
 const SCROLL_IDLE_MS = 120
+
+/** Scroll offset that puts row `index` in the middle of the viewport, clamped to the list bounds. */
+export function centeredTreeTop(index: number, viewportHeight: number, rowCount: number): number {
+  const max = Math.max(0, rowCount * ROW_H - viewportHeight)
+  const centered = index * ROW_H - (viewportHeight - ROW_H) / 2
+  return Math.max(0, Math.min(max, centered))
+}
 
 /** Stable identity of a row across folder-chain compaction (`start` stays the same). */
 function rowAnchorKey(row: Row): string {
@@ -274,11 +281,14 @@ export function FileTree() {
     isSymlink: boolean
   } | null>(null)
   const [scrollTop, setScrollTop] = useState(remembered.top)
+  /** Bumped by a centered reveal so re-revealing the already-selected file still scrolls. */
+  const [revealTick, setRevealTick] = useState(0)
   const [viewportH, setViewportH] = useState(600)
   const rootKey = useMemo(() => roots.map((root) => root.id).join('|'), [roots])
 
   const containerRef = useRef<HTMLDivElement>(null)
   const handledReveal = useRef(0)
+  const pendingCenter = useRef<{ key: string; root: string } | null>(null)
   /** The file the list was last scrolled to: survives the view switch, so coming back does not re-follow */
   const followed = useRef(remembered.followed)
   /** The first run of "scroll the selection into view" must not move the list: the restored offset wins */
@@ -468,7 +478,7 @@ export function FileTree() {
   useEffect(() => {
     if (!treeReveal || treeReveal.nonce === handledReveal.current) return
     handledReveal.current = treeReveal.nonce
-    const { root, rel, isDir, nonce } = treeReveal
+    const { root, rel, isDir, nonce, center } = treeReveal
     const ws = useWorkspace.getState()
     const node = ws.roots.find((r) => r.id === root)
     if (!node) {
@@ -493,7 +503,14 @@ export function FileTree() {
       }
       // If something else was clicked meanwhile, the old request must not override the new selection
       if (useWorkspace.getState().treeReveal?.nonce !== nonce) return
-      setSelected(rel ? `${root}:${rel}` : null)
+      const key = rel ? `${root}:${rel}` : null
+      if (center && key) {
+        pendingCenter.current = { key, root }
+        setRevealTick((value) => value + 1)
+      } else {
+        pendingCenter.current = null
+      }
+      setSelected(key)
       ws.clearTreeReveal(nonce)
     })()
   }, [treeReveal])
@@ -615,6 +632,21 @@ export function FileTree() {
     if (top < viewTop) scrollTreeTo(el, top)
     else if (bottom > viewBottom) scrollTreeTo(el, bottom - el.clientHeight)
   }, [activeKey, activeRel, activeRoot, rows, scrollTreeTo])
+
+  // Centered reveal: runs after the plain "selection into view" effect, so it wins the scroll.
+  // The row may have folded onto a compressed directory chain; centering the selected row still
+  // puts the file's visible representation in the middle.
+  useLayoutEffect(() => {
+    const target = pendingCenter.current
+    if (!target || !selected) return
+    if (!selected.startsWith(`${target.root}:`)) return
+    const index = rows.findIndex((row) => row.key === selected)
+    if (index === -1) return
+    const el = containerRef.current
+    if (!el) return
+    pendingCenter.current = null
+    scrollTreeTo(el, centeredTreeTop(index, el.clientHeight, rows.length))
+  }, [selected, rows, revealTick, scrollTreeTo])
 
   const openRow = (row: Row) => {
     if (row.kind === 'more') {

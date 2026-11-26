@@ -344,11 +344,16 @@ export async function revealEntry(root: string, rel: string): Promise<void> {
 }
 
 /** Switch back to the explorer and reveal/select the target in the file tree */
-export function revealInExplorer(root: string, rel: string, isDir: boolean): void {
+export function revealInExplorer(
+  root: string,
+  rel: string,
+  isDir: boolean,
+  options?: { center?: boolean },
+): void {
   useUi.getState().setActivityView('explorer')
   if (!useSettings.getState().sidebarVisible) useSettings.getState().patch({ sidebarVisible: true })
   useWorkspace.getState().setActiveRoot(root)
-  useWorkspace.getState().requestTreeReveal({ root, rel, isDir })
+  useWorkspace.getState().requestTreeReveal({ root, rel, isDir, center: options?.center })
 }
 
 /** Drop files/folders into the window */

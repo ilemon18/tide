@@ -4,6 +4,8 @@ scope:
   - .ai/editor.md
   - src/store/tabs.ts
   - src/store/tabs.test.ts
+  - src/store/diffMarks.ts
+  - src/store/diffMarks.test.ts
   - src/components/EditorHost.tsx
   - src/components/EditorArea.tsx
   - src/components/TabBar.tsx
@@ -17,6 +19,8 @@ scope:
   - src/lib/externalTabs.ts
   - src/lib/externalTabs.test.ts
   - src/lib/tabTitle.ts
+  - src/lib/diffMarks.ts
+  - src/lib/diffMarks.test.ts
   - src/components/EditorContextActions*.tsx
 keywords:
   - editor
@@ -55,8 +59,9 @@ EditorHost selects tab kinds; markdown helpers own contained links and images.
   auto-save, formatting and images. Their cursor session lives in localStorage (`lib/externalTabs.ts`),
   not the Rust project session. Project switch still closes them with `closeEverything`.
 - Double-clicking tab-strip whitespace opens the blank-tab menu (New text file / Open file…); tabs keep
-  their own double-click promotion. Open File is the first Welcome action and a palette command (`file.open`,
-  no default stroke so Mod+O stays Open Folder).
+  their own double-click promotion. A file/diff tab double-click also switches to Explorer and requests a
+  centred tree reveal (`TreeReveal.center`); external tabs only promote. Open File is the first Welcome
+  action and a palette command (`file.open`, no default stroke so Mod+O stays Open Folder).
 - Hydrate project/root/chain/tabs as one gate behind the themed startup frame. Restore metadata first;
   load content/state on activation. Missing eol is safe only while there is no state to save. Restore
   file/cursor state only within the same project; virtual/chat tabs never enter file-layout persistence.
@@ -106,6 +111,15 @@ EditorHost selects tab kinds; markdown helpers own contained links and images.
   remote/absolute/escaping/SVG images; lib/markdown.ts and api.readImage allow contained relative raster images.
 - One EditorView/pane; stateCache swaps per-tab states through view.setState. editor/mirror.ts forwards
   split ChangeSets. Never store views/states in zustand or share a state between views.
+- The line-number gutter mirrors the right-edge DiffRuler: store/diffMarks caches parsed full-patch marks
+  per root+rel (mtime/dirty/diffEpoch signature; in-flight dedupe) and editor/diffGutter renders one
+  success/warning/danger bar per changed line. Project file states get the gutter before lineNumbers;
+  external, untracked-buffer and preview states do not. Marks are disk-based: typing maps their positions,
+  the next save reloads the real patch. EditorHost reapplies the current marks after every state swap.
+- ⌘/Ctrl-click in a code file first resolves an import path (importLinks, opens the target file). Otherwise
+  importJump resolves the identifier under the pointer, walks a member chain to its root, and moves the
+  caret to that binding's import line, centring it and using the sticky jump highlight. The import scan is
+  bounded to the first 2000 lines / 256KB and cached per immutable Text; non-imported symbols fall through.
 - Reconfigure theme/font/blame/wrap via Compartments; rebuilding state discards undo. DOM extensions
   (conflicts/blame/folds) need editor/locale.ts effects and destroy-time watchLocale unsubscribe. Large-file
   outline traversal must tolerate viewport-only Lezer trees.
