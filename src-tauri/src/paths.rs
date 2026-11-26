@@ -341,7 +341,12 @@ mod tests {
             Err(FileTargetError::Invalid) | Err(FileTargetError::NotFile)
         ));
         let normalized = normalize_file_target(&missing).unwrap();
-        assert_eq!(normalized, root.join("tide-normalize-file-target-missing.txt"));
+        // macOS temp dirs are symlinked (`/var` -> `/private/var`); the parent is canonicalized.
+        assert_eq!(normalized.parent(), Some(canon(&root).unwrap().as_path()));
+        assert_eq!(
+            normalized.file_name().and_then(|name| name.to_str()),
+            Some("tide-normalize-file-target-missing.txt")
+        );
     }
 
     #[test]

@@ -112,7 +112,7 @@ actions and queue gates. Rust parses questions/scans skills. Provider/model/perm
 - Draft/user-message/request attachments are optional for v:1 compatibility. snapshotAgentDraft owns
   queue/interjection copies; adding context never sends. Existing question/plan gates remain authoritative.
 - AgentAttachments renders bounded, expandable plain-text previews with capture time, copy and removal.
-  Queue/user-turn copies include snapshot text and source metadata. Unsent drafts/queues remain in memory.
+  Queue/user-turn copies include snapshot text and source metadata.
 - Limits live in src/lib/memoryBudget.ts and Rust agent/mod.rs: reject entire additions rather than
   truncating. Validate source root, shape, duplicate ids and UTF-8 sizes before changing a draft or sending.
 

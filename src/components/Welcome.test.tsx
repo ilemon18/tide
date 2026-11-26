@@ -18,7 +18,10 @@ vi.mock('../store/ui', () => ({
   useUi: (selector: (state: { setOverlay: () => void; openQuickOpen: () => void }) => unknown) =>
     selector({ setOverlay: vi.fn(), openQuickOpen: vi.fn() }),
 }))
-vi.mock('../i18n', () => ({ useT: () => (key: string) => key }))
+vi.mock('../i18n', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../i18n')>()),
+  useT: () => (key: string) => key,
+}))
 
 import { openFileDialog } from '../lib/actions'
 import { Welcome } from './Welcome'

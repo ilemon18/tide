@@ -91,20 +91,15 @@ An empty/failed probe never clears the saved model. Input/plans:
   stays a tree gesture. Items preserve source order, reconcile IDs and retain expansion.
 - Output folds show reply provider names (catalog, then Codex/Claude Code or ID); legacy replies use the chat
   provider. Retain expansion/copy. User bubbles show `agent.you`; copies omit speaker labels.
-- History opens for the active project in a non-modal right-side drawer; only the editor region narrows. It
-  validates roots on resume; native session IDs preserve provider continuation. Its preference is
-  independent from agentEnabled.
 - Tail reports activity/elapsed/confirmation waits; persist completion time and backend duration. Finished
   reopened turns show local HH:mm, live ones omit it. History expansion pauses following.
 - Tail status receives primitive fields and owns its one-second clock; streamed Markdown/tools never remount
   it. AgentSpinner rotates a fixed HTML box separately from SVG painting. Live replies use visible rendering;
   only inactive messages use automatic skipped-content rendering.
-- The configurable context.openOrLatest action (default Mod+Down) jumps only in the active chat, respecting
-  overlays and IME; its other focus context opens a file-tree row. Jumping loads the latest
-  history page first. Sends and successful interjections resume following after transcript commits, through
-  deferred content/viewport resizing and final completion layout. A running-to-finished transition also
-  re-enables following and anchors the completed reply at the latest bottom after deferred layout. Upward
-  reading gestures and direct scrollbar presses pause following. Layout-generated scroll events, including
+- The configurable context.openOrLatest action jumps only in the active chat, respecting overlays and IME;
+  its other focus context opens a file-tree row. Jumping loads the latest history page first. Sends,
+  successful interjections and running-to-finished transitions resume following and anchor the latest
+  bottom after deferred layout. Upward reading gestures and direct scrollbar presses pause following. Layout-generated scroll events, including
   upward offsets after content shrink/regrowth, never clear that intent and schedule another bottom anchor.
   First-send layout changes and queue/composer resizing retain following. Queued cards use the lighter panel surface.
   Observe transcript text/child mutations as well as box resizing so deferred stream smoothing and Markdown
@@ -120,11 +115,10 @@ An empty/failed probe never clears the saved model. Input/plans:
 
 ## Snapshot transport
 
-- AgentTurnRequest carries structured attachments. agent/mod.rs validates them before provider setup,
-  authorizes their owning root and contained relative paths, and serializes metadata/text as quoted JSON
-  context after prompt guidance. It does not reread snapshot content or change permission/planning state.
-- Request count/byte limits are owned by agent/mod.rs and mirror src/lib/memoryBudget.ts. Old callers
-  omit attachments safely. Provider test request fixtures include the new field.
+- AgentTurnRequest carries structured attachments; agent/mod.rs validates them before provider setup,
+  authorizes owning roots/contained relative paths and serializes metadata/text as quoted JSON after prompt
+  guidance. It neither rereads content nor changes permission/planning state.
+- Limits are owned by agent/mod.rs and mirror src/lib/memoryBudget.ts. Old callers may omit attachments.
 
 ## Change map and verification
 

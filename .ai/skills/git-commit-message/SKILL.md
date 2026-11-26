@@ -11,7 +11,7 @@ skill allowed to write Git state, and only through its two scripts.
 
 ## Rules
 
-- **Commit the subject only.** Call `scripts/commit.sh "<subject>"`; it passes one `-m`, so bullets,
+- **Commit the subject only.** Call `.ai/skills/git-commit-message/scripts/commit.sh "<subject>"`; it passes one `-m`, so bullets,
   `Refs:` and `BREAKING CHANGE:` lines stay in the reply and out of the commit. Anything history must
   keep belongs in the subject.
 - **Never** push, tag, amend, force, rebase, reset, stash, checkout, commit empty or use `--no-verify`.

@@ -19,7 +19,7 @@ const SAVE_DELAY = 800
 let timer: ReturnType<typeof setTimeout> | null = null
 
 function enabled(): boolean {
-  return Boolean(window.localStorage)
+  return typeof window !== 'undefined' && Boolean(window.localStorage)
 }
 
 export function loadUntitledDrafts(): UntitledDraft[] {

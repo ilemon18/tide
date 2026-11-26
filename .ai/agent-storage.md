@@ -45,7 +45,7 @@ tabs. Keep transcript v:1 compatible.
   Restore locks duplicates, revalidates root/lifetime/page epoch, preserves native options/pending gates and
   never sends. Drawer transitions invalidate restores; restore closes.
 - Restore focuses an existing target, else reuses the active same-root blank tab, then the last-focused blank,
-  else follows the Agent split rule. isBlankChat rejects transcript/pages/session/summary/usage, drafts with
+  else follows the Agent split rule. Native session IDs preserve provider continuation. isBlankChat rejects transcript/pages/session/summary/usage, drafts with
   text/attachments/mentions/commands/skills, queues and conflicting transactions. Recheck after loading;
   replace the tab reference, preserve pane/position/pinning and release the placeholder.
 - History deletion requires confirmation; Enter confirms only in this dialog (Cancel keeps cancellation), while
