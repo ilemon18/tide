@@ -8,6 +8,7 @@ vi.mock('../store/settings', async () => {
   const { create } = await import('zustand')
   return { useSettings: create(() => ({
     lightweightMode: false, locale: 'en', theme: 'tide', fontFamily: 'default', uiFontSize: 13,
+    fontWeight: 400, fontItalic: false, uiFontWeight: 400, uiFontItalic: false, rainbowBrackets: true,
     fontSize: 14, ligatures: false, autoSave: false, wordWrap: true, tabSize: 4, formatMode: 'off',
     formatTool: 'auto', inlineBlame: false, indentGuides: false, trimTrailingWhitespace: false,
     insertFinalNewline: true, iconTheme: 'default', showHidden: false, compactFolders: false,
@@ -74,6 +75,51 @@ afterEach(() => {
 function selectSection(section: SettingsSectionId) {
   fireEvent.click(screen.getByRole('button', { name: t(`settings.section.${section}.label`) }))
 }
+
+it('adjusts code/UI font styles independently and previews the actual preferences', () => {
+  render(<SettingsView />)
+  selectSection('appearance')
+  for (const [key, field] of [['settings.appearance.codeFontWeight', 'fontWeight'], ['settings.appearance.uiFontWeight', 'uiFontWeight']] as const) {
+    fireEvent.click(screen.getByRole('button', { name: t(key) }))
+    fireEvent.click(screen.getByRole('button', { name: '700' }))
+    expect(useSettings.getState().patch).toHaveBeenLastCalledWith({ [field]: 700 })
+  }
+  for (const [key, field] of [['settings.appearance.codeFontItalic', 'fontItalic'], ['settings.appearance.uiFontItalic', 'uiFontItalic']] as const) {
+    fireEvent.click(screen.getByRole('switch', { name: t(key) }))
+    expect(useSettings.getState().patch).toHaveBeenLastCalledWith({ [field]: true })
+  }
+  act(() => useSettings.setState({ fontWeight: 700, fontItalic: true, uiFontWeight: 300, uiFontItalic: false }))
+  const code = screen.getByText(t('fonts.preview'))
+  const ui = screen.getByText(t('fonts.uiPreview'))
+  expect([code.style.fontWeight, code.style.fontStyle]).toEqual(['700', 'italic'])
+  expect([ui.style.fontWeight, ui.style.fontStyle]).toEqual(['300', 'normal'])
+  act(() => useSettings.setState({ fontWeight: 400, fontItalic: false, uiFontWeight: 400, uiFontItalic: false }))
+})
+
+it('offers a rainbow bracket toggle in editor display settings', () => {
+  render(<SettingsView />)
+  selectSection('editor')
+  const toggle = screen.getByRole('switch', { name: t('settings.editor.rainbowBrackets') })
+  expect(toggle.getAttribute('aria-checked')).toBe('true')
+  fireEvent.click(toggle)
+  expect(useSettings.getState().patch).toHaveBeenLastCalledWith({ rainbowBrackets: false })
+})
+
+it('offers Consolas, Smiley Sans and the existing Fira Code with compatible preference ids', () => {
+  render(<SettingsView />)
+  selectSection('appearance')
+  for (const [id, key] of [['consolas', 'fonts.consolas'], ['smiley-sans', 'fonts.smileySans'], ['fira', 'fonts.fira']] as const) {
+    const buttons = screen.getAllByRole('button', { name: t(key) })
+    expect(buttons).toHaveLength(1)
+    fireEvent.click(buttons[0])
+    expect(useSettings.getState().patch).toHaveBeenLastCalledWith({ fontFamily: id })
+  }
+  const previous = useSettings.getState().fontFamily
+  act(() => useSettings.setState({ fontFamily: 'consolas' }))
+  expect(screen.getByText(t('fonts.consolasHint'))).toBeTruthy()
+  expect(screen.getByText(t('fonts.preview'))).toBeTruthy()
+  act(() => useSettings.setState({ fontFamily: previous }))
+})
 
 it('exposes one Tasks and Problems switch in the activity bar card', () => {
   render(<SettingsView />)

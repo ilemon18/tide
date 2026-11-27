@@ -36,6 +36,7 @@ export const ROUTING_FIXTURES = Object.freeze([
     paths: ['src/components/FileTree.test.tsx'],
     expected: ['file-tree.md'],
   },
+  { name: 'Git workflow dialogs', paths: ['src/components/GitDialogs.tsx', 'src/components/GitSettings.tsx', 'src-tauri/src/commands/project_tools.rs'], expected: ['git-ui.md'] },
   {
     name: 'Git file menu tests',
     paths: ['src/components/GitPanel.test.tsx'],
@@ -197,7 +198,7 @@ export const QUERY_FIXTURES = Object.freeze([
   { query: ' COMPOSER ', expected: ['agent-composer.md'] },
   { query: 'settings', expected: ['settings.md'] },
   { query: '诊断', expected: ['tasks.md'] },
-  { query: 'Git watcher', expected: ['git.md', 'file-tree.md'] },
+  { query: 'Git watcher', expected: ['git.md', 'file-tree.md', 'git-ui.md'] },
   { query: 'quantumzebra', expected: [] },
 ])
 

@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 import React from 'react'
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { RootNode, TreeReveal } from '../store/workspace'
+import type { MenuItem } from './ContextMenu'
 
-const { workspace, settings, tabs, chains, toggleRootCollapsed } = vi.hoisted(() => ({
+const { workspace, settings, tabs, chains, toggleRootCollapsed, openTerminal, newChat, openDirectory } = vi.hoisted(() => ({
   workspace: {
     roots: [] as RootNode[], treeReveal: null as TreeReveal | null, toggleDir: vi.fn(), loadMore: vi.fn(), moveEntry: vi.fn(),
     revealPath: vi.fn(), clearTreeReveal: vi.fn(),
@@ -13,6 +14,7 @@ const { workspace, settings, tabs, chains, toggleRootCollapsed } = vi.hoisted(()
   tabs: { tabs: [], activeId: null, openFile: vi.fn() },
   chains: { chains: {}, revision: 0 },
   toggleRootCollapsed: vi.fn(),
+  openTerminal: vi.fn(), newChat: vi.fn(), openDirectory: vi.fn(),
 }))
 vi.mock('../store/workspace', () => ({
   useWorkspace: Object.assign((select: (state: unknown) => unknown) => select({ ...workspace, toggleRootCollapsed }),
@@ -23,21 +25,25 @@ vi.mock('../store/tabs', () => ({ useTabs: (select: (state: unknown) => unknown)
 vi.mock('../store/git', () => ({ useGit: (select: (state: unknown) => unknown) => select({ statuses: {} }) }))
 vi.mock('../store/folderChain', () => ({ useFolderChain: (select: (state: unknown) => unknown) => select(chains) }))
 vi.mock('../store/ui', () => ({ useUi: { getState: () => ({}) } }))
-vi.mock('../store/agent', () => ({ useAgent: { getState: () => ({}) } }))
+vi.mock('../store/agent', () => ({ useAgent: { getState: () => ({ newChat }) } }))
 vi.mock('../store/search', () => ({ useSearch: { getState: () => ({}) } }))
-vi.mock('../store/terminal', () => ({ useTerminal: { getState: () => ({}) } }))
+vi.mock('../store/terminal', () => ({ useTerminal: { getState: () => ({ open: openTerminal }) } }))
 vi.mock('../lib/useShortcut', () => ({ useShortcut: () => '' }))
-vi.mock('../lib/actions', () => ({ deleteEntryFlow: vi.fn(), newEntry: vi.fn(), revealEntry: vi.fn(), openFolderDialog: vi.fn() }))
+vi.mock('../lib/actions', () => ({ deleteEntryFlow: vi.fn(), newEntry: vi.fn(), revealEntry: vi.fn(), openFolderDialog: vi.fn(), openProjectDirectory: openDirectory, openProjectTerminal: vi.fn() }))
 vi.mock('../lib/clipboard', () => ({ copyText: vi.fn() }))
 vi.mock('../lib/fileDragState', () => ({ beginFilePointerDrag: vi.fn(), wasFileDragJustFinished: () => false }))
 vi.mock('../i18n', () => ({ useT: () => (key: string) => key, useLocale: () => 'en', t: (key: string) => key }))
 vi.mock('./FileIcon', () => ({ FileIcon: () => null }))
 vi.mock('./Icon', () => ({ Icon: () => null }))
-vi.mock('./ContextMenu', () => ({ ContextMenu: () => null }))
-import { FileTree, ROW_H, centeredTreeLeft, centeredTreeTop } from './FileTree'
+vi.mock('./ContextMenu', () => ({ ContextMenu: ({ items }: { items: MenuItem[] }) => <div data-testid="tree-menu">
+  {items.map((item, index) => item.type === 'separator' ? <hr key={index} />
+    : <button key={index} onClick={item.onClick}>{item.label}</button>)}
+</div> }))
+import { FileTree, ExplorerHeader, ROW_H, centeredTreeLeft, centeredTreeTop } from './FileTree'
 
 beforeEach(() => {
   vi.clearAllMocks()
+  settings.agentEnabled = true
   workspace.treeReveal = null
   workspace.revealPath.mockReset()
   workspace.clearTreeReveal.mockReset()
@@ -135,6 +141,32 @@ it('uses paged reveal for an upper-position file tab and preserves horizontal sc
   await waitFor(() => expect(tree.scrollTop).toBe(150 * ROW_H - 240 / 4))
   expect(tree.scrollLeft).toBe(87)
   expect(workspace.clearTreeReveal).toHaveBeenCalledWith(2)
+})
+
+it.each([true, false])('places the folder terminal entry immediately after Agent, or first when Agent is disabled (%s)', enabled => {
+  settings.agentEnabled = enabled
+  workspace.roots[0].tree[''].entries = [{ name: 'docs', path: 'docs', isDir: true, isSymlink: false, ignored: false, size: 0, mtime: 0 }]
+  render(<FileTree />)
+  fireEvent.contextMenu(screen.getByText('docs'))
+  const menu = within(screen.getByTestId('tree-menu'))
+  const labels = menu.getAllByRole('button').map(button => button.textContent)
+  expect(labels.slice(0, enabled ? 2 : 1)).toEqual(enabled
+    ? ['commands.agent.ask', 'explorer.openTerminalHere'] : ['explorer.openTerminalHere'])
+  fireEvent.click(menu.getByRole('button', { name: 'explorer.openTerminalHere' }))
+  expect(openTerminal).toHaveBeenCalledExactlyOnceWith('/repo', 'docs')
+  expect(newChat).not.toHaveBeenCalled()
+})
+
+it('opens the root folder on label double-click and exposes the penultimate folder action', () => {
+  const { container } = render(<ExplorerHeader />)
+  fireEvent.doubleClick(screen.getByRole('button', { name: 'explorer.toggleProjectAria' }))
+  expect(openDirectory).toHaveBeenCalledWith('/repo')
+  const buttons = container.querySelectorAll('button[data-tip]')
+  expect(buttons[buttons.length - 2].getAttribute('data-tip')).toBe('project.openDirectory')
+  fireEvent.click(buttons[buttons.length - 2])
+  expect(openDirectory).toHaveBeenCalledTimes(2)
+  fireEvent.contextMenu(screen.getByRole('button', { name: 'explorer.toggleProjectAria' }))
+  expect(screen.getByRole('button', { name: 'project.openNativeTerminal' })).toBeTruthy()
 })
 
 it('extends a folder expansion downward instead of pinning the new bottom', async () => {

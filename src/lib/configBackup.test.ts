@@ -19,6 +19,8 @@ vi.mock('../theme/apply', async () => {
     applyLigatures: vi.fn(),
     applyMonoFont: vi.fn(),
     applyUiFontSize: vi.fn(),
+    applyUiFontStyle: vi.fn(),
+    applyCodeFontStyle: vi.fn(),
     watchSystemTheme: vi.fn(),
   }
 })

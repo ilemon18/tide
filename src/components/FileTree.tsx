@@ -1,3 +1,5 @@
+import { ProjectMenu } from './ProjectMenu'
+import { openProjectDirectory } from '../lib/actions'
 import { useShortcut } from '../lib/useShortcut'
 import { registerCommandHandlers } from '../lib/commandRuntime'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
@@ -1041,19 +1043,19 @@ export function FileTree() {
                               { rel: menu.rel || '.', isDir: menu.isDir },
                             ]),
                         },
-                        { type: 'separator' as const },
                       ]
                     : []),
+                  ...(menu.isDir ? [{
+                    label: t('explorer.openTerminalHere'),
+                    onClick: () => useTerminal.getState().open(menu.root, menu.rel),
+                  }] : []),
+                  ...((agentEnabled && !menu.isSymlink) || menu.isDir ? [{ type: 'separator' as const }] : []),
                   ...(menu.isDir
                     ? ([
                         { label: t('explorer.newFile'), onClick: () => void newEntry(menu.root, menu.rel, 'file') },
                         { label: t('explorer.newFolder'), onClick: () => void newEntry(menu.root, menu.rel, 'dir') },
                         { type: 'separator' },
                         { label: t('explorer.searchInFolder'), onClick: () => searchInFolder(menu.root, menu.rel) },
-                        {
-                          label: t('explorer.openTerminalHere'),
-                          onClick: () => useTerminal.getState().open(menu.root, menu.rel),
-                        },
                         { type: 'separator' },
                       ] as MenuItem[])
                     : []),
@@ -1123,6 +1125,7 @@ export function ExplorerHeader() {
   const toggleRootCollapsed = useWorkspace((s) => s.toggleRootCollapsed)
   const showHidden = useSettings((s) => s.showHidden)
   const [expanding, setExpanding] = useState(false)
+  const [projectMenu, setProjectMenu] = useState<{ root: string; x: number; y: number } | null>(null)
   const root = roots.find((r) => r.id === activeRootId) ?? roots[0] ?? null
 
   // With any subdirectory expanded we treat the tree as expanded and switch the button to "collapse all"
@@ -1147,12 +1150,15 @@ export function ExplorerHeader() {
 
   return (
     <div className="flex w-full min-w-0 items-center gap-2">
+      {projectMenu ? <ProjectMenu {...projectMenu} onClose={() => setProjectMenu(null)} /> : null}
       {/* Project name: the tree's root row is gone, so this doubles as the whole tree's collapse toggle */}
       <button
         type="button"
         onClick={() => {
           if (root) toggleRootCollapsed(root.id)
         }}
+        onDoubleClick={() => { if (root) void openProjectDirectory(root.id) }}
+        onContextMenu={event => { event.preventDefault(); if (root) setProjectMenu({ root: root.id, x: event.clientX, y: event.clientY }) }}
         data-tip={root?.id ?? t('app.project')}
         data-tip-side="bottom"
         aria-label={t('explorer.toggleProjectAria')}
@@ -1175,6 +1181,7 @@ export function ExplorerHeader() {
           disabled={!root}
         />
         <HeaderButton icon="refresh" tip={t('explorer.refreshTip')} onClick={() => void refreshTree()} disabled={!root} />
+        <HeaderButton icon="folder-open" tip={t('project.openDirectory')} onClick={() => { if (root) void openProjectDirectory(root.id) }} disabled={!root} />
         <HeaderButton
           icon={expanding ? 'spinner' : isExpanded ? 'collapse' : 'expand'}
           tip={isExpanded ? t('explorer.collapseAll') : t('explorer.expandAll')}

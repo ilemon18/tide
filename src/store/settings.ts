@@ -1,3 +1,4 @@
+import { normalizeCommitTemplates } from '../lib/commitMessages'
 import { normalizeOverrides, overridesEqual } from '../lib/shortcuts'
 import { create } from 'zustand'
 import { api, errorText, type MonoFont, type Settings } from '../lib/ipc'
@@ -6,6 +7,8 @@ import {
   applyMonoFont,
   applyTheme,
   applyUiFontSize,
+  applyUiFontStyle,
+  applyCodeFontStyle,
   watchSystemTheme,
 } from '../theme/apply'
 import {
@@ -18,11 +21,11 @@ import {
 } from '../theme/palettes'
 import { monoStack, setEditorLook } from '../editor/stateCache'
 import { DEFAULT_ICON_THEME } from '../lib/iconTheme'
-import { DEFAULT_MONO_FONT } from '../lib/fonts'
+import { DEFAULT_MONO_FONT, normalizedFontWeight } from '../lib/fonts'
 import { applyLocale, DEFAULT_LOCALE, isLocale } from '../i18n'
 import { applyMemoryProfileChange, setMemoryProfile } from '../lib/memoryBudget'
 
-export const SETTINGS_SCHEMA_VERSION = 18
+export const SETTINGS_SCHEMA_VERSION = 20
 export const AGENT_COMPOSER_MIN_HEIGHT = 90
 export const AGENT_COMPOSER_MAX_HEIGHT = 480
 
@@ -33,9 +36,16 @@ export const DEFAULT_SETTINGS: Settings = {
   theme: DEFAULT_THEME,
   iconTheme: DEFAULT_ICON_THEME,
   fontFamily: DEFAULT_MONO_FONT,
+  fontWeight: 400,
+  fontItalic: false,
+  uiFontWeight: 400,
+  uiFontItalic: false,
   uiFontSize: 13,
   fontSize: 13,
+  commitMessageTemplates: [],
   terminalFontSize: 12,
+  terminalFontWeight: 400,
+  terminalFontItalic: false,
   terminalScrollback: 2000,
   terminalShell: '',
   tabSize: 2,
@@ -44,6 +54,7 @@ export const DEFAULT_SETTINGS: Settings = {
   trimTrailingWhitespace: false,
   insertFinalNewline: false,
   indentGuides: true,
+  rainbowBrackets: true,
   ligatures: false,
   formatMode: 'off',
   formatTool: 'auto',
@@ -103,9 +114,16 @@ const SHARED_KEYS = [
   'theme',
   'iconTheme',
   'fontFamily',
+  'fontWeight',
+  'fontItalic',
+  'uiFontWeight',
+  'uiFontItalic',
   'uiFontSize',
   'fontSize',
+  'commitMessageTemplates',
   'terminalFontSize',
+  'terminalFontWeight',
+  'terminalFontItalic',
   'terminalScrollback',
   'terminalShell',
   'tabSize',
@@ -114,6 +132,7 @@ const SHARED_KEYS = [
   'trimTrailingWhitespace',
   'insertFinalNewline',
   'indentGuides',
+  'rainbowBrackets',
   'ligatures',
   'formatMode',
   'formatTool',
@@ -142,9 +161,14 @@ const SHARED_KEYS = [
   'agentComposerHeight',
 ] as const satisfies readonly (keyof Settings)[]
 
-/** Compare field by field so JSON key order does not matter */
+/** Compare content, including cloned arrays in native cross-window broadcasts. */
+function settingEqual(key: keyof Settings, a: Settings, b: Settings): boolean {
+  if (key === 'shortcutOverrides') return overridesEqual(a[key], b[key])
+  if (key === 'commitMessageTemplates') return a[key].length === b[key].length && a[key].every((value, index) => value === b[key][index])
+  return a[key] === b[key]
+}
 function settingsEqual(a: Settings, b: Settings): boolean {
-  return (Object.keys(DEFAULT_SETTINGS) as (keyof Settings)[]).every((key) => key === 'shortcutOverrides' ? overridesEqual(a[key], b[key]) : a[key] === b[key])
+  return (Object.keys(DEFAULT_SETTINGS) as (keyof Settings)[]).every(key => settingEqual(key, a, b))
 }
 
 /**
@@ -259,11 +283,16 @@ export function migrateSettings(raw: Settings): Settings {
   // v8 -> v9 adds ligatures, v9 -> v10 adds agentComposerHeight, v10 -> v11 adds
   // agentDefaultPermissionMode, v11 -> v12 adds autoUpdate, v12 -> v13 adds agentHistoryEnabled,
   // v15 -> v16 adds the activity bar visibility switches. DEFAULT_SETTINGS covers
-  // v16 -> v17 adds configuration backup preferences; v17 -> v18 adds Go Live visibility.
-  // Missing values use DEFAULT_SETTINGS.
+  // v16 -> v17 adds configuration backup preferences; missing values use DEFAULT_SETTINGS.
+  // v17 -> v18 adds Go Live visibility, independent font styling and rainbow brackets, preserving existing preferences.
+  // v18 -> v19 adds terminal styling; v19 -> v20 adds bounded common commit messages.
   // Keep larger stored heights when the current window is short: the composer clamps them for display only.
   next.shortcutOverrides = normalizeOverrides(next.shortcutOverrides)
   next.schemaVersion = Math.max(SETTINGS_SCHEMA_VERSION, next.schemaVersion)
+  next.fontWeight = normalizedFontWeight(next.fontWeight)
+  next.uiFontWeight = normalizedFontWeight(next.uiFontWeight)
+  next.commitMessageTemplates = normalizeCommitTemplates(raw.commitMessageTemplates)
+  next.terminalFontWeight = normalizedFontWeight(next.terminalFontWeight)
   if (!['daily', 'threeDays', 'weekly', 'monthly'].includes(next.configBackupInterval)) next.configBackupInterval = DEFAULT_SETTINGS.configBackupInterval
   if (!['overwrite', 'dated'].includes(next.configBackupMode)) next.configBackupMode = DEFAULT_SETTINGS.configBackupMode
   if (!next.configBackupFolder) next.configBackupEnabled = false
@@ -349,16 +378,18 @@ export const useSettings = create<SettingsStore>((set, get) => ({
     const palette = applyTheme(settings.theme as ThemeMode)
     applyLocale(settings.locale)
     applyUiFontSize(settings.uiFontSize)
+    applyUiFontStyle(settings.uiFontWeight, settings.uiFontItalic)
+    applyCodeFontStyle(settings.fontWeight, settings.fontItalic)
     applyLigatures(settings.ligatures)
     applyMonoFont(monoStack(settings.fontFamily))
     setMemoryProfile(settings.lightweightMode ? 'light' : 'normal')
-    setEditorLook(palette, settings.fontSize, settings.fontFamily)
+    setEditorLook(palette, settings.fontSize, settings.fontFamily, settings.fontWeight, settings.fontItalic)
     set({ ...settings, palette, loaded: true })
 
     watchSystemTheme(
       () => get().theme as ThemeMode,
       (p) => {
-        setEditorLook(p, get().fontSize, get().fontFamily)
+        setEditorLook(p, get().fontSize, get().fontFamily, get().fontWeight, get().fontItalic)
         set({ palette: p })
       },
     )
@@ -378,12 +409,14 @@ export const useSettings = create<SettingsStore>((set, get) => ({
     }
     if (patch.theme) {
       const palette = applyTheme(patch.theme as ThemeMode)
-      setEditorLook(palette, get().fontSize, get().fontFamily)
+      setEditorLook(palette, get().fontSize, get().fontFamily, get().fontWeight, get().fontItalic)
       set({ palette })
-    } else if (patch.fontSize !== undefined || patch.fontFamily !== undefined) {
-      setEditorLook(get().palette, get().fontSize, get().fontFamily)
+    } else if (patch.fontSize !== undefined || patch.fontFamily !== undefined || patch.fontWeight !== undefined || patch.fontItalic !== undefined) {
+      setEditorLook(get().palette, get().fontSize, get().fontFamily, get().fontWeight, get().fontItalic)
     }
     if (patch.uiFontSize !== undefined) applyUiFontSize(patch.uiFontSize)
+    if (patch.uiFontWeight !== undefined || patch.uiFontItalic !== undefined) applyUiFontStyle(get().uiFontWeight, get().uiFontItalic)
+    if (patch.fontWeight !== undefined || patch.fontItalic !== undefined) applyCodeFontStyle(get().fontWeight, get().fontItalic)
     if (patch.ligatures !== undefined) applyLigatures(patch.ligatures)
     if (patch.fontFamily !== undefined) applyMonoFont(monoStack(patch.fontFamily as MonoFont))
     // Appearance and Agent defaults persist at once for new / other windows.
@@ -393,6 +426,13 @@ export const useSettings = create<SettingsStore>((set, get) => ({
       patch.theme !== undefined ||
       patch.iconTheme !== undefined ||
       patch.fontFamily !== undefined ||
+      patch.fontWeight !== undefined ||
+      patch.fontItalic !== undefined ||
+      patch.uiFontWeight !== undefined ||
+      patch.uiFontItalic !== undefined ||
+      patch.commitMessageTemplates !== undefined ||
+      patch.terminalFontWeight !== undefined ||
+      patch.terminalFontItalic !== undefined ||
       patch.uiFontSize !== undefined ||
       patch.autoUpdate !== undefined ||
       patch.configBackupEnabled !== undefined ||
@@ -427,7 +467,7 @@ export const useSettings = create<SettingsStore>((set, get) => ({
     // Follow all shared fields, else this window's stale value writes the other side's change back on next save
     const patch: Partial<SettingsStore> = {}
     for (const key of SHARED_KEYS) {
-      if (key === 'shortcutOverrides' ? !overridesEqual(next[key], current[key]) : next[key] !== current[key]) (patch as Record<string, unknown>)[key] = next[key]
+      if (!settingEqual(key, next, current)) (patch as Record<string, unknown>)[key] = next[key]
     }
     // Layout fields (sidebar width, panel height, ...) are per window, leave them alone
     if (Object.keys(patch).length === 0) return
@@ -439,12 +479,14 @@ export const useSettings = create<SettingsStore>((set, get) => ({
     if (patch.locale) applyLocale(patch.locale)
     if (patch.theme) {
       const palette = applyTheme(patch.theme as ThemeMode)
-      setEditorLook(palette, get().fontSize, get().fontFamily)
+      setEditorLook(palette, get().fontSize, get().fontFamily, get().fontWeight, get().fontItalic)
       set({ palette })
-    } else if (patch.fontSize !== undefined || patch.fontFamily !== undefined) {
-      setEditorLook(get().palette, get().fontSize, get().fontFamily)
+    } else if (patch.fontSize !== undefined || patch.fontFamily !== undefined || patch.fontWeight !== undefined || patch.fontItalic !== undefined) {
+      setEditorLook(get().palette, get().fontSize, get().fontFamily, get().fontWeight, get().fontItalic)
     }
     if (patch.uiFontSize !== undefined) applyUiFontSize(patch.uiFontSize)
+    if (patch.uiFontWeight !== undefined || patch.uiFontItalic !== undefined) applyUiFontStyle(get().uiFontWeight, get().uiFontItalic)
+    if (patch.fontWeight !== undefined || patch.fontItalic !== undefined) applyCodeFontStyle(get().fontWeight, get().fontItalic)
     if (patch.ligatures !== undefined) applyLigatures(patch.ligatures)
     if (patch.fontFamily !== undefined) applyMonoFont(monoStack(patch.fontFamily as MonoFont))
 

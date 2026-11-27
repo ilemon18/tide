@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest'
-import { searchBranches, selectRecentBranches, sortBranches } from './BranchMenu'
+import { branchesForMenu, searchBranches, selectRecentBranches, sortBranches } from './BranchMenu'
 import type { GitBranch } from '../lib/ipc'
 
 const branch = (name: string, kind: GitBranch['kind'], time: number, current = false): GitBranch => ({
@@ -43,4 +43,10 @@ describe('branch menu data shaping', () => {
     expect(searchBranches(branches, 'feature')).toHaveLength(205)
     expect(searchBranches(branches, 'feature').slice(0, 200)).toHaveLength(200)
   })
+})
+
+it('source control branch picker only includes local branches', () => {
+  const values = [branch('main', 'local', 1, true), branch('feature', 'local', 2), branch('origin/main', 'remote', 3)]
+  expect(branchesForMenu(values, true).map(value => value.name)).toEqual(['main', 'feature'])
+  expect(branchesForMenu(values)).toHaveLength(3)
 })

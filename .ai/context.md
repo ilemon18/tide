@@ -1,11 +1,11 @@
 # Tide — AI Context
 
-Follow AGENTS.md; route paths, read matches, follow links only across domains.
+Follow AGENTS.md; route paths and load applicable docs.
 
 ## Map
 
-`src/`: components=UI, store=state, editor=CodeMirror. `src-tauri/src/`: commands=IPC, agent=providers/storage.
-IPC: `src/lib/ipc.ts`; generators own output; limits: `src/lib/memoryBudget.ts`.
+`src/`: UI/state/editor; Rust: commands/IPC, agents/storage. IPC: `src/lib/ipc.ts`;
+limits: `src/lib/memoryBudget.ts`; generators own output.
 
 <!-- BEGIN GENERATED ROUTES -->
 | Doc | Summary |
@@ -17,6 +17,7 @@ IPC: `src/lib/ipc.ts`; generators own output; limits: `src/lib/memoryBudget.ts`.
 | [configuration.md](./configuration.md) | Configuration transfer and scheduled backups |
 | [editor.md](./editor.md) | Tabs, files, CodeMirror and formatting |
 | [file-tree.md](./file-tree.md) | Workspace tree, folder chains and watchers |
+| [git-ui.md](./git-ui.md) | Git workflow dialogs and configuration |
 | [git.md](./git.md) | Git actions, diffs and conflicts |
 | [i18n.md](./i18n.md) | Locales, UI copy and coded errors |
 | [live-preview.md](./live-preview.md) | HTML preview and local service lifetimes |
@@ -33,10 +34,10 @@ IPC: `src/lib/ipc.ts`; generators own output; limits: `src/lib/memoryBudget.ts`.
 ## Shared contracts
 
 - IPC: UI/stores use `api.*`, never `invoke`; Rust DTOs match TypeScript.
-- Paths: file commands take `(root, rel)`; authorize, canonicalize and prefix-check roots, reject traversal/
-  symlink escapes and preserve Windows verbatim semantics.
-- Writes: flush a temporary sibling, then rename over the target.
+- Paths: `(root, rel)`; authorize/canonicalize roots, prefix-check, reject traversal/symlink escapes;
+  keep Windows verbatim paths.
+- Writes: flush/rename a temporary sibling atomically.
 - Errors: `AppResult<T>` with `AppError::c` / `p`; never `unwrap()` user input.
-- Resources: Rust creates/reaps PTYs, turns, process groups, grants and watchers.
+- Rust reaps PTYs, turns, process groups, grants and watchers.
 
 - UI cursors: actions=pointer, text=text, unavailable=not-allowed; retain hints and center row icons/text.

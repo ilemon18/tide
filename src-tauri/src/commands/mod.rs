@@ -1,10 +1,14 @@
 pub mod agent;
 pub mod blame;
+pub mod config;
 pub mod format;
 pub mod fs;
 pub mod git;
+pub mod git_config;
+pub mod git_history;
+pub mod git_ui;
+pub mod project_tools;
 pub mod search;
-pub mod terminal;
 pub mod tasks;
+pub mod terminal;
 pub mod theme;
-pub mod config;

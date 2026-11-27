@@ -32,12 +32,26 @@ pub struct Settings {
     pub theme: String,
     /// File icon set: material | minimal | none
     pub icon_theme: String,
-    /// Code font: jetbrains | system
+    /// Code font id, owned by src/lib/fonts.ts.
     pub font_family: String,
+    #[serde(deserialize_with = "deserialize_font_weight")]
+    pub font_weight: u32,
+    #[serde(deserialize_with = "deserialize_font_italic")]
+    pub font_italic: bool,
+    #[serde(deserialize_with = "deserialize_font_weight")]
+    pub ui_font_weight: u32,
+    #[serde(deserialize_with = "deserialize_font_italic")]
+    pub ui_font_italic: bool,
     /// UI font size
     pub ui_font_size: u32,
     pub font_size: u32,
+    #[serde(deserialize_with = "deserialize_commit_templates")]
+    pub commit_message_templates: Vec<String>,
     pub terminal_font_size: u32,
+    #[serde(deserialize_with = "deserialize_font_weight")]
+    pub terminal_font_weight: u32,
+    #[serde(deserialize_with = "deserialize_font_italic")]
+    pub terminal_font_italic: bool,
     /// Terminal scrollback lines
     pub terminal_scrollback: u32,
     /// Terminal shell: empty = pick per platform (macOS / Linux use $SHELL,
@@ -51,6 +65,8 @@ pub struct Settings {
     pub insert_final_newline: bool,
     /// Editor indent guides
     pub indent_guides: bool,
+    #[serde(deserialize_with = "deserialize_visibility")]
+    pub rainbow_brackets: bool,
     /// Draw == / => and similar pairs as one ligature glyph (off by default)
     pub ligatures: bool,
     /// When to format: off | manual | onSave
@@ -123,6 +139,42 @@ where
     Ok(value.as_bool().unwrap_or(true))
 }
 
+fn deserialize_commit_templates<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Vec<String>, D::Error> {
+    let value = serde_json::Value::deserialize(deserializer)?;
+    let messages = value
+        .as_array()
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item.as_str().map(str::to_owned))
+                .collect()
+        })
+        .unwrap_or_default();
+    Ok(super::git_history::normalize_templates(messages))
+}
+
+fn deserialize_font_weight<'de, D>(deserializer: D) -> Result<u32, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    Ok(value
+        .as_u64()
+        .filter(|weight| (100..=900).contains(weight) && weight % 100 == 0)
+        .map(|weight| weight as u32)
+        .unwrap_or(400))
+}
+
+fn deserialize_font_italic<'de, D>(deserializer: D) -> Result<bool, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    Ok(value.as_bool().unwrap_or(false))
+}
+
 fn deserialize_tasks_enabled<'de, D>(deserializer: D) -> Result<bool, D::Error>
 where
     D: serde::Deserializer<'de>,
@@ -144,7 +196,11 @@ where
             map.iter()
                 .filter_map(|(id, value)| {
                     let values = value.as_array()?;
-                    let valid: Vec<_> = values.iter().filter(|value| value.is_string()).cloned().collect();
+                    let valid: Vec<_> = values
+                        .iter()
+                        .filter(|value| value.is_string())
+                        .cloned()
+                        .collect();
                     if !values.is_empty() && valid.is_empty() {
                         return None;
                     }
@@ -176,9 +232,16 @@ impl Default for Settings {
             theme: "tide".into(),
             icon_theme: "material".into(),
             font_family: "jetbrains".into(),
+            font_weight: 400,
+            font_italic: false,
+            ui_font_weight: 400,
+            ui_font_italic: false,
             ui_font_size: 13,
             font_size: 13,
+            commit_message_templates: Vec::new(),
             terminal_font_size: 12,
+            terminal_font_weight: 400,
+            terminal_font_italic: false,
             terminal_scrollback: 2000,
             terminal_shell: String::new(),
             tab_size: 2,
@@ -187,6 +250,7 @@ impl Default for Settings {
             trim_trailing_whitespace: false,
             insert_final_newline: false,
             indent_guides: true,
+            rainbow_brackets: true,
             ligatures: false,
             format_mode: "off".into(),
             format_tool: "auto".into(),
@@ -277,7 +341,9 @@ fn read_json<T: for<'de> Deserialize<'de> + Default>(path: &Path) -> T {
 
 /// Atomic write: write a temp file then rename, so config is never left corrupted.
 fn write_json<T: Serialize>(path: &Path, value: &T) -> AppResult<()> {
-    let dir = path.parent().ok_or_else(|| AppError::c("config.invalidPath"))?;
+    let dir = path
+        .parent()
+        .ok_or_else(|| AppError::c("config.invalidPath"))?;
     fs::create_dir_all(dir)?;
     let text = serde_json::to_vec_pretty(value)
         .map_err(|e| AppError::p("config.serializeFailed", [("error", e.to_string())]))?;
@@ -442,6 +508,27 @@ mod compat {
 
     use super::{Session, Settings};
 
+    #[test]
+    fn terminal_styles_are_independent_and_normalize_invalid_values() {
+        let settings: Settings =
+            serde_json::from_str(r#"{"fontWeight":700,"fontItalic":true}"#).unwrap();
+        assert_eq!(settings.terminal_font_weight, 400);
+        assert!(!settings.terminal_font_italic);
+        let styled: Settings = serde_json::from_str(
+            r#"{"terminalFontWeight":800,"terminalFontItalic":true,"futureFont":7}"#,
+        )
+        .unwrap();
+        let output = serde_json::to_value(styled).unwrap();
+        assert_eq!(output["terminalFontWeight"], 800);
+        assert_eq!(output["terminalFontItalic"], true);
+        assert_eq!(output["futureFont"], 7);
+        let invalid: Settings =
+            serde_json::from_str(r#"{"terminalFontWeight":355,"terminalFontItalic":"true"}"#)
+                .unwrap();
+        assert_eq!(invalid.terminal_font_weight, 400);
+        assert!(!invalid.terminal_font_italic);
+    }
+
     /// Fields written by a newer version that this one does not know must survive a read-write roundtrip
     #[test]
     fn unknown_settings_fields_survive_roundtrip() {
@@ -458,7 +545,10 @@ mod compat {
         assert_eq!(out["theme"], "nord");
         assert_eq!(out["futureFeatureFlag"], true);
         assert_eq!(out["futureNested"]["a"], 1);
-        assert!(out.get("extra").is_none(), "flatten must not add an extra key");
+        assert!(
+            out.get("extra").is_none(),
+            "flatten must not add an extra key"
+        );
     }
 
     /// Fields missing from an old config fall back to defaults; existing values stay untouched
@@ -477,6 +567,47 @@ mod compat {
         assert!(settings.activity_bar_git_visible);
         assert!(settings.activity_bar_structure_visible);
         assert!(!settings.auto_save);
+        assert_eq!(settings.font_weight, 400);
+        assert_eq!(settings.ui_font_weight, 400);
+        assert!(!settings.font_italic);
+        assert!(!settings.ui_font_italic);
+        assert!(settings.rainbow_brackets);
+    }
+
+    #[test]
+    fn font_styles_round_trip_and_invalid_fields_do_not_reset_settings() {
+        let valid: Settings = serde_json::from_value(serde_json::json!({
+            "fontWeight": 700, "fontItalic": true, "uiFontWeight": 300,
+            "uiFontItalic": true, "rainbowBrackets": false, "futureStyle": "keep"
+        }))
+        .expect("font styles");
+        let output = serde_json::to_value(valid).expect("serialize font styles");
+        assert_eq!(output["fontWeight"], 700);
+        assert_eq!(output["uiFontWeight"], 300);
+        assert_eq!(output["fontItalic"], true);
+        assert_eq!(output["uiFontItalic"], true);
+        assert_eq!(output["rainbowBrackets"], false);
+        assert_eq!(output["futureStyle"], "keep");
+        for invalid in [
+            serde_json::json!(null),
+            serde_json::json!("700"),
+            serde_json::json!(350),
+            serde_json::json!(-100),
+            serde_json::json!(1000),
+            serde_json::json!(700.5),
+        ] {
+            let value: Settings = serde_json::from_value(serde_json::json!({
+                "fontSize": 19, "fontWeight": invalid, "uiFontWeight": invalid,
+                "fontItalic": invalid, "uiFontItalic": invalid, "rainbowBrackets": invalid
+            }))
+            .expect("invalid styles preserve unrelated settings");
+            assert_eq!(value.font_size, 19);
+            assert_eq!(value.font_weight, 400);
+            assert_eq!(value.ui_font_weight, 400);
+            assert!(!value.font_italic);
+            assert!(!value.ui_font_italic);
+            assert!(value.rainbow_brackets);
+        }
     }
 
     #[test]
@@ -502,10 +633,12 @@ mod compat {
 
     #[test]
     fn agent_history_preference_defaults_on_and_round_trips_off() {
-        let legacy: Settings = serde_json::from_str(r#"{"schemaVersion":12}"#).expect("legacy settings");
+        let legacy: Settings =
+            serde_json::from_str(r#"{"schemaVersion":12}"#).expect("legacy settings");
         assert!(legacy.agent_history_enabled);
-        let settings: Settings = serde_json::from_value(serde_json::json!({ "agentHistoryEnabled": false }))
-            .expect("settings");
+        let settings: Settings =
+            serde_json::from_value(serde_json::json!({ "agentHistoryEnabled": false }))
+                .expect("settings");
         let out = serde_json::to_value(settings).expect("serialize settings");
         assert_eq!(out["agentHistoryEnabled"], false);
     }
@@ -514,13 +647,23 @@ mod compat {
     fn task_preferences_default_on_round_trip_off_and_tolerate_invalid_values() {
         let legacy: Settings = serde_json::from_str(r#"{"schemaVersion":14}"#).unwrap();
         assert!(legacy.tasks_enabled);
-        for invalid in [serde_json::json!(null), serde_json::json!(7), serde_json::json!("broken")] {
-            let settings: Settings = serde_json::from_value(serde_json::json!({ "tasksEnabled": invalid, "fontSize": 19 })).unwrap();
+        for invalid in [
+            serde_json::json!(null),
+            serde_json::json!(7),
+            serde_json::json!("broken"),
+        ] {
+            let settings: Settings = serde_json::from_value(
+                serde_json::json!({ "tasksEnabled": invalid, "fontSize": 19 }),
+            )
+            .unwrap();
             assert!(settings.tasks_enabled);
             assert_eq!(settings.font_size, 19);
         }
         let disabled: Settings = serde_json::from_str(r#"{"tasksEnabled":false}"#).unwrap();
-        assert_eq!(serde_json::to_value(disabled).unwrap()["tasksEnabled"], false);
+        assert_eq!(
+            serde_json::to_value(disabled).unwrap()["tasksEnabled"],
+            false
+        );
     }
 
     #[test]
@@ -529,13 +672,18 @@ mod compat {
         assert!(legacy.activity_bar_welcome_visible);
         assert!(legacy.activity_bar_git_visible);
         assert!(legacy.activity_bar_structure_visible);
-        for invalid in [serde_json::json!(null), serde_json::json!(7), serde_json::json!("broken")] {
+        for invalid in [
+            serde_json::json!(null),
+            serde_json::json!(7),
+            serde_json::json!("broken"),
+        ] {
             let settings: Settings = serde_json::from_value(serde_json::json!({
                 "activityBarWelcomeVisible": invalid,
                 "activityBarGitVisible": invalid,
                 "activityBarStructureVisible": invalid,
                 "fontSize": 19,
-            })).unwrap();
+            }))
+            .unwrap();
             assert!(settings.activity_bar_welcome_visible);
             assert!(settings.activity_bar_git_visible);
             assert!(settings.activity_bar_structure_visible);
@@ -551,11 +699,16 @@ mod compat {
     fn go_live_defaults_on_and_round_trips_off() {
         let legacy: Settings = serde_json::from_str(r#"{"schemaVersion":17}"#).unwrap();
         assert!(legacy.go_live_enabled);
-        for invalid in [serde_json::json!(null), serde_json::json!(7), serde_json::json!("broken")] {
+        for invalid in [
+            serde_json::json!(null),
+            serde_json::json!(7),
+            serde_json::json!("broken"),
+        ] {
             let settings: Settings = serde_json::from_value(serde_json::json!({
                 "goLiveEnabled": invalid,
                 "fontSize": 19,
-            })).unwrap();
+            }))
+            .unwrap();
             assert!(settings.go_live_enabled);
             assert_eq!(settings.font_size, 19);
         }
@@ -586,21 +739,36 @@ mod compat {
 
     #[test]
     fn shortcuts_tolerate_invalid_fields_and_preserve_explicit_removals() {
-        for invalid in [serde_json::json!(null), serde_json::json!(7), serde_json::json!([])] {
+        for invalid in [
+            serde_json::json!(null),
+            serde_json::json!(7),
+            serde_json::json!([]),
+        ] {
             let settings: Settings = serde_json::from_value(serde_json::json!({
                 "fontSize": 19, "shortcutOverrides": invalid
-            })).expect("invalid shortcut field must not reset settings");
+            }))
+            .expect("invalid shortcut field must not reset settings");
             assert_eq!(settings.font_size, 19);
             assert!(settings.shortcut_overrides.is_empty());
         }
         let settings: Settings = serde_json::from_value(serde_json::json!({
             "shortcutOverrides": { "agent.ask": ["Mod+Shift+p"], "view.commands": [],
                 "future.command": ["Mod+Shift+i"], "broken": 7, "mixed": [7, "Mod+s"] }
-        })).expect("shortcut overrides");
+        }))
+        .expect("shortcut overrides");
         let out = serde_json::to_value(settings).expect("serialize settings");
-        assert_eq!(out["shortcutOverrides"]["view.commands"], serde_json::json!([]));
-        assert_eq!(out["shortcutOverrides"]["future.command"], serde_json::json!(["Mod+Shift+i"]));
-        assert_eq!(out["shortcutOverrides"]["mixed"], serde_json::json!(["Mod+s"]));
+        assert_eq!(
+            out["shortcutOverrides"]["view.commands"],
+            serde_json::json!([])
+        );
+        assert_eq!(
+            out["shortcutOverrides"]["future.command"],
+            serde_json::json!(["Mod+Shift+i"])
+        );
+        assert_eq!(
+            out["shortcutOverrides"]["mixed"],
+            serde_json::json!(["Mod+s"])
+        );
         assert!(out["shortcutOverrides"].get("broken").is_none());
     }
 

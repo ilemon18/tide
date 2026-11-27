@@ -7,8 +7,9 @@ import { useSettings } from '../store/settings'
 import { useAgent } from '../store/agent'
 import { Icon } from './Icon'
 import { UpdateBadge } from './UpdateBadge'
+import { ProjectMenu } from './ProjectMenu'
 import { BreadcrumbMenu } from './BreadcrumbMenu'
-import { newWindow, revealInExplorer } from '../lib/actions'
+import { newWindow, revealInExplorer, openProjectDirectory } from '../lib/actions'
 import { isMac } from '../lib/paths'
 import { useT } from '../i18n'
 
@@ -104,7 +105,7 @@ function WindowControls() {
  * uppercased into a solid accent square with a 2px radius. Clicking reveals the project root;
  * full name in an aria-label.
  */
-function ProjectBadge({ name, root }: { name: string; root: string }) {
+function ProjectBadge({ name, root, onContextMenu }: { name: string; root: string; onContextMenu: (event: React.MouseEvent) => void }) {
   const t = useT()
   const initials = useMemo(() => {
     // Same rule as avatars: multiple words take one initial each (my-app → MA),
@@ -123,7 +124,9 @@ function ProjectBadge({ name, root }: { name: string; root: string }) {
   return (
     <button
       type="button"
-      onClick={() => revealInExplorer(root, '', true)}
+      onClick={event => { if (event.detail <= 1) void revealInExplorer(root, '', true) }}
+      onDoubleClick={() => void openProjectDirectory(root)}
+      onContextMenu={onContextMenu}
       aria-label={t('titlebar.projectAria', { name })}
       className="flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-[2px] bg-accent p-0 text-[10px] font-semibold uppercase leading-none tracking-[0.02em] text-accent-fg"
     >
@@ -136,6 +139,7 @@ function ProjectBadge({ name, root }: { name: string; root: string }) {
 export function TitleBar() {
   const t = useT()
   const [menu, setMenu] = useState<{ root: string; rel: string; x: number; y: number } | null>(null)
+  const [projectMenu, setProjectMenu] = useState<{ root: string; x: number; y: number } | null>(null)
   const mac = isMac()
   const barRef = useRef<HTMLDivElement>(null)
   const [projectInset, setProjectInset] = useState(84)
@@ -208,7 +212,7 @@ export function TitleBar() {
     >
       <div data-tauri-drag-region className="flex min-w-0 flex-1 items-center gap-1.5">
         {root ? (
-          <ProjectBadge name={root.name} root={root.id} />
+          <ProjectBadge name={root.name} root={root.id} onContextMenu={event => { event.preventDefault(); setMenu(null); setProjectMenu({ root: root.id, x: event.clientX, y: event.clientY }) }} />
         ) : (
           <span data-tauri-drag-region className="truncate text-sm font-medium text-fg/90">
             Tide
@@ -268,6 +272,7 @@ export function TitleBar() {
         </button>
       </div>
       {!mac && hasTauriWindow() ? <WindowControls /> : null}
+      {projectMenu ? <ProjectMenu {...projectMenu} onClose={() => setProjectMenu(null)} /> : null}
       {menu ? <BreadcrumbMenu key={`${menu.root}:${menu.rel}`} {...menu} onClose={() => setMenu(null)} /> : null}
     </div>
   )

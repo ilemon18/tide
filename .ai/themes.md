@@ -5,6 +5,11 @@ scope:
   - src/components/ThemeMenu.tsx
   - src/theme/**
   - src/lib/fonts.ts
+  - src/lib/fonts.test.ts
+  - src/assets/fonts/**
+  - public/licenses/**
+  - scripts/fonts.test.mjs
+  - scripts/generate-terminal-oblique.py
   - src/lib/iconTheme.ts
   - public/theme-boot.js
   - src/styles/index.css
@@ -41,6 +46,9 @@ keywords:
 - `fonts.ts` is the mono-font registry shared by editor, terminal and UI. Adding a font touches this file and
   the SettingsView list, and every stack keeps CJK/system fallbacks. `index.css` declares the bundled
   `@font-face` families.
+- Preserve font ids: Consolas is local with fallback; Fira Code and Smiley Sans are bundled with licenses.
+  Font assets retain source/checksum records. Terminal oblique generation and xterm face rules:
+  [terminal.md](./terminal.md). Styling changes never recreate PTYs or editor states.
 - `iconTheme.ts` maps file types to bundled icons; generated assets keep their generators.
 
 ## Change map

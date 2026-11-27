@@ -50,6 +50,8 @@ Permission failures stay distinct from absence.
 - TitleBar breadcrumbs browse siblings via `BreadcrumbMenu` and `readDirectoryEntries`; directory entries
   expand lazily, files open in the active pane, and symlinks remain unavailable. Match Explorer's hidden-file
   filter. Obsolete reads cannot update a closed picker; keyboard selection and Escape stay within it.
+- Project badge/label double-click opens the root folder; context actions use [git-ui.md](./git-ui.md).
+  Explorer open-folder action is penultimate.
 - On macOS TitleBar measures `data-explorer-project-label` to align the badge/path with the project name,
   accounting for UI scale. Resize observers release on teardown; hidden Explorer uses the 84px fallback.
 - `isSymlink` comes from link metadata and all symlinks are leaves, even directory links. Single click, ⌘↓
@@ -58,6 +60,8 @@ Permission failures stay distinct from absence.
 - Preserve the settled chain during scrollbar motion and resolve visible chains at idle. Anchor by stable
   root+start row identity. Only a shrinking list stays pinned to the bottom; a growing list keeps the anchor
   so expansion extends downward, then clamp after row shrink to avoid blanks.
+- Folder menus place Open terminal here directly after Ask Agent; if Agent is disabled, terminal comes
+  first. Keep the same root/relative-directory target and existing symlink guards.
 
 ## Refresh contracts
 

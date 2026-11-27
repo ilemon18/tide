@@ -8,6 +8,8 @@ export type EditorAppearance = {
   fontFamily: string
   fontSize: number
   lineHeight: number
+  fontWeight: number
+  fontItalic: boolean
 }
 
 /**
@@ -29,6 +31,8 @@ export function buildEditorTheme(p: Palette, look: EditorAppearance): Extension 
       },
       '.cm-scroller': {
         fontFamily: look.fontFamily,
+        fontWeight: String(look.fontWeight),
+        fontStyle: look.fontItalic ? 'italic' : 'normal',
         lineHeight: String(look.lineHeight),
         overflow: 'auto',
       },
@@ -83,7 +87,15 @@ export function buildEditorTheme(p: Palette, look: EditorAppearance): Extension 
         backgroundColor: `${ui.accent}33`,
         outline: `1px solid ${ui.accent}66`,
       },
-      '.cm-nonmatchingBracket': { color: ui.danger },
+      '.cm-content .cm-nonmatchingBracket, .cm-content .cm-nonmatchingBracket span': { color: ui.danger },
+      // Syntax highlighting may nest its own colored span inside a bracket decoration.
+      // Paint the glyph itself, while leaving mismatch diagnostics above these rules.
+      '.cm-rainbow-bracket-0, .cm-rainbow-bracket-0 span': { color: p.syntax.type },
+      '.cm-rainbow-bracket-1, .cm-rainbow-bracket-1 span': { color: p.syntax.string },
+      '.cm-rainbow-bracket-2, .cm-rainbow-bracket-2 span': { color: p.syntax.keyword },
+      '.cm-rainbow-bracket-3, .cm-rainbow-bracket-3 span': { color: p.syntax.number },
+      '.cm-rainbow-bracket-4, .cm-rainbow-bracket-4 span': { color: p.syntax.function },
+      '.cm-rainbow-bracket-5, .cm-rainbow-bracket-5 span': { color: ui.accent },
       '.cm-selectionMatch': { backgroundColor: `${ui.accent}22` },
       '.cm-searchMatch': { backgroundColor: `${ui.warning}44`, outline: `1px solid ${ui.warning}66` },
       '.cm-searchMatch.cm-searchMatch-selected': { backgroundColor: `${ui.warning}77` },
@@ -223,7 +235,7 @@ export function buildEditorTheme(p: Palette, look: EditorAppearance): Extension 
     SYNTAX_RULES.map((rule): TagStyle => {
       const spec: TagStyle = { tag: rule.tags }
       if (rule.color) spec.color = s[rule.color]
-      if (rule.bold) spec.fontWeight = '600'
+      if (rule.bold) spec.fontWeight = String(Math.min(900, look.fontWeight + 200))
       if (rule.italic) spec.fontStyle = 'italic'
       if (rule.underline) spec.textDecoration = 'underline'
       return spec

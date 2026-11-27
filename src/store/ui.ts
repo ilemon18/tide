@@ -55,8 +55,8 @@ type UiStore = {
   closeThemeMenu: () => void
 
   /** Status bar branch dropdown: centered popup, only needs the target workspace */
-  branchMenu: { root: string } | null
-  openBranchMenu: (anchor: { root: string }) => void
+  branchMenu: { root: string; localOnly?: boolean } | null
+  openBranchMenu: (anchor: { root: string; localOnly?: boolean }) => void
   closeBranchMenu: () => void
 
   confirmReq: ConfirmRequest | null

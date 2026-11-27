@@ -6,10 +6,16 @@ import {
   type GitBranches,
   type GitFile,
   type GitStatus,
+  type GitIdentity, type GitIdentityInfo, type GitCommitOptions, type GitBranchTarget, type GitPreferences,
 } from '../lib/ipc'
 import { useUi } from './ui'
 import { useWorkspace } from './workspace'
 import { t } from '../i18n'
+
+export const DEFAULT_GIT_PREFERENCES: GitPreferences = { mergeAutoCommit: true, mergeLog: false, mergeNoFf: false, pullRebase: false,
+  autoRefresh: true, backgroundFetch: false, disableSubmoduleRecursion: false }
+let preferencesLoaded = false
+let preferencesPromise: Promise<void> | null = null
 
 type GitStore = {
   statuses: Record<string, GitStatus>
@@ -23,6 +29,23 @@ type GitStore = {
   branchesLoading: Record<string, boolean>
   /** Branch list cache time, for TTL and invalidation after external changes */
   branchesAt: Record<string, number>
+  /** Window-only identity override: never persisted or broadcast to other windows. */
+  temporaryIdentity: GitIdentity | null
+  identities: Record<string, GitIdentityInfo>
+  loadIdentity: (root: string, force?: boolean) => Promise<void>
+  setTemporaryIdentity: (identity: GitIdentity | null) => void
+  preferences: GitPreferences
+  projectPreferences: Record<string, GitPreferences>
+  loadProjectPreferences: (root: string, force?: boolean) => Promise<void>
+  setProjectPreferences: (root: string, patch: Partial<GitPreferences>) => Promise<void>
+  loadPreferences: (force?: boolean) => Promise<void>
+  setPreferences: (patch: Partial<GitPreferences>) => Promise<void>
+  clearStash: (root: string) => Promise<boolean>
+  forcePush: (root: string) => Promise<boolean>
+  fetchBranch: (root: string, target: GitBranchTarget) => Promise<boolean>
+  renameBranch: (root: string, target: GitBranchTarget, name: string) => Promise<boolean>
+  deleteBranch: (root: string, target: GitBranchTarget, deleteRemote: boolean, force: boolean) => Promise<boolean>
+  integrateBranch: (root: string, target: GitBranchTarget, rebase: boolean) => Promise<boolean>
 
   refresh: (root?: string, force?: boolean) => Promise<void>
   loadBranches: (root: string, force?: boolean) => Promise<void>
@@ -39,19 +62,22 @@ type GitStore = {
   stage: (root: string, paths: string[]) => Promise<void>
   unstage: (root: string, paths: string[]) => Promise<void>
   discard: (root: string, paths: string[]) => Promise<void>
-  discardAllChanges: (root: string) => Promise<void>
+  discardAllChanges: (root: string, selectedPaths?: string[]) => Promise<void>
+  discardFiles: (root: string, paths: string[]) => Promise<void>
+  removeFiles: (root: string, paths: string[]) => Promise<void>
+  ignoreFiles: (root: string, paths: string[]) => Promise<void>
   /**
    * Restore the files an agent turn changed to their content before that turn. `stale` means the
    * baseline snapshot is gone (pruned by `git gc`); `error` already toasted.
    */
   revertTurnChanges: (root: string, changes: AgentTurnChanges) => Promise<'ok' | 'stale' | 'error'>
-  commit: (root: string, message: string) => Promise<boolean>
+  commit: (root: string, message: string, options?: GitCommitOptions) => Promise<boolean>
   /** Undo the last commit (soft reset): changes stay staged, returns the previous commit message */
   undoLastCommit: (root: string) => Promise<string | null>
   /** Stash tracked index + worktree changes; untracked files stay in place */
-  stashChanges: (root: string) => Promise<void>
+  stashChanges: (root: string, message?: string) => Promise<boolean>
   /** Pop the latest stash; a conflicted partial apply still refreshes the worktree */
-  popStash: (root: string) => Promise<void>
+  popStash: (root: string, sha?: string) => Promise<void>
   /** `git reset --hard HEAD`: staged + unstaged tracked changes, untracked files kept */
   resetAll: (root: string) => Promise<void>
   /** Continue an in-progress merge / cherry-pick / revert / rebase */
@@ -63,7 +89,7 @@ type GitStore = {
   pull: (root: string) => Promise<void>
   push: (root: string) => Promise<void>
   /** Sync remote branches only (git fetch), no push */
-  fetch: (root: string) => Promise<void>
+  fetch: (root: string, quiet?: boolean) => Promise<void>
   reset: () => void
 }
 
@@ -80,6 +106,76 @@ const optimisticDiscards = new Set<string>()
 const pendingForceBranches = new Set<string>()
 /** Per-root serial queue for index mutations: concurrent git add/restore calls would fight over index.lock. */
 const indexQueues = new Map<string, Promise<void>>()
+
+export function commitIdentity(root: string): GitIdentity | null {
+  const state = useGit.getState()
+  if (state.temporaryIdentity) return state.temporaryIdentity
+  const info = state.identities[root]
+  const identity = info?.effective
+  return identity?.name && identity.email ? identity : null
+}
+
+async function suspendRootEdits(root: string): Promise<() => void> {
+  const { setGitEditLocked, gitEditCompartment, gitEditLock } = await import('../editor/stateCache')
+  const { getEditorView } = await import('../editor/viewRef')
+  const { useTabs } = await import('./tabs')
+  const apply = (locked: boolean) => {
+    setGitEditLocked(root, locked)
+    const state = useTabs.getState()
+    for (const group of state.groups) {
+      if (!state.tabs.some(tab => tab.id === group.activeId && tab.root === root)) continue
+      const view = getEditorView(group.id)
+      if (view) view.dispatch({ effects: gitEditCompartment.reconfigure(gitEditLock(locked)) })
+    }
+  }
+  apply(true)
+  return () => apply(false)
+}
+
+async function branchMutation(root: string, action: string, run: () => Promise<unknown>, worktree = false): Promise<boolean> {
+  const git = useGit.getState()
+  if (git.busy) return false
+  git.setBusy(action)
+  let resume: ((reschedule?: boolean | readonly string[]) => void) | undefined
+  let finishTransition: (() => void) | undefined
+  let resumeEdits: (() => void) | undefined
+  let changed = false
+  try {
+    await waitForIndexQueue(root)
+    if (!useWorkspace.getState().roots.some(node => node.id === root)) return false
+    if (worktree) {
+      resumeEdits = await suspendRootEdits(root)
+      const { useTabs, suspendFileSaves } = await import('./tabs')
+      if (useTabs.getState().tabs.some(tab => tab.root === root && tab.dirty)) {
+        useUi.getState().toast(t('toast.saveBeforeCheckout'), 'error'); return false
+      }
+      const { beginBranchTransition, endBranchTransition } = await import('./watcher')
+      beginBranchTransition(root); finishTransition = () => endBranchTransition(root)
+      const paths = useTabs.getState().tabs.filter(tab => tab.root === root && tab.kind === 'file' && !tab.external).map(tab => tab.rel)
+      resume = await suspendFileSaves(root, paths)
+    }
+    // A conflict may change the worktree even when Git exits with an error.
+    changed = worktree
+    await run()
+    return true
+  } catch (error) { useUi.getState().toast(errorText(error), 'error'); return false }
+  finally {
+    try {
+      if (useWorkspace.getState().roots.some(node => node.id === root)) {
+      signatures.delete(root)
+      git.invalidateBranches(root)
+      if (changed) {
+        const { useTabs } = await import('./tabs')
+        const { useBlame } = await import('./blame')
+        const { useFileIndex } = await import('./fileIndex')
+        useBlame.getState().clear(); useFileIndex.getState().invalidate(root)
+        await Promise.allSettled([useWorkspace.getState().refreshTree(root, { quiet: true }), useTabs.getState().refreshFromDisk(root, { force: true })])
+      }
+      await Promise.allSettled([git.refresh(root, true), git.loadBranches(root, true)])
+      }
+    } finally { resume?.(!changed); resumeEdits?.(); finishTransition?.(); git.setBusy(null) }
+  }
+}
 
 function signatureOf(s: GitStatus): string {
   const part = (files: { path: string; status: string }[]) =>
@@ -153,7 +249,7 @@ function enqueueIndex(root: string, task: () => Promise<void>): Promise<void> {
   return next
 }
 
-async function waitForIndexQueue(root: string): Promise<void> {
+export async function waitForIndexQueue(root: string): Promise<void> {
   await (indexQueues.get(root) ?? Promise.resolve())
 }
 
@@ -195,6 +291,50 @@ export const useGit = create<GitStore>((set, get) => ({
   branches: {},
   branchesLoading: {},
   branchesAt: {},
+  temporaryIdentity: null,
+  identities: {},
+  preferences: DEFAULT_GIT_PREFERENCES,
+  projectPreferences: {},
+  loadProjectPreferences: async (root, force = false) => {
+    if (!force && get().projectPreferences[root]) return
+    try { const preferences = await api.gitProjectPreferences(root); if (useWorkspace.getState().roots.some(node => node.id === root)) set({ projectPreferences: { ...get().projectPreferences, [root]: preferences } }) }
+    catch (error) { if (force) useUi.getState().toast(errorText(error), 'error') }
+  },
+  setProjectPreferences: async (root, patch) => {
+    try { const preferences = await api.gitSetProjectPreferences(root, patch); if (useWorkspace.getState().roots.some(node => node.id === root)) set({ projectPreferences: { ...get().projectPreferences, [root]: preferences } }) }
+    catch (error) { useUi.getState().toast(errorText(error), 'error'); await get().loadProjectPreferences(root, true) }
+  },
+  loadPreferences: async (force = false) => {
+    if (preferencesPromise) { await preferencesPromise; if (!force) return }
+    if (preferencesLoaded && !force) return
+    preferencesPromise = (async () => {
+      try { const preferences = await api.gitPreferences(); set({ preferences }); preferencesLoaded = true }
+      catch (error) { if (force) useUi.getState().toast(errorText(error), 'error') }
+      finally { preferencesPromise = null }
+    })()
+    await preferencesPromise
+  },
+  setPreferences: async patch => {
+    try { set({ preferences: await api.gitSetPreferences(patch) }) }
+    catch (error) { useUi.getState().toast(errorText(error), 'error'); await get().loadPreferences(true) }
+  },
+  setTemporaryIdentity: temporaryIdentity => set({ temporaryIdentity }),
+  loadIdentity: async (root, force = false) => {
+    if (!force && get().identities[root]) return
+    try {
+      const info = await api.gitIdentity(root)
+      if (useWorkspace.getState().roots.some(node => node.id === root)) set({ identities: { ...get().identities, [root]: info } })
+    } catch (error) { useUi.getState().toast(errorText(error), 'error') }
+  },
+  forcePush: root => branchMutation(root, 'force-push', () => api.gitForcePush(root)),
+  clearStash: root => branchMutation(root, 'clear-stash', () => api.gitClearStash(root)),
+  fetchBranch: (root, target) => branchMutation(root, 'fetch', () => api.gitFetchBranch(root, target)),
+  renameBranch: (root, target, name) => branchMutation(root, 'rename-branch', () => api.gitRenameBranch(root, target, name)),
+  deleteBranch: (root, target, deleteRemote, force) => branchMutation(root, 'delete-branch', async () => {
+    const result = await api.gitDeleteBranch(root, target, deleteRemote, force)
+    if (result.error) throw new Error((result.localDeleted ? t('git.branchDeletePartial') + ' ' : '') + errorText(result.error))
+  }),
+  integrateBranch: (root, target, rebase) => branchMutation(root, rebase ? 'rebase' : 'merge', () => api.gitIntegrateBranch(root, target, rebase, commitIdentity(root)), true),
 
   loadBranches: async (root, force = false) => {
     if (get().branchesLoading[root]) {
@@ -209,6 +349,7 @@ export const useGit = create<GitStore>((set, get) => ({
     set({ branchesLoading: { ...get().branchesLoading, [root]: true } })
     try {
       const list = await api.gitBranches(root)
+      if (!useWorkspace.getState().roots.some(node => node.id === root)) { get().forget(root); return }
       set({
         branches: { ...get().branches, [root]: list },
         branchesAt: { ...get().branchesAt, [root]: Date.now() },
@@ -218,7 +359,7 @@ export const useGit = create<GitStore>((set, get) => ({
       set({ branchesLoading: { ...get().branchesLoading, [root]: false } })
       useUi.getState().toast(errorText(e), 'error')
     } finally {
-      if (pendingForceBranches.delete(root)) void get().loadBranches(root, true)
+      if (pendingForceBranches.delete(root) && useWorkspace.getState().roots.some(node => node.id === root)) void get().loadBranches(root, true)
     }
   },
 
@@ -230,6 +371,7 @@ export const useGit = create<GitStore>((set, get) => ({
   setBusy: (busy) => set({ busy }),
 
   refresh: async (root, force = false) => {
+    if (!force && root && !(get().projectPreferences[root] ?? get().preferences).autoRefresh) return
     // With a root (watcher callback / single project) refresh just that one; without, probe every root so a
     // git init / rm -rf .git in a terminal is corrected on focus or fallback polling even if the watcher
     // missed the event.
@@ -245,6 +387,7 @@ export const useGit = create<GitStore>((set, get) => ({
     }
 
     for (const target of targets) {
+      if (!force && !(get().projectPreferences[target] ?? get().preferences).autoRefresh) continue
       if (!isOpen(target)) {
         get().forget(target)
         continue
@@ -354,12 +497,16 @@ export const useGit = create<GitStore>((set, get) => ({
     const branches = { ...get().branches }
     const branchesLoading = { ...get().branchesLoading }
     const branchesAt = { ...get().branchesAt }
+    const identities = { ...get().identities }
+    const projectPreferences = { ...get().projectPreferences }
     if (
       !(root in statuses) &&
       !(root in loading) &&
       !(root in branches) &&
       !(root in branchesLoading) &&
       !(root in branchesAt) &&
+      !(root in identities) &&
+      !(root in projectPreferences) &&
       !(root in indexPending)
     ) {
       return
@@ -369,10 +516,13 @@ export const useGit = create<GitStore>((set, get) => ({
     delete branches[root]
     delete branchesLoading[root]
     delete branchesAt[root]
-    set({ statuses, loading, branches, branchesLoading, branchesAt, indexPending })
+    delete identities[root]
+    delete projectPreferences[root]
+    set({ statuses, loading, branches, branchesLoading, branchesAt, indexPending, identities, projectPreferences })
   },
 
   scheduleRefresh: (root) => {
+    if (root && !(get().projectPreferences[root] ?? get().preferences).autoRefresh) return
     const key = root ?? '__all__'
     const existing = timers.get(key)
     if (existing) clearTimeout(existing)
@@ -440,12 +590,16 @@ export const useGit = create<GitStore>((set, get) => ({
     }
   },
 
-  discardAllChanges: async (root) => {
+  discardFiles: async (root, paths) => { if (paths.length) await get().discardAllChanges(root, paths) },
+
+  discardAllChanges: async (root, selectedPaths) => {
     if (get().busy || discardAllConfirmPending || useUi.getState().confirmReq) return
     const confirmSnapshot = get().statuses[root]
     if (!confirmSnapshot || confirmSnapshot.error) return
-    const confirmTracked = confirmSnapshot.changes.map((file) => file.path)
-    const confirmUntracked = confirmSnapshot.untracked.map((file) => file.path)
+    const selection = selectedPaths ? new Set(selectedPaths) : null
+    const selected = (file: GitFile) => !selection || selection.has(file.path)
+    const confirmTracked = confirmSnapshot.changes.filter(selected).map((file) => file.path)
+    const confirmUntracked = confirmSnapshot.untracked.filter(selected).map((file) => file.path)
     if (confirmTracked.length + confirmUntracked.length === 0) return
     discardAllConfirmPending = true
     let ok: boolean
@@ -480,9 +634,10 @@ export const useGit = create<GitStore>((set, get) => ({
       set({ busy: null })
       return
     }
-    const trackedPaths = snapshot.changes.map((file) => file.path)
-    const untrackedPaths = snapshot.untracked.map((file) => file.path)
+    const trackedPaths = snapshot.changes.filter(selected).map((file) => file.path)
+    const untrackedPaths = snapshot.untracked.filter(selected).map((file) => file.path)
     const targets = [...trackedPaths, ...untrackedPaths]
+    const targetSet = new Set(targets)
     if (targets.length === 0) {
       set({ busy: null })
       return
@@ -493,7 +648,7 @@ export const useGit = create<GitStore>((set, get) => ({
     set({
       statuses: {
         ...get().statuses,
-        [root]: { ...snapshot, changes: [], untracked: [] },
+        [root]: { ...snapshot, changes: snapshot.changes.filter(file => !targetSet.has(file.path)), untracked: snapshot.untracked.filter(file => !targetSet.has(file.path)) },
       },
     })
 
@@ -520,8 +675,8 @@ export const useGit = create<GitStore>((set, get) => ({
               ...get().statuses,
               [root]: {
                 ...snapshot,
-                changes: snapshot.changes.filter((file) => remaining.has(file.path)),
-                untracked: snapshot.untracked.filter((file) => remaining.has(file.path)),
+                changes: snapshot.changes.filter((file) => !targetSet.has(file.path) || remaining.has(file.path)),
+                untracked: snapshot.untracked.filter((file) => !targetSet.has(file.path) || remaining.has(file.path)),
               },
             },
           })
@@ -543,6 +698,66 @@ export const useGit = create<GitStore>((set, get) => ({
       } finally {
         set({ busy: null })
       }
+    }
+  },
+
+  removeFiles: async (root, paths) => {
+    if (get().busy || useUi.getState().confirmReq || !paths.length) return
+    const targets = [...new Set(paths)]
+    const ok = await useUi.getState().confirm({ title: t('git.removeFiles'),
+      message: t('git.removeFilesConfirm', { count: targets.length }), confirmText: t('common.delete'), danger: true })
+    if (!ok || get().busy || !useWorkspace.getState().roots.some(node => node.id === root)) return
+    set({ busy: 'remove' })
+    await waitForIndexQueue(root)
+    let resume: ((reschedule?: boolean | readonly string[]) => void) | undefined
+    const deleted = new Set<string>()
+    try {
+      if (!useWorkspace.getState().roots.some(node => node.id === root)) return
+      const { useTabs, suspendFileSaves } = await import('./tabs')
+      resume = await suspendFileSaves(root, targets)
+      const result = await api.gitRemoveFiles(root, targets)
+      for (const path of result.deleted) { deleted.add(path); useTabs.getState().onDeleted(root, path) }
+      if (result.deleted.length) {
+        const { useFileIndex } = await import('./fileIndex')
+        useFileIndex.getState().invalidate(root)
+        const { dirname } = await import('../lib/paths')
+        for (const dir of new Set(result.deleted.map(dirname))) await useWorkspace.getState().refreshDir(root, dir)
+      }
+      if (result.error) useUi.getState().toast(errorText(result.error), 'error')
+    } catch (error) { useUi.getState().toast(errorText(error), 'error') }
+    finally {
+      resume?.(targets.filter(path => !deleted.has(path)))
+      signatures.delete(root)
+      try { await get().refresh(root, true) } finally { set({ busy: null }) }
+    }
+  },
+
+  ignoreFiles: async (root, paths) => {
+    if (get().busy || !paths.length) return
+    const targets = [...new Set(paths)]
+    set({ busy: 'ignore' })
+    await waitForIndexQueue(root)
+    let resume: ((reschedule?: boolean | readonly string[]) => void) | undefined
+    try {
+      if (!useWorkspace.getState().roots.some(node => node.id === root)) return
+      const { useTabs, suspendFileSaves } = await import('./tabs')
+      resume = await suspendFileSaves(root, ['.gitignore'])
+      if (useTabs.getState().tabs.some(tab => tab.root === root && tab.rel === '.gitignore' && tab.dirty)) {
+        useUi.getState().toast(t('git.ignoreDirty'), 'info')
+        return
+      }
+      await api.gitIgnoreFiles(root, targets)
+      resume(false)
+      resume = undefined
+      await useTabs.getState().refreshFromDisk(root, { paths: ['.gitignore'] })
+      const { useFileIndex } = await import('./fileIndex')
+      useFileIndex.getState().invalidate(root)
+      await useWorkspace.getState().refreshDir(root, '')
+    } catch (error) { useUi.getState().toast(errorText(error), 'error') }
+    finally {
+      resume?.()
+      signatures.delete(root)
+      try { await get().refresh(root, true) } finally { set({ busy: null }) }
     }
   },
 
@@ -593,11 +808,15 @@ export const useGit = create<GitStore>((set, get) => ({
     }
   },
 
-  commit: async (root, message) => {
+  commit: async (root, message, options) => {
+    if (get().busy) return false
     set({ busy: 'commit' })
     try {
       await waitForIndexQueue(root)
-      await api.gitCommit(root, message)
+      const identity = options?.identity ?? commitIdentity(root)
+      const result = options || identity ? await api.gitCommit(root, message, { ...options, identity,
+        resetAuthor: options?.resetAuthor ?? Boolean(get().temporaryIdentity) }) : await api.gitCommit(root, message)
+      if (result?.historyError) useUi.getState().toast(t('git.historySaveFailed', { error: errorText(result.historyError) }), 'info')
       signatures.delete(root)
       await get().refresh(root, true)
       return true
@@ -640,8 +859,8 @@ export const useGit = create<GitStore>((set, get) => ({
     }
   },
 
-  stashChanges: async (root) => {
-    if (get().busy || useUi.getState().confirmReq) return
+  stashChanges: async (root, message) => {
+    if (get().busy || useUi.getState().confirmReq) return false
     set({ busy: 'stash' })
     let resume: ((reschedule?: boolean | readonly string[]) => void) | undefined
     try {
@@ -652,7 +871,7 @@ export const useGit = create<GitStore>((set, get) => ({
       // buffers are deliberately skipped: saving one would open a Save As dialog.
       for (const tab of useTabs.getState().tabs) {
         if (tab.root !== root || tab.kind !== 'file' || tab.external || !tab.dirty) continue
-        if (!(await useTabs.getState().save(tab.id))) return
+        if (!(await useTabs.getState().save(tab.id))) return false
       }
 
       const snapshot = get().statuses[root]
@@ -671,7 +890,9 @@ export const useGit = create<GitStore>((set, get) => ({
       )]
       if (paths.length) resume = await suspendFileSaves(root, paths)
 
-      await api.gitStash(root)
+      const identity = commitIdentity(root)
+      if (message !== undefined || identity) await api.gitStash(root, message, identity)
+      else await api.gitStash(root)
       signatures.delete(root)
       await get().refresh(root, true)
       for (const rel of removed) useTabs.getState().onDeleted(root, rel)
@@ -682,15 +903,17 @@ export const useGit = create<GitStore>((set, get) => ({
       resume?.(false)
       resume = undefined
       useUi.getState().toast(t('toast.gitStashed'), 'success')
+      return true
     } catch (e) {
       useUi.getState().toast(errorText(e), 'error')
+      return false
     } finally {
       resume?.()
       set({ busy: null })
     }
   },
 
-  popStash: async (root) => {
+  popStash: async (root, sha) => {
     if (get().busy || useUi.getState().confirmReq) return
     set({ busy: 'stash-pop' })
     let resume: ((reschedule?: boolean | readonly string[]) => void) | undefined
@@ -713,7 +936,8 @@ export const useGit = create<GitStore>((set, get) => ({
 
       let applied = false
       try {
-        await api.gitStashPop(root)
+      if (sha) await api.gitStashPop(root, sha)
+      else await api.gitStashPop(root)
         applied = true
         useUi.getState().toast(t('toast.gitStashPopped'), 'success')
       } catch (e) {
@@ -793,7 +1017,9 @@ export const useGit = create<GitStore>((set, get) => ({
     set({ busy: 'continue' })
     try {
       await waitForIndexQueue(root)
-      await api.gitContinue(root, message.trim() ? message : null)
+      const identity = commitIdentity(root)
+      const result = identity ? await api.gitContinue(root, message.trim() ? message : null, identity) : await api.gitContinue(root, message.trim() ? message : null)
+      if (result?.historyError) useUi.getState().toast(t('git.historySaveFailed', { error: errorText(result.historyError) }), 'info')
       signatures.delete(root)
       await get().refresh(root, true)
       return true
@@ -867,21 +1093,20 @@ export const useGit = create<GitStore>((set, get) => ({
   },
 
   pull: async (root) => {
+    if (get().busy) return
+    // Keep the editor available during network I/O, then guard only the worktree phase.
     set({ busy: 'pull' })
-    try {
-      await waitForIndexQueue(root)
-      const out = await api.gitPull(root)
+    try { await api.gitFetch(root) }
+    catch (error) { useUi.getState().toast(errorText(error), 'error'); return }
+    finally { set({ busy: null }) }
+    await branchMutation(root, 'pull', async () => {
+      const out = await api.gitPull(root, commitIdentity(root))
       if (out.trim()) useUi.getState().toast(out, 'success')
-      signatures.delete(root)
-      await get().refresh(root, true)
-    } catch (e) {
-      useUi.getState().toast(errorText(e), 'error')
-    } finally {
-      set({ busy: null })
-    }
+    }, true)
   },
 
   push: async (root) => {
+    if (get().busy) return
     set({ busy: 'push' })
     try {
       await waitForIndexQueue(root)
@@ -895,7 +1120,8 @@ export const useGit = create<GitStore>((set, get) => ({
     }
   },
 
-  fetch: async (root) => {
+  fetch: async (root, quiet = false) => {
+    if (get().busy) return
     set({ busy: 'fetch' })
     try {
       await waitForIndexQueue(root)
@@ -905,7 +1131,7 @@ export const useGit = create<GitStore>((set, get) => ({
       await get().loadBranches(root, true)
       await get().refresh(root, true)
     } catch (e) {
-      useUi.getState().toast(errorText(e), 'error')
+      if (!quiet) useUi.getState().toast(errorText(e), 'error')
     } finally {
       set({ busy: null })
     }
@@ -925,6 +1151,8 @@ export const useGit = create<GitStore>((set, get) => ({
       branches: {},
       branchesLoading: {},
       branchesAt: {},
+      identities: {},
+      projectPreferences: {},
     })
   },
 }))

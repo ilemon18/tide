@@ -30,6 +30,7 @@ import {
 import { altSelection } from './altSelection'
 import { foldingExtension } from './folding'
 import { indentGuides } from './indentGuides'
+import { rainbowBracketsForTier } from './rainbowBrackets'
 import type { DocTier } from './largeFile'
 import { t } from '../i18n'
 
@@ -94,6 +95,7 @@ export function buildBaseExtensions(opts: BaseOptions): Extension[] {
     altSelection,
     highlightActiveLine(),
     highlightSelectionMatches(),
+    rainbowBracketsForTier(opts.tier),
     // searchKeymap is deliberately omitted: the custom VSCode-style bar owns ⌘F,
     // but search() still provides the query state and match highlighting.
     keymap.of([

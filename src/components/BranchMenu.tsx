@@ -4,6 +4,8 @@ import { useUi } from '../store/ui'
 import { checkoutBranch, createBranch, fetchRemote } from '../lib/actions'
 import { relativeTime, shortSha } from '../lib/format'
 import { Icon } from './Icon'
+import { ContextMenu, type MenuItem } from './ContextMenu'
+import { GitDialogs, type GitDialog } from './GitDialogs'
 import type { GitBranch } from '../lib/ipc'
 import { useT } from '../i18n'
 
@@ -47,6 +49,10 @@ export function searchBranches(all: GitBranch[], query: string): GitBranch[] {
     })
 }
 
+export function branchesForMenu(branches: GitBranch[], localOnly = false): GitBranch[] {
+  return sortBranches(localOnly ? branches.filter(branch => branch.kind === 'local') : branches)
+}
+
 /** Branch dropdown in the status bar's bottom-left: filter + checkout + fetch remote (VS Code style) */
 export function BranchMenu() {
   const t = useT()
@@ -59,18 +65,21 @@ export function BranchMenu() {
   const [query, setQuery] = useState('')
   const [index, setIndex] = useState(0)
   const [creating, setCreating] = useState(false)
+  const [context, setContext] = useState<{ x: number; y: number; branch: GitBranch } | null>(null)
+  const [dialog, setDialog] = useState<GitDialog | null>(null)
   const listRef = useRef<HTMLDivElement>(null)
 
   const root = menu?.root ?? null
 
   useEffect(() => {
     if (!menu) return
+    setContext(null); setDialog(null)
     setQuery('')
     setIndex(0)
     void useGit.getState().loadBranches(menu.root)
   }, [menu])
 
-  const all = useMemo(() => (data ? sortBranches(data.branches) : []), [data])
+  const all = useMemo(() => (data ? branchesForMenu(data.branches, menu?.localOnly) : []), [data, menu?.localOnly])
 
   const recentItems = useMemo(() => selectRecentBranches(all), [all])
 
@@ -113,6 +122,7 @@ export function BranchMenu() {
   if (!menu || !root) return null
 
   const pick = (branch: GitBranch) => {
+    if (busy !== null) return
     close()
     if (branch.current) return
     void checkoutBranch(root, branch.name, branch.kind)
@@ -128,13 +138,29 @@ export function BranchMenu() {
     })
   }
 
+  const branchItems = (branch: GitBranch): MenuItem[] => {
+    const disabled = busy !== null
+    const form = (kind: 'rename' | 'delete' | 'merge' | 'rebase', force = false) => setDialog({ kind, root, current: data?.current ?? '', branch, force })
+    return [
+      { label: t('git.checkoutBranch'), disabled: disabled || branch.current, onClick: () => pick(branch) },
+      { label: t('git.fetchBranch'), disabled, onClick: () => void useGit.getState().fetchBranch(root, { name: branch.name, kind: branch.kind }) },
+      { label: t('git.renameBranch'), disabled, onClick: () => form('rename') },
+      { type: 'separator' },
+      { label: t('git.mergeBranch'), disabled: disabled || branch.current || Boolean(data?.detached), onClick: () => form('merge') },
+      { label: t('git.rebaseBranch'), disabled: disabled || branch.current || Boolean(data?.detached), onClick: () => form('rebase') },
+      { type: 'separator' },
+      { label: t('git.deleteBranch'), danger: true, disabled: disabled || branch.current, onClick: () => form('delete') },
+      ...(branch.kind === 'local' ? [{ label: t('git.forceDeleteBranch'), danger: true, disabled: disabled || branch.current, onClick: () => form('delete', true) }] : []),
+    ]
+  }
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/25 p-4"
-      onMouseDown={close}
+      onMouseDown={() => { if (!dialog && !context && busy === null) close() }}
     >
       <div
         role="dialog"
+        data-shortcut-dialog
         aria-label={t('branch.searchPlaceholder')}
         className="flex h-[480px] max-h-[calc(100dvh-32px)] w-[560px] max-w-[92vw] flex-col overflow-hidden rounded-dialog border border-line-soft bg-panel shadow-dialog"
         onMouseDown={(e) => e.stopPropagation()}
@@ -212,6 +238,7 @@ export function BranchMenu() {
               data-active={i === index}
               onMouseEnter={() => setIndex(i)}
               onClick={() => pick(branch)}
+              onContextMenu={event => { event.preventDefault(); setContext({ x: event.clientX, y: event.clientY, branch }) }}
               className={`flex w-full items-center gap-2 whitespace-nowrap px-3 py-[6px] text-left ${
                 i === index ? 'bg-active' : ''
               }`}
@@ -271,6 +298,8 @@ export function BranchMenu() {
         </div>
 
       </div>
+      {context ? <ContextMenu {...context} items={branchItems(context.branch)} onClose={() => setContext(null)} /> : null}
+      {dialog ? <GitDialogs key={`${dialog.kind}:${'branch' in dialog ? dialog.branch.name : ''}`} dialog={dialog} onClose={() => setDialog(null)} /> : null}
     </div>
   )
 }

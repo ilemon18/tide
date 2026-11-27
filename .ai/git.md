@@ -40,8 +40,8 @@ keywords:
 
 ## Ownership
 
-The Git store owns status/actions; Rust git commands own mutations; paths/proc own containment and subprocess
-policy. DiffView/diffScroll own positioning; `editor/conflicts` owns resolution edits.
+Git store owns status/actions; Rust owns mutations, paths and processes. DiffView/diffScroll position views;
+`editor/conflicts` resolves edits.
 
 ## Status and actions
 
@@ -53,14 +53,14 @@ policy. DiffView/diffScroll own positioning; `editor/conflicts` owns resolution 
   pure Git watcher batches must not rebuild the tree or reload files. Mixed batches:
   [file-tree.md](./file-tree.md).
 - Git rows single-click into their diff; double/context-click opens the file menu with lazy metadata.
-  Respect `agentEnabled` and symlink rules; placeholders get no mutations.
+  Respect Agent/symlink rules; placeholders get no mutations.
 - Hover actions share centered 18px slots, with a 2px inset from the right edge. `Icon` owns optical glyph
   alignment; disabled controls retain hints and use not-allowed rather than suppressing pointer events.
 
 ## Blame and discard
 
 - `git_blame(root, rel, contents, version)` is content-aware: open / save / watcher read the file on disk,
-  while a dirty buffer goes through `blame --contents -` about 450 ms after typing stops. Request sequence
+  while a dirty buffer uses `blame --contents -` after the editor-owned idle delay. Request sequence
   numbers and the result `version` drop stale answers, so a shifted line never keeps the old commit. Disk
   results cache by `root|rel|mtime` under `memoryBudget.blameEntries`; buffer results stay on their tab.
   Porcelain maps `filename` to `origPath` (the rename-aware diff target) and keeps `previous`; 40/64-digit
@@ -80,8 +80,7 @@ policy. DiffView/diffScroll own positioning; `editor/conflicts` owns resolution 
 ## Stash, reset and undo
 
 - `stashChanges` saves dirty project files (never untitled), suspends saves, then runs `git stash push`
-  (tracked only). `popStash` runs `git stash pop` without `--index`; a conflict refreshes files and keeps the
-  entry. `resetAll` confirms and runs `git reset --hard HEAD`: tracked changes are discarded, untracked files
+  (tracked only). `popStash` applies a selected SHA without `--index`, drops it only on success; conflicts retain it. `resetAll` confirms and runs `git reset --hard HEAD`: tracked changes are discarded, untracked files
   stay. Reset without HEAD reports `git.noCommitToReset`.
 - `turn_snapshot` copies `<gitdir>/index`, reads its tree, then builds a worktree baseline with
   `GIT_INDEX_FILE=<tmp> git add -A -- .` plus `git write-tree`, leaving the real index/worktree untouched.
@@ -99,9 +98,18 @@ policy. DiffView/diffScroll own positioning; `editor/conflicts` owns resolution 
   use `StateField` decorations, never a `ViewPlugin` decoration set.
 - Use `git -C root`, `GIT_TERMINAL_PROMPT=0`, `GIT_OPTIONAL_LOCKS=0`, disabled editors/pager, `LC_ALL=C` and
   closed stdin. Resolve `.git` roots without `rev-parse` when possible; probes use a short poll, network uses
-  the longer timeout, and checkout never uses the short deadline. Shared path comparison preserves Windows
-  verbatim/UNC semantics; errors and IPC paths follow [context.md](./context.md).
+  the longer timeout, and checkout never uses the short deadline. Paths preserve Windows verbatim/UNC semantics; IPC: [context.md](./context.md).
+
+## Workflow UI
+
+[git-ui.md](./git-ui.md) owns branch dialogs/config/identity/stash selection. File groups support Shift range
+and Ctrl/Cmd additive selection; highlighting never changes staging. Row checkboxes stage/unstage only that
+file; group checkboxes operate on all real files in that group, excluding directory placeholders. Bulk
+conflict resolution stays disabled. Context actions snapshot only their group; multi-selection disables
+path/name copying. Discard restores from index;
+Remove deletes worktree files preserving index; Ignore adds escaped untracked paths atomically. Preflight
+all targets; partial deletion closes only completed tabs, resumes saves only for unprocessed paths.
 
 ## Change map
 
-Coordinate snapshots, save suspension and watchers; gate: [checks.md](./checks.md).
+Gate: [checks.md](./checks.md).

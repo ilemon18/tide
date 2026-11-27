@@ -4,6 +4,7 @@ export type IconName =
   | 'files'
   | 'structure'
   | 'git'
+  | 'user'
   | 'settings'
   | 'terminal'
   | 'terminal-panel'
@@ -66,6 +67,7 @@ export type IconName =
   | 'stop'
 
 const shapes: Record<IconName, ReactNode> = {
+  user: <><circle cx="12" cy="8" r="3.5" /><path d="M5 20v-2a7 7 0 0 1 14 0v2" /></>,
   // Sparkle: the agent entry (large four-point star with a small companion)
   agent: (
     <>

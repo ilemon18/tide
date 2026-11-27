@@ -4121,7 +4121,7 @@ dependencies = [
 
 [[package]]
 name = "tide"
-version = "0.0.17"
+version = "0.0.20"
 dependencies = [
  "dunce",
  "ignore",

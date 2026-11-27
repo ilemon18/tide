@@ -8,12 +8,11 @@ import { api, errorText } from '../lib/ipc'
 import { useSettings } from '../store/settings'
 import { registerPtyHandler, useTerminal, type TerminalTab } from '../store/terminal'
 import { buildTerminalTheme } from '../theme/xtermTheme'
-import { monoStack } from '../editor/stateCache'
+import { terminalStack } from '../lib/fonts'
 import { budget } from '../lib/memoryBudget'
 import { isLayoutDragging, onLayoutDragging } from '../lib/layoutBus'
 import { isMac } from '../lib/paths'
 import { shortcutKey } from '../lib/keys'
-import { isLowDpi, onLowDpiChange } from '../lib/displayScale'
 import { terminalSelections } from '../lib/terminalSelection'
 import { agentUid } from '../store/agent'
 import { activeRoot } from '../store/workspace'
@@ -61,6 +60,8 @@ export function TerminalView({ tab, active }: Props) {
   const palette = useSettings((s) => s.palette)
   const fontSize = useSettings((s) => s.terminalFontSize)
   const fontFamily = useSettings((s) => s.fontFamily)
+  const fontWeight = useSettings(s => s.terminalFontWeight)
+  const fontItalic = useSettings(s => s.terminalFontItalic)
   const scrollback = useSettings((s) => s.terminalScrollback)
   /** Effective buffer: each scrollback line keeps its cells in memory, so lightweight mode caps it */
   const effectiveScrollback = budget.terminalScrollback(scrollback)
@@ -77,7 +78,9 @@ export function TerminalView({ tab, active }: Props) {
     const mac = isMac()
 
     const term = new Terminal({
-      fontFamily: monoStack(fontFamily),
+      fontFamily: terminalStack(fontFamily, fontItalic),
+      fontWeight,
+      fontWeightBold: Math.min(900, fontWeight + 300),
       fontSize,
       lineHeight: 1.25,
       theme: buildTerminalTheme(palette),
@@ -86,9 +89,6 @@ export function TerminalView({ tab, active }: Props) {
       cursorStyle: 'block',
       macOptionIsMeta: true,
       allowTransparency: false,
-      // 1x displays collapse a 12px 400-weight stem into one faint pixel; one step up keeps text legible
-      fontWeight: isLowDpi() ? 500 : 400,
-      fontWeightBold: isLowDpi() ? 650 : 600,
     })
     termRef.current = term
     const unregisterSelection = terminalSelections.register(tab.id, () => {
@@ -533,60 +533,38 @@ export function TerminalView({ tab, active }: Props) {
     term.options.theme = buildTerminalTheme(palette)
   }, [palette])
 
-  // The window can move between a Retina screen and a 1x monitor: reweight the glyphs and reflow
-  // the PTY, otherwise the terminal keeps whatever weight it was created with.
   useEffect(() => {
-    return onLowDpiChange((low) => {
-      const term = termRef.current
-      const host = hostRef.current
-      if (!term) return
-      term.options.fontWeight = low ? 500 : 400
-      term.options.fontWeightBold = low ? 650 : 600
+    const term = termRef.current
+    const host = hostRef.current
+    if (!term) return
+    let disposed = false
+    const stack = terminalStack(fontFamily, fontItalic)
+    term.options.fontSize = fontSize
+    term.options.fontFamily = stack
+    term.options.fontWeight = fontWeight
+    term.options.fontWeightBold = Math.min(900, fontWeight + 300)
+    if (host && host.clientWidth > 0 && fitRef.current) {
+      try {
+        fitRef.current.fit()
+      } catch {
+        /* ignore */
+      }
+      if (ptyRef.current) void api.ptyResize(ptyRef.current, term.cols, term.rows)
+    }
+    if (document.fonts?.load) void Promise.all([
+      document.fonts.load(`${fontWeight} ${fontSize}px ${stack}`),
+      document.fonts.load(`${Math.min(900, fontWeight + 300)} ${fontSize}px ${stack}`),
+    ]).then(() => {
+      if (disposed || termRef.current !== term) return
+      term.clearTextureAtlas()
+      term.refresh(0, Math.max(0, term.rows - 1))
       if (host && host.clientWidth > 0 && fitRef.current) {
-        try {
-          fitRef.current.fit()
-        } catch {
-          /* ignore */
-        }
+        try { fitRef.current.fit() } catch { /* hidden terminal */ }
         if (ptyRef.current) void api.ptyResize(ptyRef.current, term.cols, term.rows)
       }
-      try {
-        term.refresh(0, term.rows - 1)
-      } catch {
-        /* ignore */
-      }
-    })
-  }, [])
-
-  useEffect(() => {
-    const term = termRef.current
-    const host = hostRef.current
-    if (!term) return
-    term.options.fontSize = fontSize
-    if (host && host.clientWidth > 0 && fitRef.current) {
-      try {
-        fitRef.current.fit()
-      } catch {
-        /* ignore */
-      }
-      if (ptyRef.current) void api.ptyResize(ptyRef.current, term.cols, term.rows)
-    }
-  }, [fontSize])
-
-  useEffect(() => {
-    const term = termRef.current
-    const host = hostRef.current
-    if (!term) return
-    term.options.fontFamily = monoStack(fontFamily)
-    if (host && host.clientWidth > 0 && fitRef.current) {
-      try {
-        fitRef.current.fit()
-      } catch {
-        /* ignore */
-      }
-      if (ptyRef.current) void api.ptyResize(ptyRef.current, term.cols, term.rows)
-    }
-  }, [fontFamily])
+    }).catch(() => {})
+    return () => { disposed = true }
+  }, [fontFamily, fontWeight, fontItalic, fontSize])
 
   useEffect(() => {
     const term = termRef.current

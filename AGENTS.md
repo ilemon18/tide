@@ -1,14 +1,12 @@
 # Tide — Agent Rules (mandatory)
 
-1. This is the only always-active policy. Read [context](./.ai/context.md), then route touched paths with
-   `pnpm docs:route <paths>` and load the returned docs. Cross-domain paths may require several.
-2. Before paths are known, `pnpm docs:route --query "task"` recommends candidates; locate code and confirm
-   scopes before loading. Linked docs are conditional references, not an instruction to load every link.
-3. Load skills only on explicit triggers, except the copy check in rule 4. Search targeted paths first;
-   expand when needed and keep output focused.
-4. Whenever a task adds or edits user-visible copy, run the necessity check in
-   [polish-ui-copy](./.ai/skills/polish-ui-copy/SKILL.md): keep only text the user needs to act, decide,
-   recover or understand risk; remove repetition and decoration.
+1. Only this policy is always active. Read [context](./.ai/context.md), route touched paths with
+   `pnpm docs:route <paths>` and load all matching domains.
+2. Use `pnpm docs:route --query "task"` for candidates before paths are known; locate code and confirm scopes.
+   Linked docs are conditional: load only applicable ones.
+3. Load skills on explicit triggers or required UI copy checks. Search targeted paths first; expand as needed.
+4. For user-visible copy, follow the necessity check in [polish-ui-copy](./.ai/skills/polish-ui-copy/SKILL.md);
+   keep actions, decisions, recovery and risk, and remove repetition and decoration.
 
 ## Run policy
 
@@ -30,3 +28,10 @@ Write/update tests with implementation; leave execution to an explicit gate requ
 
 When paths, guards or behavior contracts change, update the owning routed doc and the guard map in
 [checks](./.ai/checks.md). Keep one source per rule; cite code owners for changing numeric limits.
+
+## Development standards
+
+- Minimize memory; explain and confirm exceptions with the developer.
+- Avoid hardcoded choices; prefer configuration. Ask the developer about unresolved decisions.
+- After UI edits follow [polish-ui-copy](./.agents/skills/polish-ui-copy/SKILL.md).
+- Before commit/release require changelog; backfill missing notes from relevant history.

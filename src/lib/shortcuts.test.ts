@@ -46,7 +46,19 @@ it('treats Ctrl and Mod as the same physical stroke only on Ctrl platforms', () 
   expect(shortcutIdentity('Mod+g', false)).toBe(shortcutIdentity('Ctrl+g', false))
   expect(shortcutIdentity('Mod+g', true)).not.toBe(shortcutIdentity('Ctrl+g', true))
   const next = assignShortcuts('agent.ask', ['Ctrl+g'], {}, false)
-  expect(next['view.gotoLine']).toEqual([])
+  expect(next['view.quickOpen']).toEqual(['Mod+p'])
+})
+
+it.each([true, false])('opens files with P and G while leaving line jumps in the same picker (mac=%s)', mac => {
+  const resolved = resolveShortcuts({}, mac)
+  const bindings = resolved['view.quickOpen'].map(key => shortcutIdentity(key, mac))
+  expect(bindings).toContain(shortcutIdentity('Mod+p', mac))
+  expect(bindings).toContain(shortcutIdentity('Mod+g', mac))
+  expect(bindings).toContain('Ctrl+g')
+  expect(resolved['view.gotoLine']).toEqual([])
+  const reassigned = assignShortcuts('agent.ask', ['Mod+g'], {}, mac)
+  expect(resolveShortcuts(reassigned, mac)['view.quickOpen'].map(key => shortcutIdentity(key, mac)))
+    .not.toContain(shortcutIdentity('Mod+g', mac))
 })
 
 it('normalizes damaged fields independently, preserves explicit removals and unknown ids', () => {

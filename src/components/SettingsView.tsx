@@ -25,7 +25,7 @@ import { useAgent } from '../store/agent'
 import { useWorkspace } from '../store/workspace'
 import { Picker, effortLabel } from './AgentPickers'
 import { AgentProviderIcon } from './AgentProviderIcon'
-import { MONO_FONT_OPTIONS, monoStack } from '../lib/fonts'
+import { FONT_WEIGHTS, MONO_FONT_OPTIONS, monoStack, terminalStack } from '../lib/fonts'
 import { SETTINGS_SECTIONS, type SettingsSectionId } from '../lib/settingsSections'
 import { ACTIVITY_BAR_ITEMS } from '../lib/activityBar'
 import { Icon } from './Icon'
@@ -301,7 +301,7 @@ export function SettingsView() {
         </Card>
 
         <Card title={t('settings.appearance.fonts')}>
-          <Row label={t('settings.appearance.codeFont')}>
+          <Row label={t('settings.appearance.codeFont')} hint={settings.fontFamily === 'consolas' ? t('fonts.consolasHint') : settings.fontFamily === 'smiley-sans' ? t('fonts.smileyHint') : undefined}>
             <div className="flex max-w-[320px] flex-wrap justify-end gap-1">
               {MONO_FONT_OPTIONS.map((option) => (
                 <button
@@ -314,12 +314,20 @@ export function SettingsView() {
               ))}
             </div>
           </Row>
+          <Row label={t('settings.appearance.codeFontWeight')}>
+            <Picker label={t('settings.appearance.codeFontWeight')} hideLabel value={String(settings.fontWeight)}
+              options={FONT_WEIGHTS.map(weight => ({ id: String(weight), label: String(weight) }))}
+              onPick={weight => set('fontWeight', Number(weight))} />
+          </Row>
+          <Row label={t('settings.appearance.codeFontItalic')}>
+            <Toggle role="switch" ariaLabel={t('settings.appearance.codeFontItalic')} value={settings.fontItalic} onChange={value => set('fontItalic', value)} />
+          </Row>
           <div className="border-b border-line/60 px-4 py-3">
             <div
               className="code-font-preview truncate rounded-[var(--r-control)] border border-line/70 bg-bg/60 px-3 py-2 text-xs text-fg/80"
-              style={{ fontFamily: monoStack(settings.fontFamily) }}
+              style={{ fontFamily: monoStack(settings.fontFamily), fontWeight: settings.fontWeight, fontStyle: settings.fontItalic ? 'italic' : 'normal' }}
             >
-              const tide = (a, b) =&gt; a == b ? 0123456789 : b
+              {t('fonts.preview')}
             </div>
           </div>
           <Row label={t('settings.appearance.uiFontSize')}>
@@ -330,6 +338,19 @@ export function SettingsView() {
               onChange={(v) => set('uiFontSize', v)}
             />
           </Row>
+          <Row label={t('settings.appearance.uiFontWeight')}>
+            <Picker label={t('settings.appearance.uiFontWeight')} hideLabel value={String(settings.uiFontWeight)}
+              options={FONT_WEIGHTS.map(weight => ({ id: String(weight), label: String(weight) }))}
+              onPick={weight => set('uiFontWeight', Number(weight))} />
+          </Row>
+          <Row label={t('settings.appearance.uiFontItalic')}>
+            <Toggle role="switch" ariaLabel={t('settings.appearance.uiFontItalic')} value={settings.uiFontItalic} onChange={value => set('uiFontItalic', value)} />
+          </Row>
+          <div className="border-b border-line/60 px-4 py-3">
+            <div className="ui-font-preview truncate rounded-[var(--r-control)] border border-line/70 bg-bg/60 px-3 py-2 text-sm text-fg/80"
+              style={{ fontWeight: settings.uiFontWeight, fontStyle: settings.uiFontItalic ? 'italic' : 'normal' }}>{t('fonts.uiPreview')}</div>
+            <p className="mt-2 text-xs text-muted">{t('fonts.styleHint')}</p>
+          </div>
           <Row label={t('settings.appearance.editorFontSize')}>
             <Stepper value={settings.fontSize} min={10} max={24} onChange={(v) => set('fontSize', v)} />
           </Row>
@@ -429,6 +450,9 @@ export function SettingsView() {
           <Row label={t('settings.editor.indentGuides')}>
             <Toggle value={settings.indentGuides} onChange={(v) => set('indentGuides', v)} />
           </Row>
+          <Row label={t('settings.editor.rainbowBrackets')} hint={t('settings.editor.rainbowBracketsHint')}>
+            <Toggle role="switch" ariaLabel={t('settings.editor.rainbowBrackets')} value={settings.rainbowBrackets} onChange={value => set('rainbowBrackets', value)} />
+          </Row>
         </Card>
 
         <Card title={t('settings.editor.onSave')}>
@@ -480,6 +504,18 @@ export function SettingsView() {
             onChange={(v) => set('terminalFontSize', v)}
           />
         </Row>
+        <Row label={t('settings.terminal.fontWeight')}>
+          <Picker label={t('settings.terminal.fontWeight')} hideLabel value={String(settings.terminalFontWeight)}
+            options={FONT_WEIGHTS.map(weight => ({ id: String(weight), label: String(weight) }))}
+            onPick={weight => set('terminalFontWeight', Number(weight))} />
+        </Row>
+        <Row label={t('settings.terminal.fontItalic')} hint={settings.fontFamily === 'smiley-sans' ? t('fonts.smileyHint') : t('fonts.styleHint')}>
+          <Toggle role="switch" ariaLabel={t('settings.terminal.fontItalic')} value={settings.terminalFontItalic} onChange={value => set('terminalFontItalic', value)} />
+        </Row>
+        <div className="border-b border-line/60 px-4 py-3">
+          <div className="truncate rounded-[var(--r-control)] border border-line/70 bg-bg/60 px-3 py-2 text-xs text-fg/80"
+            style={{ fontFamily: terminalStack(settings.fontFamily, settings.terminalFontItalic), fontWeight: settings.terminalFontWeight, fontStyle: 'normal' }}>{t('fonts.terminalPreview')}</div>
+        </div>
         <Row label={t('settings.terminal.scrollback')}>
           <div className="flex items-center gap-1">
             {[1000, 2000, 5000].map((value) => (

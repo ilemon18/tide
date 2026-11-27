@@ -3,7 +3,7 @@ import { api, errorText } from './ipc'
 import { basename, dirname, relFromAbsolute } from './paths'
 import { activeRoot, useWorkspace } from '../store/workspace'
 import { useTabs, type TabGroupId } from '../store/tabs'
-import { useGit } from '../store/git'
+import { useGit, waitForIndexQueue } from '../store/git'
 import { useTerminal } from '../store/terminal'
 import { useBlame } from '../store/blame'
 import { useUi } from '../store/ui'
@@ -191,10 +191,13 @@ export async function checkoutBranch(
     return
   }
   const git = useGit.getState()
+  if (git.busy) return
   git.setBusy('checkout')
   beginBranchTransition(root)
   let refreshStarted = false
   try {
+    await waitForIndexQueue(root)
+    if (useTabs.getState().tabs.some(tab => tab.root === root && tab.dirty)) { useUi.getState().toast(t('toast.saveBeforeCheckout'), 'error'); return }
     await api.gitCheckout(root, branch, kind)
     useBlame.getState().clear()
     refreshStarted = true
@@ -211,21 +214,24 @@ export async function checkoutBranch(
 }
 
 /** Create a branch and switch to it: same checks and background refresh. false keeps the dialog open so the name can be retried. */
-export async function createBranch(root: string, name: string): Promise<boolean> {
-  const dirty = useTabs.getState().tabs.some((t) => t.root === root && t.dirty)
+export async function createBranch(root: string, name: string, checkout = true): Promise<boolean> {
+  const dirty = checkout && useTabs.getState().tabs.some((t) => t.root === root && t.dirty)
   if (dirty) {
     useUi.getState().toast(t('toast.saveBeforeBranch'), 'error')
     return false
   }
   const git = useGit.getState()
+  if (git.busy) return false
   git.setBusy('checkout')
   beginBranchTransition(root)
   let refreshStarted = false
   try {
-    await api.gitBranchCreate(root, name)
-    useBlame.getState().clear()
+    await waitForIndexQueue(root)
+    if (checkout && useTabs.getState().tabs.some(tab => tab.root === root && tab.dirty)) { useUi.getState().toast(t('toast.saveBeforeBranch'), 'error'); return false }
+    await api.gitBranchCreate(root, name, checkout)
+    if (checkout) useBlame.getState().clear()
     refreshStarted = true
-    void refreshAfterBranchChange(root)
+    void (checkout ? refreshAfterBranchChange(root) : Promise.all([git.refresh(root, true), git.loadBranches(root, true)]))
       .catch(() => {})
       .finally(() => endBranchTransition(root))
     return true
@@ -413,4 +419,14 @@ export function openTerminalHere(): void {
   const rootId = tab?.root ?? activeRoot()?.id ?? null
   const rel = tab ? dirname(tab.rel) : ''
   useTerminal.getState().open(rootId, rel)
+}
+
+export async function openProjectDirectory(root: string): Promise<void> {
+  try { await api.projectOpenDirectory(root) } catch (error) { useUi.getState().toast(errorText(error), 'error') }
+}
+export async function openProjectTerminal(root: string): Promise<void> {
+  try { await api.projectOpenTerminal(root) } catch (error) { useUi.getState().toast(errorText(error), 'error') }
+}
+export async function openRemoteRepository(root: string): Promise<void> {
+  try { await api.gitOpenRemote(root) } catch (error) { useUi.getState().toast(errorText(error), 'error') }
 }

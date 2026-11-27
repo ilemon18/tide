@@ -6,6 +6,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 const { workspace } = vi.hoisted(() => ({ workspace: {
   roots: [] as { id: string; name: string; isGitRepo: boolean }[],
   recent: [] as { path: string; name: string }[],
+  activeRootId: null as string | null,
   setActiveRoot: vi.fn(), removeRecent: vi.fn(),
 } }))
 
@@ -32,7 +33,7 @@ vi.mock('../i18n', async (importOriginal) => ({
 import { newWindow, openFileDialog, openWorkspace } from '../lib/actions'
 import { Welcome } from './Welcome'
 
-beforeEach(() => { vi.clearAllMocks(); workspace.roots = []; workspace.recent = [] })
+beforeEach(() => { vi.clearAllMocks(); workspace.roots = []; workspace.recent = []; workspace.activeRootId = null })
 afterEach(cleanup)
 
 it('puts Open file before Open folder and opens the native picker', () => {
@@ -45,16 +46,18 @@ it('puts Open file before Open folder and opens the native picker', () => {
   expect(openFileDialog).toHaveBeenCalledTimes(1)
 })
 
-it('shows the newest six other projects below the current project and delegates switching', () => {
+it('shares the heading with the current project, caps recents at twelve and delegates switching', () => {
   workspace.roots = [{ id: '/current', name: 'Current', isGitRepo: false }]
   workspace.recent = [{ path: '/current', name: 'Current' },
-    ...Array.from({ length: 9 }, (_, index) => ({ path: `/repo-${index}`, name: `Project ${index}` })),
+    ...Array.from({ length: 15 }, (_, index) => ({ path: `/repo-${index}`, name: `Project ${index}` })),
   ]
   render(<Welcome />)
   const region = screen.getByRole('region', { name: 'welcome.recent' })
-  expect(screen.getByText('welcome.currentProject').compareDocumentPosition(region) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-  const projects = within(region).getAllByRole('button')
-  expect(projects.map(button => button.textContent)).toEqual(Array.from({ length: 6 }, (_, index) => `Project ${index}`))
+  const current = within(region).getByRole('button', { name: 'welcome.currentProject: Current' })
+  expect(current.getAttribute('aria-current')).toBe('true')
+  expect(within(region).getByRole('heading', { name: 'welcome.recent' }).parentElement?.contains(current)).toBe(true)
+  const projects = within(region.querySelector<HTMLElement>('.welcome-project-grid')!).getAllByRole('button')
+  expect(projects.map(button => button.textContent)).toEqual(Array.from({ length: 12 }, (_, index) => `Project ${index}`))
   expect(projects[0].title).toBe('/repo-0')
   fireEvent.click(projects[0])
   expect(openWorkspace).toHaveBeenCalledExactlyOnceWith('/repo-0')
@@ -75,9 +78,20 @@ it('keeps new-window and removal actions separate from a normal project switch',
   expect(openWorkspace).not.toHaveBeenCalled()
 })
 
-it('omits the quick-switch row when all recent projects are already open here', () => {
+it('retains current project status without an empty grid when every recent project is open here', () => {
   workspace.roots = [{ id: '/current', name: 'Current', isGitRepo: false }]
   workspace.recent = [{ path: '/current', name: 'Current' }]
   render(<Welcome />)
-  expect(screen.queryByRole('region', { name: 'welcome.recent' })).toBeNull()
+  const region = screen.getByRole('region', { name: 'welcome.recent' })
+  expect(region.querySelector('.welcome-project-grid')).toBeNull()
+  expect(within(region).getAllByRole('button')).toHaveLength(1)
+})
+
+it('uses the active root for current project status', () => {
+  workspace.roots = [{ id: '/first', name: 'First', isGitRepo: false }, { id: '/active', name: 'Active', isGitRepo: true }]
+  workspace.activeRootId = '/active'
+  render(<Welcome />)
+  fireEvent.click(screen.getByRole('button', { name: 'welcome.currentProject: Active' }))
+  expect(workspace.setActiveRoot).toHaveBeenCalledExactlyOnceWith('/active')
+  expect(openWorkspace).not.toHaveBeenCalled()
 })

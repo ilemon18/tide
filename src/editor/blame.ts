@@ -21,7 +21,7 @@ import { hasLocaleEffect, watchLocale } from './locale'
 /** Long commit subjects must not push the code sideways. Counted in graphemes, not UTF-16 units. */
 const MAX_SUMMARY_GRAPHEMES = 50
 /** Idle delay before the buffer is guilted again. */
-const CONTENT_IDLE = 450
+export const BLAME_IDLE_DELAY = 1000
 /** Relative timestamps go stale while the editor sits idle. */
 const TIME_REFRESH = 60_000
 
@@ -290,6 +290,8 @@ const blamePlugin = ViewPlugin.fromClass(
   class {
     decorations: DecorationSet
     private contentTimer: ReturnType<typeof setTimeout> | null = null
+    private displayTimer: ReturnType<typeof setTimeout> | null = null
+    private ready = false
     private clockTimer: ReturnType<typeof setInterval> | null = null
     private unwatch: () => void = () => {}
     private prefetchKey: string | null = null
@@ -299,6 +301,7 @@ const blamePlugin = ViewPlugin.fromClass(
     constructor(view: EditorView) {
       this.decorations = EMPTY
       this.refresh(view)
+      this.scheduleDisplay(view)
       this.unwatch = watchLocale(view)
       this.clockTimer = setInterval(() => {
         try {
@@ -310,7 +313,7 @@ const blamePlugin = ViewPlugin.fromClass(
     }
 
     private refresh(view: EditorView) {
-      const cursor = cursorBlame(view)
+      const cursor = this.ready ? cursorBlame(view) : null
       if (!cursor) this.hideHover()
       const data = view.state.field(blameField, false)?.result ?? null
       this.decorations = build(cursor)
@@ -337,6 +340,21 @@ const blamePlugin = ViewPlugin.fromClass(
       }
     }
 
+    /** A new cursor line stays quiet until idle; no widget or commit prefetch before then. */
+    private scheduleDisplay(view: EditorView) {
+      if (this.displayTimer) clearTimeout(this.displayTimer)
+      this.ready = false
+      this.decorations = EMPTY
+      this.hideHover()
+      this.cancelPrefetch()
+      this.prefetchKey = null
+      this.displayTimer = setTimeout(() => {
+        this.displayTimer = null
+        this.ready = true
+        view.dispatch({ effects: rebuildEffect.of(null) })
+      }, BLAME_IDLE_DELAY)
+    }
+
     /** Debounce buffer blame: one request after the user stops typing, never per keystroke. */
     private scheduleContent(view: EditorView) {
       const state = view.state.field(blameField, false)
@@ -352,10 +370,14 @@ const blamePlugin = ViewPlugin.fromClass(
         } catch {
           /* The view may already be destroyed */
         }
-      }, CONTENT_IDLE)
+      }, BLAME_IDLE_DELAY)
     }
 
     update(update: ViewUpdate) {
+      const lineChanged = update.selectionSet &&
+        update.startState.doc.lineAt(update.startState.selection.main.head).number !==
+        update.state.doc.lineAt(update.state.selection.main.head).number
+      if (update.docChanged || lineChanged) this.scheduleDisplay(update.view)
       if (update.docChanged) {
         // Hide immediately: the old rows describe lines the user may have just shifted.
         this.decorations = EMPTY
@@ -384,6 +406,7 @@ const blamePlugin = ViewPlugin.fromClass(
 
     destroy() {
       if (this.contentTimer) clearTimeout(this.contentTimer)
+      if (this.displayTimer) clearTimeout(this.displayTimer)
       if (this.clockTimer) clearInterval(this.clockTimer)
       this.cancelPrefetch()
       this.hideHover()

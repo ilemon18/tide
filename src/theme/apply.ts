@@ -48,6 +48,19 @@ export function applyUiFontSize(size: number) {
   document.documentElement.style.setProperty('--ui-fs', `${size}px`)
 }
 
+/** Base UI weight/style; emphasis tokens preserve their relative hierarchy. */
+export function applyUiFontStyle(weight: number, italic: boolean) {
+  const root = document.documentElement
+  root.style.setProperty('--ui-font-weight', String(weight))
+  root.style.setProperty('--ui-font-style', italic ? 'italic' : 'normal')
+}
+
+export function applyCodeFontStyle(weight: number, italic: boolean) {
+  const root = document.documentElement
+  root.style.setProperty('--code-font-weight', String(weight))
+  root.style.setProperty('--code-font-style', italic ? 'italic' : 'normal')
+}
+
 /** Mono font: the CSS font-mono and the editor/terminal share one stack */
 export function applyMonoFont(stack: string) {
   document.documentElement.style.setProperty('--font-mono', stack)

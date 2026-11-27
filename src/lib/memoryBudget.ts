@@ -61,6 +61,7 @@ export const budget = {
   /** Delay before caches are dropped after the window loses focus */
   idleReclaimDelay: () => (lightMemory() ? 5_000 : 30_000),
   /** Fallback git status poll (the file watcher is the main path) */
+  gitFetchInterval: () => (lightMemory() ? 900_000 : 300_000),
   gitPollInterval: () => (lightMemory() ? 60_000 : 10_000),
   /** Above this size the editor drops syntax highlighting extras (see editor/largeFile.ts) */
   largeFileBytes: () => (lightMemory() ? 512 * 1024 : 1024 * 1024),
@@ -68,6 +69,10 @@ export const budget = {
   previewFileBytes: () => (lightMemory() ? 2 * 1024 * 1024 : 5 * 1024 * 1024),
   /** Rows rendered by the side-by-side diff / full-file diff view; parsing stops at this cap too */
   diffRows: () => (lightMemory() ? 1500 : 3000),
+  /** Rainbow brackets reuse the syntax tree and bound viewport work/decorations. */
+  rainbowNodes: (): number => (lightMemory() ? 5000 : 20000),
+  rainbowMarks: (): number => (lightMemory() ? 1000 : 4000),
+  rainbowDepth: () => 128,
   /** Imported files parsed for member completion */
   completionFiles: () => (lightMemory() ? 8 : 24),
   /** Per-file source cap before smart completion skips imported members */

@@ -2,6 +2,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { api, type AgentPermissionMode, type Settings } from '../lib/ipc'
 import { DEFAULT_SETTINGS, SETTINGS_SCHEMA_VERSION, useSettings } from './settings'
+import { applyCodeFontStyle, applyUiFontStyle, watchSystemTheme } from '../theme/apply'
+import { setEditorLook } from '../editor/stateCache'
 
 vi.mock('../lib/ipc', () => ({
   api: { loadSettings: vi.fn(), saveSettings: vi.fn(), configRecovery: vi.fn().mockResolvedValue(undefined) },
@@ -10,7 +12,7 @@ vi.mock('../lib/ipc', () => ({
 vi.mock('../theme/apply', async () => {
   const { palettes } = await import('../theme/palettes')
   return { applyTheme: vi.fn(() => palettes.tide), applyLigatures: vi.fn(), applyMonoFont: vi.fn(),
-    applyUiFontSize: vi.fn(), watchSystemTheme: vi.fn() }
+    applyUiFontSize: vi.fn(), applyCodeFontStyle: vi.fn(), applyUiFontStyle: vi.fn(), watchSystemTheme: vi.fn() }
 })
 vi.mock('../editor/stateCache', () => ({ monoStack: () => 'monospace', setEditorLook: vi.fn() }))
 
@@ -51,6 +53,56 @@ describe('Project task preferences', () => {
     useSettings.setState({ sidebarWidth: 345 })
     useSettings.getState().applyExternal({ ...DEFAULT_SETTINGS, tasksEnabled: true })
     expect(useSettings.getState()).toMatchObject({ tasksEnabled: true, sidebarWidth: 345 })
+  })
+})
+
+describe('Font styling and rainbow preferences', () => {
+  it('adds normal styling to legacy settings without resetting other fields', async () => {
+    const raw = { ...DEFAULT_SETTINGS, schemaVersion: 17, fontFamily: 'fira', fontSize: 19 } as Partial<Settings>
+    for (const key of ['fontWeight', 'fontItalic', 'uiFontWeight', 'uiFontItalic', 'rainbowBrackets'] as const) delete raw[key]
+    vi.mocked(api.loadSettings).mockResolvedValue(raw as Settings)
+    await useSettings.getState().load()
+    expect(useSettings.getState()).toMatchObject({ schemaVersion: SETTINGS_SCHEMA_VERSION, fontFamily: 'fira', fontSize: 19,
+      fontWeight: 400, fontItalic: false, uiFontWeight: 400, uiFontItalic: false, rainbowBrackets: true })
+  })
+
+  it('defaults malformed styling independently of unrelated preferences', async () => {
+    vi.mocked(api.loadSettings).mockResolvedValue({ ...DEFAULT_SETTINGS, fontSize: 19, fontWeight: 350,
+      uiFontWeight: 1000, fontItalic: 'yes', uiFontItalic: null, rainbowBrackets: 0 } as unknown as Settings)
+    await useSettings.getState().load()
+    expect(useSettings.getState()).toMatchObject({ fontSize: 19, fontWeight: 400, uiFontWeight: 400,
+      fontItalic: false, uiFontItalic: false, rainbowBrackets: true })
+  })
+
+  it('persists independent styles immediately, restores them, and exports them with future fields', async () => {
+    vi.mocked(api.loadSettings).mockResolvedValue({ ...DEFAULT_SETTINGS, futureTypography: { enabled: true } } as unknown as Settings)
+    await useSettings.getState().load()
+    const styles = { fontWeight: 700, fontItalic: true, uiFontWeight: 300, uiFontItalic: true, terminalFontWeight: 800, terminalFontItalic: true, rainbowBrackets: false }
+    useSettings.getState().patch(styles)
+    await vi.advanceTimersByTimeAsync(0)
+    const saved = vi.mocked(api.saveSettings).mock.calls.at(-1)![0]
+    expect(saved).toMatchObject(styles)
+    expect(useSettings.getState().exportSettings()).toMatchObject({ ...styles, futureTypography: { enabled: true } })
+    vi.mocked(api.loadSettings).mockResolvedValue(saved)
+    useSettings.setState({ ...DEFAULT_SETTINGS })
+    await useSettings.getState().load()
+    expect(useSettings.getState()).toMatchObject(styles)
+    expect(applyCodeFontStyle).toHaveBeenLastCalledWith(700, true)
+    expect(applyUiFontStyle).toHaveBeenLastCalledWith(300, true)
+  })
+
+  it('syncs styles across windows and preserves them through theme changes', async () => {
+    useSettings.setState({ sidebarWidth: 345 })
+    useSettings.getState().applyExternal({ ...DEFAULT_SETTINGS, fontWeight: 600, fontItalic: true,
+      uiFontWeight: 500, uiFontItalic: true, rainbowBrackets: false })
+    expect(useSettings.getState()).toMatchObject({ sidebarWidth: 345, fontWeight: 600, fontItalic: true,
+      uiFontWeight: 500, uiFontItalic: true, rainbowBrackets: false })
+    expect(applyCodeFontStyle).toHaveBeenLastCalledWith(600, true)
+    expect(applyUiFontStyle).toHaveBeenLastCalledWith(500, true)
+    useSettings.getState().patch({ theme: 'nord' })
+    expect(setEditorLook).toHaveBeenLastCalledWith(useSettings.getState().palette, 13, DEFAULT_SETTINGS.fontFamily, 600, true)
+    vi.mocked(watchSystemTheme).mock.calls.at(-1)![1](useSettings.getState().palette)
+    expect(setEditorLook).toHaveBeenLastCalledWith(useSettings.getState().palette, 13, DEFAULT_SETTINGS.fontFamily, 600, true)
   })
 })
 
@@ -134,6 +186,8 @@ describe('Go Live preference', () => {
     await vi.advanceTimersByTimeAsync(0)
     expect(api.saveSettings).toHaveBeenLastCalledWith(expect.objectContaining({ goLiveEnabled: false }))
 
+    // Model a later external window update, after our own broadcast echo has expired.
+    await vi.advanceTimersByTimeAsync(10_000)
     useSettings.setState({ sidebarWidth: 345, goLiveEnabled: true })
     useSettings.getState().applyExternal({ ...DEFAULT_SETTINGS, goLiveEnabled: false })
     expect(useSettings.getState()).toMatchObject({ goLiveEnabled: false, sidebarWidth: 345 })
@@ -406,4 +460,25 @@ describe('Configuration import and forward compatibility', () => {
     await useSettings.getState().load()
     expect(useSettings.getState().exportSettings()).toMatchObject({ terminalShell: '/bin/fish', futureSetting: { enabled: true } })
   })
+})
+
+it('defaults terminal styling independently and preserves valid typography through migration', async () => {
+  const { migrateSettings, DEFAULT_SETTINGS } = await import('./settings')
+  expect(migrateSettings({ schemaVersion: 18, fontWeight: 700, fontItalic: true } as Settings)).toMatchObject({ terminalFontWeight: 400, terminalFontItalic: false, fontWeight: 700, fontItalic: true })
+  expect(migrateSettings({ schemaVersion: 99, terminalFontWeight: 900, terminalFontItalic: true } as Settings)).toMatchObject({ terminalFontWeight: 900, terminalFontItalic: true, schemaVersion: 99 })
+  expect(migrateSettings({ terminalFontWeight: 355, terminalFontItalic: 'true' } as unknown as Settings)).toMatchObject({ terminalFontWeight: DEFAULT_SETTINGS.terminalFontWeight, terminalFontItalic: false })
+})
+
+it('normalizes common commit messages and syncs cloned arrays without echo writes', async () => {
+  useSettings.getState().patch({ commitMessageTemplates: ['feat: add file'] })
+  await vi.advanceTimersByTimeAsync(0)
+  const writes = vi.mocked(api.saveSettings).mock.calls.length
+  useSettings.getState().applyExternal({ ...DEFAULT_SETTINGS, commitMessageTemplates: ['feat: add file'] })
+  await vi.advanceTimersByTimeAsync(0)
+  expect(api.saveSettings).toHaveBeenCalledTimes(writes)
+  expect(useSettings.getState().exportSettings()).toMatchObject({ commitMessageTemplates: ['feat: add file'] })
+  vi.mocked(api.loadSettings).mockResolvedValue({ ...DEFAULT_SETTINGS, commitMessageTemplates: [' first ', 'first', 1, ...Array.from({ length: 15 }, (_, index) => 'message ' + index)] } as unknown as Settings)
+  await useSettings.getState().load()
+  expect(useSettings.getState().commitMessageTemplates).toHaveLength(10)
+  expect(useSettings.getState().commitMessageTemplates[0]).toBe('first')
 })

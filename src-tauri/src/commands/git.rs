@@ -4,7 +4,7 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
-use tauri::State;
+use tauri::{AppHandle, State};
 
 use crate::error::{AppError, AppResult};
 use crate::paths;
@@ -12,9 +12,10 @@ use crate::proc;
 use crate::state::AppState;
 
 /// Timeout for network operations (pull / push / fetch)
-const NET_TIMEOUT: Duration = Duration::from_secs(180);
+pub(super) const NET_TIMEOUT: Duration = Duration::from_secs(180);
 /// Read-only probes must never leave the status bar or branch menu spinning forever on Windows.
 const READ_TIMEOUT: Duration = Duration::from_secs(20);
+pub(super) static STASH_LOCK: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
 
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -76,11 +77,19 @@ impl GitStatus {
 /// Single git invocation wrapper: `GIT_TERMINAL_PROMPT=0` blocks interactive credential prompts
 /// (otherwise commands hang), and `GIT_OPTIONAL_LOCKS=0` keeps status from taking index.lock so it
 /// coexists with the IDE's own refresh.
-fn git_cmd(root: &str) -> Command {
+pub(super) fn git_cmd(root: &str) -> Command {
     let mut cmd = proc::command("git");
     cmd.arg("-C").arg(root);
     // git must never open an editor: --continue / commit would hang on it
     cmd.args(["-c", "core.editor=true"]);
+    if super::git_config::cached_for(root).disable_submodule_recursion {
+        cmd.args([
+            "-c",
+            "submodule.recurse=false",
+            "-c",
+            "fetch.recurseSubmodules=false",
+        ]);
+    }
     cmd.env("GIT_TERMINAL_PROMPT", "0");
     cmd.env("GIT_OPTIONAL_LOCKS", "0");
     cmd.env("GIT_EDITOR", "true");
@@ -105,7 +114,7 @@ fn run_bytes(root: &str, args: &[&str]) -> AppResult<(bool, Vec<u8>, String)> {
     ))
 }
 
-fn run_text(root: &str, args: &[&str]) -> AppResult<(bool, String)> {
+pub(super) fn run_text(root: &str, args: &[&str]) -> AppResult<(bool, String)> {
     let (ok, stdout, stderr) = run_bytes(root, args)?;
     let mut text = String::from_utf8_lossy(&stdout).to_string();
     if !ok {
@@ -124,6 +133,7 @@ fn run_bytes_with_deadline(
     args: &[&str],
     timeout: Duration,
     timeout_code: &'static str,
+    stdout_limit: Option<usize>,
 ) -> AppResult<(bool, Vec<u8>, String)> {
     let mut child = git_cmd(root)
         .args(args)
@@ -142,7 +152,15 @@ fn run_bytes_with_deadline(
         .ok_or_else(|| AppError::new("Git stderr pipe is unavailable"))?;
     let stdout_reader = std::thread::spawn(move || {
         let mut bytes = Vec::new();
-        stdout_pipe.read_to_end(&mut bytes).map(|_| bytes)
+        if let Some(limit) = stdout_limit {
+            (&mut stdout_pipe)
+                .take(limit as u64)
+                .read_to_end(&mut bytes)?;
+            std::io::copy(&mut stdout_pipe, &mut std::io::sink())?;
+            Ok(bytes)
+        } else {
+            stdout_pipe.read_to_end(&mut bytes).map(|_| bytes)
+        }
     });
     let stderr_reader = std::thread::spawn(move || {
         let mut bytes = Vec::new();
@@ -184,10 +202,27 @@ fn run_bytes_with_deadline(
 
 /// Read-only git commands share a short deadline so a stuck repo never pins the UI in loading.
 fn run_bytes_with_timeout(root: &str, args: &[&str]) -> AppResult<(bool, Vec<u8>, String)> {
-    run_bytes_with_deadline(root, args, READ_TIMEOUT, "git.readTimeout")
+    run_bytes_with_deadline(root, args, READ_TIMEOUT, "git.readTimeout", None)
 }
 
-fn run_text_with_timeout(root: &str, args: &[&str]) -> AppResult<(bool, String)> {
+pub(super) fn run_text_limited(
+    root: &str,
+    args: &[&str],
+    limit: usize,
+) -> AppResult<(bool, String)> {
+    let (ok, stdout, error) =
+        run_bytes_with_deadline(root, args, READ_TIMEOUT, "git.readTimeout", Some(limit))?;
+    Ok((
+        ok,
+        if ok {
+            String::from_utf8_lossy(&stdout).into_owned()
+        } else {
+            error
+        },
+    ))
+}
+
+pub(super) fn run_text_with_timeout(root: &str, args: &[&str]) -> AppResult<(bool, String)> {
     let (ok, stdout, stderr) = run_bytes_with_timeout(root, args)?;
     let mut text = String::from_utf8_lossy(&stdout).to_string();
     if !ok {
@@ -200,9 +235,12 @@ fn run_text_with_timeout(root: &str, args: &[&str]) -> AppResult<(bool, String)>
 }
 
 /// Variant with a timeout, for pull / push which may block on the network
-fn run_with_timeout(root: &str, args: &[&str], timeout: Duration) -> AppResult<(bool, String)> {
-    let (ok, stdout, stderr) =
-        run_bytes_with_deadline(root, args, timeout, "git.timeout")?;
+pub(super) fn run_with_timeout(
+    root: &str,
+    args: &[&str],
+    timeout: Duration,
+) -> AppResult<(bool, String)> {
+    let (ok, stdout, stderr) = run_bytes_with_deadline(root, args, timeout, "git.timeout", None)?;
     let mut text = String::from_utf8_lossy(&stdout).to_string();
     if !ok && !stderr.is_empty() {
         if !text.is_empty() {
@@ -253,12 +291,20 @@ fn local_repo_paths(root: &str) -> Option<RepoPaths> {
     })
 }
 
+pub(super) fn metadata_directory(root: &str) -> AppResult<std::path::PathBuf> {
+    repo_paths(root)?
+        .map(|repo| repo.gitdir)
+        .ok_or_else(|| AppError::c("git.notRepo"))
+}
+
 fn repo_paths(root: &str) -> AppResult<Option<RepoPaths>> {
     if let Some(paths) = local_repo_paths(root) {
         return Ok(Some(paths));
     }
-    let (ok, stdout, _) =
-        run_bytes_with_timeout(root, &["rev-parse", "--show-toplevel", "--absolute-git-dir"])?;
+    let (ok, stdout, _) = run_bytes_with_timeout(
+        root,
+        &["rev-parse", "--show-toplevel", "--absolute-git-dir"],
+    )?;
     if !ok {
         return Ok(None);
     }
@@ -273,7 +319,6 @@ fn repo_paths(root: &str) -> AppResult<Option<RepoPaths>> {
         .unwrap_or_else(|| Path::new(&toplevel).join(".git"));
     Ok(Some(RepoPaths { toplevel, gitdir }))
 }
-
 
 /// Operation in progress. rebase first: its intermediate state can also leave CHERRY_PICK_HEAD.
 fn detect_operation(gitdir: &Path) -> Option<GitOperation> {
@@ -412,7 +457,7 @@ pub fn git_status(state: State<'_, AppState>, root: String) -> AppResult<GitStat
     read_status(&root_path)
 }
 
-fn read_status(root_path: &Path) -> AppResult<GitStatus> {
+pub(super) fn read_status(root_path: &Path) -> AppResult<GitStatus> {
     let root_str = root_path.to_string_lossy().to_string();
 
     let Some(paths) = repo_paths(&root_str)? else {
@@ -436,11 +481,14 @@ fn read_status(root_path: &Path) -> AppResult<GitStatus> {
     )?;
 
     if !ok {
-        return Ok(GitStatus::empty(true, if stderr.trim().is_empty() {
-            None
-        } else {
-            Some(stderr.trim().to_string())
-        }));
+        return Ok(GitStatus::empty(
+            true,
+            if stderr.trim().is_empty() {
+                None
+            } else {
+                Some(stderr.trim().to_string())
+            },
+        ));
     }
 
     // Operation state needs only a few tiny files; not worth another git process
@@ -480,7 +528,11 @@ fn read_status(root_path: &Path) -> AppResult<GitStatus> {
             continue;
         }
         if let Some(rest) = line.strip_prefix("# branch.oid ") {
-            status.head = if rest == "(initial)" { String::new() } else { rest.to_string() };
+            status.head = if rest == "(initial)" {
+                String::new()
+            } else {
+                rest.to_string()
+            };
             continue;
         }
         if let Some(rest) = line.strip_prefix("# branch.ab ") {
@@ -538,7 +590,10 @@ fn read_status(root_path: &Path) -> AppResult<GitStatus> {
                 if let Some(rel) = to_workspace_rel(path, &prefix) {
                     // Conflicted files get their own group: mixing them into changes would let
                     // "stage all" mark a file still holding <<<<<<< as resolved
-                    status.conflicts.push(GitFile { path: rel, status: xy });
+                    status.conflicts.push(GitFile {
+                        path: rel,
+                        status: xy,
+                    });
                 }
             }
             continue;
@@ -567,12 +622,23 @@ fn read_status(root_path: &Path) -> AppResult<GitStatus> {
 }
 
 #[tauri::command(async)]
-pub fn git_diff(state: State<'_, AppState>, root: String, rel: String, staged: bool) -> AppResult<String> {
+pub fn git_diff(
+    state: State<'_, AppState>,
+    root: String,
+    rel: String,
+    staged: bool,
+) -> AppResult<String> {
     let root_path = state.authorize(&root)?;
     let root_str = root_path.to_string_lossy().to_string();
     let rel_owned = rel.clone();
 
-    let mut args: Vec<&str> = vec!["diff", "--no-color", "--no-ext-diff", "--no-textconv", "-U3"];
+    let mut args: Vec<&str> = vec![
+        "diff",
+        "--no-color",
+        "--no-ext-diff",
+        "--no-textconv",
+        "-U3",
+    ];
     if staged {
         args.push("--cached");
     }
@@ -598,7 +664,14 @@ pub fn git_diff(state: State<'_, AppState>, root: String, rel: String, staged: b
     // Untracked file: diff against /dev/null, which equals "whole file added"
     let (_, raw, _) = run_bytes(
         &root_str,
-        &["diff", "--no-color", "--no-index", "--", "/dev/null", &rel_owned],
+        &[
+            "diff",
+            "--no-color",
+            "--no-index",
+            "--",
+            "/dev/null",
+            &rel_owned,
+        ],
     )?;
     let fallback = String::from_utf8_lossy(&raw).to_string();
     if fallback.trim().is_empty() {
@@ -637,7 +710,13 @@ fn is_tracked(root: &str, rel: &str) -> AppResult<bool> {
 }
 
 fn diff_args<'a>(context: &'a str, staged: bool) -> Vec<&'a str> {
-    let mut args: Vec<&str> = vec!["diff", "--no-color", "--no-ext-diff", "--no-textconv", context];
+    let mut args: Vec<&str> = vec![
+        "diff",
+        "--no-color",
+        "--no-ext-diff",
+        "--no-textconv",
+        context,
+    ];
     if staged {
         args.push("--cached");
     }
@@ -721,7 +800,15 @@ pub fn git_diff_full(
         }
 
         // Untracked file: diff against /dev/null, which equals "whole file added"
-        let args = ["diff", "--no-color", "--no-index", context, "--", "/dev/null", &rel_owned];
+        let args = [
+            "diff",
+            "--no-color",
+            "--no-index",
+            context,
+            "--",
+            "/dev/null",
+            &rel_owned,
+        ];
         let (_, raw, _) = run_bytes(&root_str, &args)?;
         let fallback = String::from_utf8_lossy(&raw).to_string();
         if fallback.trim().is_empty() {
@@ -746,7 +833,11 @@ pub fn git_diff_full(
     }
     let binary = patch.as_bytes().iter().take(8192).any(|b| *b == 0)
         || patch.lines().any(|line| line.starts_with("Binary files"));
-    Ok(GitDiffFull { patch, binary, truncated })
+    Ok(GitDiffFull {
+        patch,
+        binary,
+        truncated,
+    })
 }
 
 // ---- Agent turn snapshots ----
@@ -967,7 +1058,14 @@ pub(crate) fn turn_changes(
     let (status_ok, status_out, _) = run_bytes(
         &root_str,
         &[
-            "diff", "--name-status", "-z", "-M", "--no-color", "--no-ext-diff", from, to,
+            "diff",
+            "--name-status",
+            "-z",
+            "-M",
+            "--no-color",
+            "--no-ext-diff",
+            from,
+            to,
         ],
     )
     .ok()?;
@@ -1008,7 +1106,14 @@ pub(crate) fn turn_changes(
     let (num_ok, num_out, _) = run_bytes(
         &root_str,
         &[
-            "diff", "--numstat", "-z", "-M", "--no-color", "--no-ext-diff", from, to,
+            "diff",
+            "--numstat",
+            "-z",
+            "-M",
+            "--no-color",
+            "--no-ext-diff",
+            from,
+            to,
         ],
     )
     .ok()?;
@@ -1036,7 +1141,10 @@ pub(crate) fn turn_changes(
                 path
             };
             let binary = add == "-" || del == "-";
-            counts.insert(path, (add.parse().unwrap_or(0), del.parse().unwrap_or(0), binary));
+            counts.insert(
+                path,
+                (add.parse().unwrap_or(0), del.parse().unwrap_or(0), binary),
+            );
         }
     }
 
@@ -1084,7 +1192,9 @@ fn invalid_turn_path(rel: &str) -> bool {
         || rel.contains('\n')
         || rel.contains('\r')
         || Path::new(rel).is_absolute()
-        || rel.split(|c| c == '/' || c == '\\').any(|segment| segment == ".git")
+        || rel
+            .split(|c| c == '/' || c == '\\')
+            .any(|segment| segment == ".git")
 }
 
 /// Delete files the turn created, then drop the directories it left empty (never above the root).
@@ -1144,7 +1254,10 @@ fn read_blobs(root: &str, shas: &[String]) -> AppResult<Vec<Option<Vec<u8>>>> {
             blobs.push(None);
             continue;
         }
-        let size: usize = parts.next().and_then(|value| value.parse().ok()).unwrap_or(0);
+        let size: usize = parts
+            .next()
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(0);
         if cursor + size > data.len() {
             blobs.push(None);
             break;
@@ -1226,7 +1339,10 @@ fn revert_turn(
         crate::state::assert_inside(root, &abs)?;
         match std::fs::symlink_metadata(&abs) {
             Ok(meta) if meta.is_dir() || (!meta.is_file() && !meta.file_type().is_symlink()) => {
-                return Err(AppError::p("git.turnRevertBlocked", [("path", rel.clone())]));
+                return Err(AppError::p(
+                    "git.turnRevertBlocked",
+                    [("path", rel.clone())],
+                ));
             }
             Ok(_) => {}
             Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
@@ -1384,8 +1500,7 @@ fn revert_turn(
                     }
                 }
                 if !absent.is_empty() {
-                    let mut remove_args: Vec<&str> =
-                        vec!["update-index", "--force-remove", "--"];
+                    let mut remove_args: Vec<&str> = vec!["update-index", "--force-remove", "--"];
                     remove_args.extend(absent.iter().map(|path| path.as_str()));
                     if let Ok((ok, _, stderr)) = run_bytes(&root_str, &remove_args) {
                         if !ok && result.error.is_none() {
@@ -1424,12 +1539,25 @@ pub fn git_turn_revert(
 #[tauri::command(async)]
 pub fn git_stage(state: State<'_, AppState>, root: String, paths: Vec<String>) -> AppResult<()> {
     let root_path = state.authorize(&root)?;
+    stage_paths(&root_path, &paths)
+}
+
+fn stage_paths(root_path: &Path, paths: &[String]) -> AppResult<()> {
     let root_str = root_path.to_string_lossy().to_string();
     if paths.is_empty() {
         return Ok(());
     }
-    let mut args: Vec<String> = vec!["add".into(), "-A".into(), "--".into()];
-    args.extend(paths);
+    for rel in paths {
+        let abs = crate::state::resolve_in_root(root_path, rel)?;
+        crate::state::assert_inside(root_path, &abs)?;
+    }
+    let mut args: Vec<String> = vec![
+        "--literal-pathspecs".into(),
+        "add".into(),
+        "-A".into(),
+        "--".into(),
+    ];
+    args.extend(paths.iter().cloned());
     let refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
     let (ok, text) = run_text(&root_str, &refs)?;
     if !ok {
@@ -1441,20 +1569,40 @@ pub fn git_stage(state: State<'_, AppState>, root: String, paths: Vec<String>) -
 #[tauri::command(async)]
 pub fn git_unstage(state: State<'_, AppState>, root: String, paths: Vec<String>) -> AppResult<()> {
     let root_path = state.authorize(&root)?;
+    unstage_paths(&root_path, &paths)
+}
+
+fn unstage_paths(root_path: &Path, paths: &[String]) -> AppResult<()> {
     let root_str = root_path.to_string_lossy().to_string();
     if paths.is_empty() {
         return Ok(());
     }
-    let mut args: Vec<String> = vec!["restore".into(), "--staged".into(), "--".into()];
-    args.extend(paths.clone());
+    for rel in paths {
+        let abs = crate::state::resolve_in_root(root_path, rel)?;
+        crate::state::assert_inside(root_path, &abs)?;
+    }
+    let mut args: Vec<String> = vec![
+        "--literal-pathspecs".into(),
+        "restore".into(),
+        "--staged".into(),
+        "--".into(),
+    ];
+    args.extend(paths.iter().cloned());
     let refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
     let (ok, text) = run_text(&root_str, &refs)?;
     if ok {
         return Ok(());
     }
     // No HEAD before the first commit; fall back to removing from the index
-    let mut fallback: Vec<String> = vec!["rm".into(), "--cached".into(), "-r".into(), "-q".into(), "--".into()];
-    fallback.extend(paths);
+    let mut fallback: Vec<String> = vec![
+        "--literal-pathspecs".into(),
+        "rm".into(),
+        "--cached".into(),
+        "-r".into(),
+        "-q".into(),
+        "--".into(),
+    ];
+    fallback.extend(paths.iter().cloned());
     let frefs: Vec<&str> = fallback.iter().map(|s| s.as_str()).collect();
     let (ok2, text2) = run_text(&root_str, &frefs)?;
     if !ok2 {
@@ -1561,6 +1709,187 @@ pub struct GitDiscardResult {
     pub error: Option<AppError>,
 }
 
+#[derive(Serialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct GitRemoveResult {
+    pub deleted: Vec<String>,
+    pub error: Option<AppError>,
+}
+
+fn source_file(root: &Path, rel: &str) -> AppResult<std::path::PathBuf> {
+    let abs = crate::state::resolve_in_root(root, rel)?;
+    if let Some(parent) = abs.parent() {
+        crate::state::assert_inside(root, parent)?;
+    }
+    if rel
+        .split(['/', '\\'])
+        .any(|part| part.eq_ignore_ascii_case(".git"))
+    {
+        return Err(AppError::p(
+            "path.outsideWorkspace",
+            [("path", rel.to_owned())],
+        ));
+    }
+    let meta = std::fs::symlink_metadata(&abs)?;
+    if meta.is_dir() {
+        return Err(AppError::p(
+            "git.fileActionDirectory",
+            [("path", rel.to_owned())],
+        ));
+    }
+    if !meta.is_file() && !meta.file_type().is_symlink() {
+        return Err(AppError::p(
+            "git.fileActionStatusChanged",
+            [("path", rel.to_owned())],
+        ));
+    }
+    if !meta.file_type().is_symlink() {
+        crate::state::assert_inside(root, &abs)?;
+    }
+    Ok(abs)
+}
+
+fn preflight_source_files(root: &Path, paths: &[String], untracked_only: bool) -> AppResult<()> {
+    let status = read_status(root)?;
+    let valid: std::collections::HashSet<&str> = if untracked_only {
+        status
+            .untracked
+            .iter()
+            .map(|file| file.path.as_str())
+            .collect()
+    } else {
+        status
+            .staged
+            .iter()
+            .chain(&status.changes)
+            .chain(&status.untracked)
+            .chain(&status.conflicts)
+            .map(|file| file.path.as_str())
+            .collect()
+    };
+    for rel in paths {
+        source_file(root, rel)?;
+        if !valid.contains(rel.as_str()) {
+            return Err(AppError::p(
+                "git.fileActionStatusChanged",
+                [("path", rel.clone())],
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn remove_source_files(root: &Path, paths: &[String]) -> AppResult<GitRemoveResult> {
+    preflight_source_files(root, paths, false)?;
+    let mut result = GitRemoveResult {
+        deleted: Vec::new(),
+        error: None,
+    };
+    let mut seen = std::collections::HashSet::new();
+    for rel in paths {
+        if !seen.insert(rel) {
+            continue;
+        }
+        let removal = source_file(root, rel)
+            .and_then(|abs| std::fs::remove_file(abs).map_err(AppError::from));
+        if let Err(error) = removal {
+            result.error = Some(error);
+            break;
+        }
+        result.deleted.push(rel.clone());
+    }
+    Ok(result)
+}
+
+#[tauri::command(async)]
+pub fn git_remove_files(
+    state: State<'_, AppState>,
+    root: String,
+    paths: Vec<String>,
+) -> AppResult<GitRemoveResult> {
+    let root = state.authorize(&root)?;
+    remove_source_files(&root, &paths)
+}
+
+static IGNORE_WRITE_LOCK: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
+
+fn ignore_pattern(rel: &str) -> AppResult<String> {
+    if rel.contains(['\n', '\r']) {
+        return Err(AppError::p(
+            "git.ignoreUnrepresentable",
+            [("path", rel.to_owned())],
+        ));
+    }
+    let mut pattern = String::from("/");
+    for ch in rel.chars() {
+        if matches!(ch, '\\' | '*' | '?' | '[' | ']' | ' ' | '\t') {
+            pattern.push('\\');
+        }
+        pattern.push(ch);
+    }
+    Ok(pattern)
+}
+
+fn ignore_source_files(root: &Path, paths: &[String]) -> AppResult<()> {
+    let _guard = IGNORE_WRITE_LOCK.lock();
+    preflight_source_files(root, paths, true)?;
+    let patterns: Vec<String> = paths
+        .iter()
+        .map(|rel| ignore_pattern(rel))
+        .collect::<AppResult<_>>()?;
+    let target = root.join(".gitignore");
+    match std::fs::symlink_metadata(&target) {
+        Ok(meta) if meta.file_type().is_symlink() => {
+            return Err(AppError::c("fs.symlinkUnsupported"))
+        }
+        Ok(meta) if !meta.is_file() => {
+            return Err(AppError::p(
+                "git.fileActionDirectory",
+                [("path", ".gitignore".to_owned())],
+            ));
+        }
+        Err(error) if error.kind() != std::io::ErrorKind::NotFound => return Err(error.into()),
+        _ => {}
+    }
+    let mut contents = match std::fs::read_to_string(&target) {
+        Ok(text) => text,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(error) => return Err(error.into()),
+    };
+    let newline = if contents.contains("\r\n") {
+        "\r\n"
+    } else {
+        "\n"
+    };
+    let mut seen: std::collections::HashSet<String> = contents.lines().map(str::to_owned).collect();
+    let mut changed = false;
+    for pattern in patterns {
+        if !seen.insert(pattern.clone()) {
+            continue;
+        }
+        if !contents.is_empty() && !contents.ends_with('\n') {
+            contents.push_str(newline);
+        }
+        contents.push_str(&pattern);
+        contents.push_str(newline);
+        changed = true;
+    }
+    if changed {
+        paths::write_atomic(&target, contents.as_bytes())?;
+    }
+    Ok(())
+}
+
+#[tauri::command(async)]
+pub fn git_ignore_files(
+    state: State<'_, AppState>,
+    root: String,
+    paths: Vec<String>,
+) -> AppResult<()> {
+    let root = state.authorize(&root)?;
+    ignore_source_files(&root, &paths)
+}
+
 #[tauri::command(async)]
 pub fn git_discard_changes(
     state: State<'_, AppState>,
@@ -1577,10 +1906,16 @@ fn validate_discard_file(root: &Path, rel: &str) -> AppResult<std::path::PathBuf
     crate::state::assert_inside(root, &abs)?;
     match std::fs::symlink_metadata(&abs) {
         Ok(meta) if meta.is_dir() => {
-            return Err(AppError::p("git.discardDirectory", [("path", rel.to_string())]));
+            return Err(AppError::p(
+                "git.discardDirectory",
+                [("path", rel.to_string())],
+            ));
         }
         Ok(meta) if !meta.is_file() && !meta.file_type().is_symlink() => {
-            return Err(AppError::p("git.discardStatusChanged", [("path", rel.to_string())]));
+            return Err(AppError::p(
+                "git.discardStatusChanged",
+                [("path", rel.to_string())],
+            ));
         }
         Err(error) if error.kind() != std::io::ErrorKind::NotFound => return Err(error.into()),
         _ => {}
@@ -1626,7 +1961,10 @@ fn discard_changes(
             .split(|byte| *byte == 0)
             .filter(|path| !path.is_empty())
             .collect();
-        if let Some(rel) = untracked.iter().find(|rel| indexed.contains(rel.as_bytes())) {
+        if let Some(rel) = untracked
+            .iter()
+            .find(|rel| indexed.contains(rel.as_bytes()))
+        {
             result.error = Some(AppError::p(
                 "git.discardStatusChanged",
                 [("path", rel.clone())],
@@ -1662,11 +2000,17 @@ fn apply_discard_change(root: &Path, rel: &str, tracked: bool) -> AppResult<()> 
     } else {
         // A concurrent git add must never turn an untracked deletion into a tracked deletion.
         let (ok, indexed, error) = run_bytes(
-            &root.to_string_lossy(), &["--literal-pathspecs", "ls-files", "-z", "--", rel],
+            &root.to_string_lossy(),
+            &["--literal-pathspecs", "ls-files", "-z", "--", rel],
         )?;
-        if !ok { return Err(AppError::new(error)); }
+        if !ok {
+            return Err(AppError::new(error));
+        }
         if !indexed.is_empty() {
-            return Err(AppError::p("git.discardStatusChanged", [("path", rel.to_string())]));
+            return Err(AppError::p(
+                "git.discardStatusChanged",
+                [("path", rel.to_string())],
+            ));
         }
         std::fs::remove_file(abs)?;
         Ok(())
@@ -1719,7 +2063,10 @@ fn preflight_discard(root: &Path, tracked: &[String], untracked: &[String]) -> A
                 return Err(AppError::c("git.conflictCannotDiscard"));
             }
             if !seen.insert(rel) || !expected.iter().any(|file| &file.path == rel) {
-                return Err(AppError::p("git.discardStatusChanged", [("path", rel.clone())]));
+                return Err(AppError::p(
+                    "git.discardStatusChanged",
+                    [("path", rel.clone())],
+                ));
             }
         }
     }
@@ -1727,8 +2074,25 @@ fn preflight_discard(root: &Path, tracked: &[String], untracked: &[String]) -> A
 }
 
 #[tauri::command(async)]
-pub fn git_commit(state: State<'_, AppState>, root: String, message: String) -> AppResult<String> {
+pub fn git_commit(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    root: String,
+    message: String,
+    options: Option<super::git_ui::GitCommitOptions>,
+) -> AppResult<super::git_history::CommitResult> {
     let root_path = state.authorize(&root)?;
+    let output = commit_with_options(&root_path, &message, &options.unwrap_or_default())?;
+    Ok(super::git_history::committed(
+        &app, &root_path, &message, output,
+    ))
+}
+
+pub(super) fn commit_with_options(
+    root_path: &Path,
+    message: &str,
+    options: &super::git_ui::GitCommitOptions,
+) -> AppResult<String> {
     let root_str = root_path.to_string_lossy().to_string();
     if message.trim().is_empty() {
         return Err(AppError::c("git.emptyMessage"));
@@ -1736,8 +2100,26 @@ pub fn git_commit(state: State<'_, AppState>, root: String, message: String) -> 
 
     // git_cmd() sends stdin to /dev/null by default, but commit -F - reads the message from stdin:
     // this must be a pipe, otherwise git sees EOF and wrongly reports "empty commit message".
-    let mut child = git_cmd(&root_str)
-        .args(["commit", "-F", "-"])
+    let mut command = git_cmd(&root_str);
+    if let Some(identity) = &options.identity {
+        super::git_ui::validate_identity(identity)?;
+        command
+            .env("GIT_COMMITTER_NAME", &identity.name)
+            .env("GIT_COMMITTER_EMAIL", &identity.email)
+            .env("GIT_AUTHOR_NAME", &identity.name)
+            .env("GIT_AUTHOR_EMAIL", &identity.email);
+    }
+    command.args(["commit", "-F", "-"]);
+    if options.amend {
+        command.arg("--amend");
+    }
+    if options.skip_hooks {
+        command.arg("--no-verify");
+    }
+    if options.amend && options.reset_author {
+        command.arg("--reset-author");
+    }
+    let mut child = command
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -1764,7 +2146,11 @@ pub fn git_commit(state: State<'_, AppState>, root: String, message: String) -> 
     let stdout = String::from_utf8_lossy(&out.stdout).to_string();
     let stderr = String::from_utf8_lossy(&out.stderr).to_string();
     if !out.status.success() {
-        let msg = if stderr.trim().is_empty() { stdout } else { stderr };
+        let msg = if stderr.trim().is_empty() {
+            stdout
+        } else {
+            stderr
+        };
         return Err(friendly_commit_error(msg.trim()));
     }
     Ok(stdout.trim().to_string())
@@ -1838,7 +2224,11 @@ fn undo_commit(root_path: &Path) -> AppResult<GitUndoResult> {
 
     // Read the message first: after reset only the reflog is left
     let (msg_ok, message) = run_text(&root_str, &["log", "-1", "--format=%B"])?;
-    let message = if msg_ok { message.trim().to_string() } else { String::new() };
+    let message = if msg_ok {
+        message.trim().to_string()
+    } else {
+        String::new()
+    };
 
     let (parent_ok, _) = run_text(&root_str, &["rev-parse", "--verify", "HEAD~1"])?;
     let (ok, text) = if parent_ok {
@@ -1861,9 +2251,41 @@ fn undo_commit(root_path: &Path) -> AppResult<GitUndoResult> {
 }
 
 #[tauri::command(async)]
-pub fn git_stash(state: State<'_, AppState>, root: String) -> AppResult<String> {
+pub fn git_stash(
+    state: State<'_, AppState>,
+    root: String,
+    message: Option<String>,
+    identity: Option<super::git_ui::GitIdentity>,
+) -> AppResult<String> {
+    let _guard = STASH_LOCK.lock();
     let root_path = state.authorize(&root)?;
-    stash_push(&root_path)
+    if message.is_none() && identity.is_none() {
+        return stash_push(&root_path);
+    }
+    ensure_no_operation(&root_path.to_string_lossy())?;
+    let mut args: Vec<String> = Vec::new();
+    if let Some(identity) = identity {
+        super::git_ui::validate_identity(&identity)?;
+        args.extend([
+            "-c".into(),
+            format!("user.name={}", identity.name),
+            "-c".into(),
+            format!("user.email={}", identity.email),
+        ]);
+    }
+    args.extend(["stash".into(), "push".into()]);
+    if let Some(message) = message.filter(|value| !value.trim().is_empty()) {
+        if message.contains('\0') || message.len() > 4000 {
+            return Err(AppError::c("git.invalidStashMessage"));
+        }
+        args.extend(["-m".into(), message]);
+    }
+    let refs: Vec<_> = args.iter().map(String::as_str).collect();
+    let (ok, text) = run_with_timeout(&root_path.to_string_lossy(), &refs, NET_TIMEOUT)?;
+    if !ok {
+        return Err(AppError::new(text));
+    }
+    Ok(text)
 }
 
 /// Stash the tracked index + worktree changes. Untracked files stay in place: a GUI "stash" that
@@ -1879,9 +2301,51 @@ fn stash_push(root: &Path) -> AppResult<String> {
 }
 
 #[tauri::command(async)]
-pub fn git_stash_pop(state: State<'_, AppState>, root: String) -> AppResult<String> {
+pub fn git_stash_pop(
+    state: State<'_, AppState>,
+    root: String,
+    sha: Option<String>,
+) -> AppResult<String> {
+    let _guard = STASH_LOCK.lock();
     let root_path = state.authorize(&root)?;
+    ensure_no_operation(&root_path.to_string_lossy())?;
+    if let Some(sha) = sha {
+        return stash_pop_selected(&root_path, &sha);
+    }
     stash_pop(&root_path)
+}
+
+pub(super) fn stash_pop_selected(root: &Path, sha: &str) -> AppResult<String> {
+    ensure_no_operation(&root.to_string_lossy())?;
+    if !matches!(sha.len(), 40 | 64) || !sha.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err(AppError::c("git.stashMissing"));
+    }
+    let root = root.to_string_lossy();
+    let (ok, listed) = run_text_with_timeout(&root, &["stash", "list", "--format=%gd%x00%H"])?;
+    if !ok
+        || !listed
+            .lines()
+            .any(|line| line.split_once('\0').is_some_and(|(_, id)| id == sha))
+    {
+        return Err(AppError::c("git.stashMissing"));
+    }
+    let (ok, applied) = run_with_timeout(&root, &["stash", "apply", sha], NET_TIMEOUT)?;
+    if !ok {
+        return Err(AppError::new(applied));
+    }
+    let (_, current) = run_text_with_timeout(&root, &["stash", "list", "--format=%gd%x00%H"])?;
+    let selector = current.lines().find_map(|line| {
+        line.split_once('\0')
+            .filter(|(_, id)| *id == sha)
+            .map(|(selector, _)| selector)
+    });
+    if let Some(selector) = selector {
+        let (ok, text) = run_with_timeout(&root, &["stash", "drop", selector], NET_TIMEOUT)?;
+        if !ok {
+            return Err(AppError::new(text));
+        }
+    }
+    Ok(applied)
 }
 
 /// Pop the latest stash. A conflict makes git exit non-zero after partially applying the stash;
@@ -1938,14 +2402,42 @@ fn reset_all(root: &Path) -> AppResult<()> {
 }
 
 #[tauri::command(async)]
-pub fn git_pull(state: State<'_, AppState>, root: String) -> AppResult<String> {
+pub fn git_pull(
+    state: State<'_, AppState>,
+    root: String,
+    identity: Option<super::git_ui::GitIdentity>,
+) -> AppResult<String> {
     let root_path = state.authorize(&root)?;
-    let root_str = root_path.to_string_lossy().to_string();
-    let (ok, text) = run_with_timeout(&root_str, &["pull", "--ff-only"], NET_TIMEOUT)?;
+    let root_str = root_path.to_string_lossy();
+    let preferences = super::git_config::load_project(&root_str)?;
+    // Frontend fetches first; integrate the actual upstream without a second network phase.
+    let (ok, upstream) = run_text_with_timeout(
+        &root_str,
+        &["rev-parse", "--symbolic-full-name", "@{upstream}"],
+    )?;
     if !ok {
-        return Err(AppError::new(text.trim().to_string()));
+        return Err(AppError::c("git.noUpstream"));
     }
-    Ok(text.trim().to_string())
+    let name = upstream
+        .trim()
+        .strip_prefix("refs/remotes/")
+        .ok_or_else(|| AppError::c("git.noUpstream"))?;
+    let (ok, mode) = run_text_with_timeout(&root_str, &["config", "--get", "pull.rebase"])?;
+    // Preserve Git's merge.ff / merge.log and rebase modes rather than rewriting them.
+    let rebase = if ok {
+        matches!(mode.trim(), "true" | "merges" | "interactive" | "preserve")
+    } else {
+        preferences.pull_rebase
+    };
+    super::git_ui::integrate_branch(
+        &root_path,
+        &super::git_ui::BranchTarget {
+            name: name.to_owned(),
+            kind: "remote".into(),
+        },
+        rebase,
+        identity.as_ref(),
+    )
 }
 
 #[tauri::command(async)]
@@ -1963,6 +2455,7 @@ pub fn git_push(state: State<'_, AppState>, root: String) -> AppResult<String> {
 pub fn git_fetch(state: State<'_, AppState>, root: String) -> AppResult<String> {
     let root_path = state.authorize(&root)?;
     let root_str = root_path.to_string_lossy().to_string();
+    super::git_config::load_project(&root_str)?;
     // No point running fetch without a remote; give a clear message instead
     let (remote_ok, remotes) = run_text(&root_str, &["remote"])?;
     if !remote_ok || remotes.trim().is_empty() {
@@ -2065,7 +2558,10 @@ fn parse_hunk_header(line: &str) -> Option<(u32, u32, u32, u32)> {
 /// A hunk contains the target when the target is inside its new-file line range. Deletion-only
 /// hunks (`new_count == 0`) never contain a line that still exists on the new side.
 fn hunk_contains(hunk: &DiffHunk, target: u32) -> bool {
-    target > 0 && hunk.new_count > 0 && target >= hunk.new_start && target < hunk.new_start + hunk.new_count
+    target > 0
+        && hunk.new_count > 0
+        && target >= hunk.new_start
+        && target < hunk.new_start + hunk.new_count
 }
 
 /// Structure a single-file unified patch. `target_line` filters to the exact hunk that contains
@@ -2084,8 +2580,7 @@ fn parse_file_diff(patch: &str, path: &str, target_line: Option<u32>) -> CommitF
             if let Some(hunk) = current.take() {
                 hunks.push(hunk);
             }
-            let Some((old_start, old_count, new_start, new_count)) = parse_hunk_header(line)
-            else {
+            let Some((old_start, old_count, new_start, new_count)) = parse_hunk_header(line) else {
                 continue;
             };
             old_no = old_start;
@@ -2473,7 +2968,11 @@ pub fn git_branches(state: State<'_, AppState>, root: String) -> AppResult<GitBr
         }
         branches.push(GitBranch {
             name: name.to_string(),
-            kind: if is_remote { "remote".to_string() } else { "local".to_string() },
+            kind: if is_remote {
+                "remote".to_string()
+            } else {
+                "local".to_string()
+            },
             current: head == "*",
             upstream: upstream.to_string(),
             sha: sha.to_string(),
@@ -2506,6 +3005,7 @@ pub fn git_checkout(
 ) -> AppResult<String> {
     let root_path = state.authorize(&root)?;
     let root_str = root_path.to_string_lossy().to_string();
+    super::git_config::load_project(&root_str)?;
     let name = branch.trim();
     if name.is_empty() {
         return Err(AppError::c("git.emptyBranch"));
@@ -2547,6 +3047,7 @@ pub fn git_branch_create(
     state: State<'_, AppState>,
     root: String,
     branch: String,
+    checkout: Option<bool>,
 ) -> AppResult<String> {
     let root_path = state.authorize(&root)?;
     let root_str = root_path.to_string_lossy().to_string();
@@ -2560,13 +3061,16 @@ pub fn git_branch_create(
     }
 
     // Validate the name first so failures show git's own hint, clearer than checkout's error
-    let (valid, text) =
-        run_text_with_timeout(&root_str, &["check-ref-format", "--branch", name])?;
+    let (valid, text) = run_text_with_timeout(&root_str, &["check-ref-format", "--branch", name])?;
     if !valid {
         return Err(AppError::new(text.trim().to_string()));
     }
 
-    let (ok, text) = run_text(&root_str, &["checkout", "-b", name])?;
+    let (ok, text) = if checkout.unwrap_or(true) {
+        run_text(&root_str, &["checkout", "-b", name])?
+    } else {
+        run_text(&root_str, &["branch", name, "HEAD"])?
+    };
     if !ok {
         return Err(AppError::new(text.trim().to_string()));
     }
@@ -2590,16 +3094,18 @@ pub fn git_unmerged(state: State<'_, AppState>, root: String, rel: String) -> Ap
 /// message file first, so what the user edited becomes the final commit message.
 #[tauri::command(async)]
 pub fn git_continue(
+    app: AppHandle,
     state: State<'_, AppState>,
     root: String,
     message: Option<String>,
-) -> AppResult<String> {
+    identity: Option<super::git_ui::GitIdentity>,
+) -> AppResult<super::git_history::CommitResult> {
     let root_path = state.authorize(&root)?;
     let root_str = root_path.to_string_lossy().to_string();
     let paths = repo_paths(&root_str)?.ok_or_else(|| AppError::c("git.notRepo"))?;
     let op = detect_operation(&paths.gitdir).ok_or_else(|| AppError::c("git.noOperation"))?;
 
-    if let Some(text) = message.filter(|m| !m.trim().is_empty()) {
+    if let Some(text) = message.as_ref().filter(|m| !m.trim().is_empty()) {
         write_pending_message(&paths.gitdir, &op.kind, text.trim());
     }
 
@@ -2618,11 +3124,28 @@ pub fn git_continue(
         }
     };
 
-    let (ok, text) = run_with_timeout(&root_str, &args, Duration::from_secs(120))?;
+    let mut owned: Vec<String> = Vec::new();
+    if let Some(identity) = identity {
+        super::git_ui::validate_identity(&identity)?;
+        owned.extend([
+            "-c".into(),
+            format!("user.name={}", identity.name),
+            "-c".into(),
+            format!("user.email={}", identity.email),
+        ]);
+    }
+    owned.extend(args.into_iter().map(str::to_owned));
+    let refs: Vec<_> = owned.iter().map(String::as_str).collect();
+    let (ok, text) = run_with_timeout(&root_str, &refs, Duration::from_secs(120))?;
     if !ok {
         return Err(AppError::new(text.trim().to_string()));
     }
-    Ok(text.trim().to_string())
+    Ok(super::git_history::committed(
+        &app,
+        &root_path,
+        message.as_deref().unwrap_or_default(),
+        text.trim().to_string(),
+    ))
 }
 
 #[tauri::command(async)]
@@ -2659,11 +3182,7 @@ pub fn git_skip(state: State<'_, AppState>, root: String) -> AppResult<String> {
 /// Regenerate conflict markers from the index: restore a file the user mangled back into
 /// <<<<<<< / ======= / >>>>>>> form
 #[tauri::command(async)]
-pub fn git_conflict_reset(
-    state: State<'_, AppState>,
-    root: String,
-    rel: String,
-) -> AppResult<()> {
+pub fn git_conflict_reset(state: State<'_, AppState>, root: String, rel: String) -> AppResult<()> {
     let root_path = state.authorize(&root)?;
     let root_str = root_path.to_string_lossy().to_string();
     let abs = crate::state::resolve_in_root(&root_path, &rel)?;
@@ -2677,7 +3196,13 @@ pub fn git_conflict_reset(
 
 #[cfg(test)]
 mod tests {
-    use super::{apply_discard_change, commit_is_merge, discard_changes, discard_changes_with, discard_paths, git_cmd, local_repo_paths, parse_file_diff, parse_hunk_header, read_status, repo_paths, reset_all, revert_turn, run_bytes_with_timeout, run_text, stash_count, stash_pop, stash_push, truncate_patch, turn_changes, turn_snapshot, undo_commit, TurnRevertTarget, TurnSnapshot};
+    use super::{
+        apply_discard_change, commit_is_merge, discard_changes, discard_changes_with,
+        discard_paths, git_cmd, local_repo_paths, parse_file_diff, parse_hunk_header, read_status,
+        repo_paths, reset_all, revert_turn, run_bytes_with_timeout, run_text, stash_count,
+        stash_pop, stash_push, truncate_patch, turn_changes, turn_snapshot, undo_commit,
+        TurnRevertTarget, TurnSnapshot,
+    };
     use std::io::Write;
     use std::path::PathBuf;
     use std::process::Stdio;
@@ -2692,14 +3217,19 @@ mod tests {
 
     impl TestRepo {
         fn new() -> Self {
-            let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+            let timestamp = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
             let ordinal = NEXT_REPO.fetch_add(1, Ordering::Relaxed);
             let root = std::env::temp_dir().join(format!(
                 "tide-git-discard-{}-{timestamp}-{ordinal}",
                 std::process::id(),
             ));
             std::fs::create_dir_all(&root).unwrap();
-            let repo = Self { root: crate::paths::canon(&root).unwrap() };
+            let repo = Self {
+                root: crate::paths::canon(&root).unwrap(),
+            };
             repo.git(&["init", "-q"]);
             repo.git(&["config", "user.name", "Tide tests"]);
             repo.git(&["config", "user.email", "tests@example.invalid"]);
@@ -2736,7 +3266,10 @@ mod tests {
         }
 
         fn discard(&self, paths: &[&str], from_index: bool) -> crate::error::AppResult<()> {
-            let paths = paths.iter().map(|path| (*path).to_string()).collect::<Vec<_>>();
+            let paths = paths
+                .iter()
+                .map(|path| (*path).to_string())
+                .collect::<Vec<_>>();
             discard_paths(&self.root, &paths, from_index)
         }
     }
@@ -2747,6 +3280,278 @@ mod tests {
         }
     }
 
+    #[test]
+    fn project_identity_reads_repository_includes_and_preserves_config() {
+        let repo = TestRepo::new();
+        repo.git(&["config", "--unset", "user.name"]);
+        repo.git(&["config", "--unset", "user.email"]);
+        repo.write(
+            ".git/identity",
+            "[user]\n name = Included user\n email = included@example.invalid\n",
+        );
+        repo.git(&["config", "include.path", "identity"]);
+        let before = repo.read(".git/config");
+        let info = super::super::git_ui::read_identity(repo.path()).unwrap();
+        assert_eq!(info.effective.name, "Included user");
+        assert_eq!(info.effective.email, "included@example.invalid");
+        assert!(!info.use_global);
+        assert_eq!(repo.read(".git/config"), before);
+    }
+    #[test]
+    fn project_preferences_read_local_git_modes_and_sourcetree_fallback() {
+        let repo = TestRepo::new();
+        repo.write(".git/sourcetreeconfig", "[core]\nautorefresh = false\nautorefreshremotes = true\ndisablerecursiveoperations = true\n");
+        repo.git(&["config", "merge.log", "25"]);
+        repo.git(&["config", "merge.ff", "only"]);
+        repo.git(&["config", "pull.rebase", "merges"]);
+        let before = repo.read(".git/config");
+        let preferences = super::super::git_config::load_project(repo.path()).unwrap();
+        assert!(preferences.merge_log && preferences.pull_rebase);
+        assert!(!preferences.merge_no_ff && !preferences.auto_refresh);
+        assert!(preferences.background_fetch && preferences.disable_submodule_recursion);
+        assert_eq!(repo.read(".git/config"), before);
+        repo.git(&["config", "--local", "tide.autoRefresh", "true"]);
+        assert!(
+            super::super::git_config::load_project(repo.path())
+                .unwrap()
+                .auto_refresh
+        );
+    }
+    #[test]
+    fn literal_stage_and_unstage_do_not_expand_metacharacters() {
+        let repo = TestRepo::new();
+        repo.write("baseline", "base");
+        repo.commit();
+        repo.write("[ab].txt", "literal");
+        repo.write("a.txt", "other");
+        super::stage_paths(&repo.root, &["[ab].txt".into()]).unwrap();
+        assert_eq!(
+            repo.git(&["diff", "--cached", "--name-only"]).trim(),
+            "[ab].txt"
+        );
+        super::unstage_paths(&repo.root, &["[ab].txt".into()]).unwrap();
+        assert!(repo.git(&["diff", "--cached", "--name-only"]).is_empty());
+    }
+    #[cfg(unix)]
+    #[test]
+    fn batch_remove_unlinks_a_symlink_without_touching_its_outside_target() {
+        let repo = TestRepo::new();
+        let outside = TestRepo::new();
+        outside.write("target", "keep");
+        std::os::unix::fs::symlink(outside.root.join("target"), repo.root.join("link")).unwrap();
+        assert_eq!(
+            super::remove_source_files(&repo.root, &["link".into()])
+                .unwrap()
+                .deleted,
+            vec!["link"]
+        );
+        assert_eq!(outside.read("target"), "keep");
+    }
+    #[test]
+    fn batch_remove_preflights_all_targets_and_preserves_the_index() {
+        let repo = TestRepo::new();
+        repo.write("a", "base");
+        repo.write("b", "base");
+        repo.commit();
+        repo.write("a", "stage");
+        repo.git(&["add", "a"]);
+        repo.write("a", "worktree");
+        assert!(
+            super::remove_source_files(&repo.root, &["a".into(), "../outside".into()]).is_err()
+        );
+        assert_eq!(repo.read("a"), "worktree");
+        let index = repo.git(&["show", ":a"]);
+        let result = super::remove_source_files(&repo.root, &["a".into()]).unwrap();
+        assert_eq!(result.deleted, vec!["a"]);
+        assert!(!repo.root.join("a").exists());
+        assert_eq!(repo.git(&["show", ":a"]), index);
+    }
+    #[test]
+    fn ignored_names_are_literal_and_existing_rules_are_preserved() {
+        let repo = TestRepo::new();
+        repo.write(".gitignore", "# keep\r\nexisting\r\n");
+        repo.commit();
+        repo.write("[ab] space.txt", "file");
+        repo.write("a space.txt", "other");
+        super::ignore_source_files(&repo.root, &["[ab] space.txt".into()]).unwrap();
+        assert!(repo
+            .read(".gitignore")
+            .starts_with("# keep\r\nexisting\r\n"));
+        assert!(
+            run_text(repo.path(), &["check-ignore", "--", "[ab] space.txt"])
+                .unwrap()
+                .0
+        );
+        assert!(
+            !run_text(repo.path(), &["check-ignore", "--", "a space.txt"])
+                .unwrap()
+                .0
+        );
+        assert!(super::ignore_source_files(&repo.root, &[".gitignore".into()]).is_err());
+        assert!(super::ignore_pattern("line\nbreak").is_err());
+    }
+    #[test]
+    fn selected_stash_pop_applies_an_older_entry_and_keeps_newer_entry() {
+        let repo = TestRepo::new();
+        repo.write("a", "base");
+        repo.commit();
+        repo.write("a", "older");
+        repo.git(&["stash", "push", "-m", "older"]);
+        let older = repo.git(&["rev-parse", "stash@{0}"]).trim().to_owned();
+        repo.write("a", "newer");
+        repo.git(&["stash", "push", "-m", "newer"]);
+        let newer = repo.git(&["rev-parse", "stash@{0}"]).trim().to_owned();
+        super::stash_pop_selected(&repo.root, &older).unwrap();
+        assert_eq!(repo.read("a"), "older");
+        assert_eq!(repo.git(&["rev-parse", "stash@{0}"]).trim(), newer);
+        assert_eq!(stash_count(&repo.root).unwrap(), 1);
+        assert!(super::stash_pop_selected(&repo.root, &older).is_err());
+    }
+    #[test]
+    fn selected_stash_conflicts_do_not_drop_the_entry() {
+        let repo = TestRepo::new();
+        repo.write("a", "base\n");
+        repo.commit();
+        repo.write("a", "stash\n");
+        repo.git(&["stash", "push", "-m", "conflict"]);
+        let sha = repo.git(&["rev-parse", "stash@{0}"]).trim().to_owned();
+        repo.write("a", "committed\n");
+        repo.commit();
+        assert!(super::stash_pop_selected(&repo.root, &sha).is_err());
+        assert_eq!(stash_count(&repo.root).unwrap(), 1);
+        assert!(repo.read("a").contains("<<<<<<<"));
+    }
+    #[test]
+    fn temporary_commit_identity_and_amend_never_change_git_config() {
+        let repo = TestRepo::new();
+        repo.git(&["config", "commit.gpgsign", "false"]);
+        repo.write("a", "base");
+        repo.commit();
+        let before = repo.read(".git/config");
+        let options = super::super::git_ui::GitCommitOptions {
+            amend: true,
+            reset_author: true,
+            identity: Some(super::super::git_ui::GitIdentity {
+                name: "Temporary".into(),
+                email: "temp@example.invalid".into(),
+            }),
+            ..Default::default()
+        };
+        super::commit_with_options(&repo.root, "amended", &options).unwrap();
+        assert_eq!(
+            repo.git(&["log", "-1", "--format=%an <%ae>"]).trim(),
+            "Temporary <temp@example.invalid>"
+        );
+        assert_eq!(repo.git(&["log", "-1", "--format=%s"]).trim(), "amended");
+        assert_eq!(repo.read(".git/config"), before);
+    }
+    #[cfg(unix)]
+    #[test]
+    fn commit_hooks_run_unless_explicitly_bypassed() {
+        use std::os::unix::fs::PermissionsExt;
+        let repo = TestRepo::new();
+        repo.git(&["config", "commit.gpgsign", "false"]);
+        repo.write("a", "base");
+        repo.commit();
+        let hooks = repo.root.join(".git/no-hooks");
+        std::fs::create_dir_all(&hooks).unwrap();
+        let hook = hooks.join("pre-commit");
+        std::fs::write(&hook, "#!/bin/sh\nexit 1\n").unwrap();
+        std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+        repo.write("a", "changed");
+        repo.git(&["add", "a"]);
+        assert!(super::commit_with_options(&repo.root, "blocked", &Default::default()).is_err());
+        let options = super::super::git_ui::GitCommitOptions {
+            skip_hooks: true,
+            ..Default::default()
+        };
+        super::commit_with_options(&repo.root, "allowed", &options).unwrap();
+    }
+    #[test]
+    fn branch_delete_protects_current_and_requires_force_for_unmerged_commits() {
+        use super::super::git_ui::{delete_branch, BranchTarget};
+        let repo = TestRepo::new();
+        repo.write("a", "base");
+        repo.commit();
+        let current = repo.git(&["branch", "--show-current"]).trim().to_owned();
+        assert_eq!(
+            delete_branch(
+                repo.path(),
+                &BranchTarget {
+                    name: current.clone(),
+                    kind: "local".into()
+                },
+                false,
+                true
+            )
+            .unwrap_err()
+            .code,
+            "git.currentBranchCannotDelete"
+        );
+        repo.git(&["checkout", "-qb", "side"]);
+        repo.write("a", "side");
+        repo.commit();
+        repo.git(&["checkout", "-q", &current]);
+        let side = BranchTarget {
+            name: "side".into(),
+            kind: "local".into(),
+        };
+        assert!(delete_branch(repo.path(), &side, false, false).is_err());
+        assert!(
+            delete_branch(repo.path(), &side, false, true)
+                .unwrap()
+                .local_deleted
+        );
+    }
+    #[test]
+    fn force_push_lease_rejects_remote_updates_not_yet_fetched() {
+        let repo = TestRepo::new();
+        let remote = TestRepo::new();
+        remote.git(&["config", "receive.denyCurrentBranch", "ignore"]);
+        repo.write("a", "base");
+        repo.commit();
+        repo.git(&["remote", "add", "origin", remote.path()]);
+        let current = repo.git(&["branch", "--show-current"]).trim().to_owned();
+        repo.git(&["push", "-u", "origin", &current]);
+        remote.git(&["checkout", "-q", &current]);
+        remote.write("remote", "new");
+        remote.commit();
+        let expected = remote.git(&["rev-parse", "HEAD"]);
+        assert!(super::super::git_ui::force_push(repo.path()).is_err());
+        assert_eq!(remote.git(&["rev-parse", "HEAD"]), expected);
+    }
+    #[test]
+    fn remote_rename_updates_only_the_selected_ref_atomically() {
+        use super::super::git_ui::{rename_branch, BranchTarget};
+        let repo = TestRepo::new();
+        let remote = TestRepo::new();
+        remote.git(&["config", "receive.denyDeleteCurrent", "ignore"]);
+        remote.git(&["config", "receive.denyCurrentBranch", "ignore"]);
+        repo.write("a", "base");
+        repo.commit();
+        repo.git(&["remote", "add", "origin", remote.path()]);
+        repo.git(&["push", "origin", "HEAD:refs/heads/old"]);
+        repo.git(&["fetch", "origin"]);
+        rename_branch(
+            repo.path(),
+            &BranchTarget {
+                name: "origin/old".into(),
+                kind: "remote".into(),
+            },
+            "new",
+        )
+        .unwrap();
+        assert!(
+            run_text(remote.path(), &["show-ref", "--verify", "refs/heads/new"])
+                .unwrap()
+                .0
+        );
+        assert!(
+            !run_text(remote.path(), &["show-ref", "--verify", "refs/heads/old"])
+                .unwrap()
+                .0
+        );
+    }
     #[test]
     fn local_repo_paths_handles_git_directory_and_gitdir_file() {
         let repo = TestRepo::new();
@@ -2951,12 +3756,19 @@ mod tests {
             "0".repeat(blob.trim().len()),
             blob = blob.trim(),
         );
-        child.stdin.take().unwrap().write_all(entries.as_bytes()).unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(entries.as_bytes())
+            .unwrap();
         assert!(child.wait().unwrap().success());
         repo.write("conflict.txt", "<<<<<<< ours\n=======\n>>>>>>> theirs\n");
         repo.write("other.txt", "keep\n");
         let index = repo.git(&["ls-files", "--stage", "-z"]);
-        let error = repo.discard(&["other.txt", "conflict.txt"], true).unwrap_err();
+        let error = repo
+            .discard(&["other.txt", "conflict.txt"], true)
+            .unwrap_err();
         assert_eq!(error.code, "git.conflictCannotDiscard");
         assert_eq!(repo.read("other.txt"), "keep\n");
         assert!(repo.read("conflict.txt").starts_with("<<<<<<<"));
@@ -3012,7 +3824,9 @@ mod tests {
         repo.write("tracked.txt/untracked.txt", "keep\n");
         let index = repo.git(&["ls-files", "--stage", "-z"]);
         for from_index in [true, false] {
-            let error = repo.discard(&["other.txt", "tracked.txt"], from_index).unwrap_err();
+            let error = repo
+                .discard(&["other.txt", "tracked.txt"], from_index)
+                .unwrap_err();
             assert_eq!(error.code, "git.discardDirectory");
             assert_eq!(error.params["path"], "tracked.txt");
             assert_eq!(repo.read("other.txt"), "modified\n");
@@ -3054,12 +3868,16 @@ mod tests {
         } else {
             names(&["space name", "-dash", ":[literal]", "line\nbreak"])
         };
-        for path in &files { repo.write(path, "delete"); }
+        for path in &files {
+            repo.write(path, "delete");
+        }
         let result = discard_changes(&repo.root, &[], &files).unwrap();
         assert!(result.error.is_none());
         assert!(result.restored.is_empty());
         assert_eq!(result.deleted, files);
-        for path in &files { assert!(!repo.root.join(path).exists()); }
+        for path in &files {
+            assert!(!repo.root.join(path).exists());
+        }
     }
 
     #[test]
@@ -3070,7 +3888,8 @@ mod tests {
         repo.write("tracked", "keep");
         repo.write("new", "now staged");
         repo.git(&["add", "new"]);
-        let error = discard_changes(&repo.root, &names(&["tracked"]), &names(&["new"])).unwrap_err();
+        let error =
+            discard_changes(&repo.root, &names(&["tracked"]), &names(&["new"])).unwrap_err();
         assert_eq!(error.code, "git.discardStatusChanged");
         assert_eq!(repo.read("tracked"), "keep");
         assert_eq!(repo.read("new"), "now staged");
@@ -3090,7 +3909,8 @@ mod tests {
         std::fs::remove_file(repo.root.join("placeholder")).unwrap();
         std::fs::create_dir(repo.root.join("placeholder")).unwrap();
         repo.write("placeholder/child", "keep");
-        let error = discard_changes(&repo.root, &names(&["tracked", "placeholder"]), &[]).unwrap_err();
+        let error =
+            discard_changes(&repo.root, &names(&["tracked", "placeholder"]), &[]).unwrap_err();
         assert_eq!(error.code, "git.discardDirectory");
         for path in ["placeholder", "../outside", repo.root.to_str().unwrap()] {
             assert!(discard_changes(&repo.root, &names(&["tracked"]), &names(&[path])).is_err());
@@ -3105,9 +3925,13 @@ mod tests {
         repo.write("tracked", "base");
         repo.commit();
         repo.write("tracked", "restore");
-        for path in ["first", "fails", "last"] { repo.write(path, "keep"); }
+        for path in ["first", "fails", "last"] {
+            repo.write(path, "keep");
+        }
         let result = discard_changes_with(
-            &repo.root, &names(&["tracked"]), &names(&["first", "fails", "last"]),
+            &repo.root,
+            &names(&["tracked"]),
+            &names(&["first", "fails", "last"]),
             |rel, tracked| {
                 // Deterministic external change after preflight: never delete a directory recursively.
                 if rel == "fails" {
@@ -3117,7 +3941,8 @@ mod tests {
                 }
                 apply_discard_change(&repo.root, rel, tracked)
             },
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(result.restored, names(&["tracked"]));
         assert_eq!(result.deleted, names(&["first"]));
         assert_eq!(result.error.unwrap().code, "git.discardDirectory");
@@ -3142,7 +3967,8 @@ mod tests {
         let (ok, _) = run_text(repo.root.to_str().unwrap(), &["merge", "side"]).unwrap();
         assert!(!ok);
         repo.write("new", "keep");
-        let error = discard_changes(&repo.root, &names(&["conflict"]), &names(&["new"])).unwrap_err();
+        let error =
+            discard_changes(&repo.root, &names(&["conflict"]), &names(&["new"])).unwrap_err();
         assert_eq!(error.code, "git.conflictCannotDiscard");
         assert_eq!(repo.read("new"), "keep");
     }
@@ -3173,7 +3999,12 @@ mod tests {
         repo.commit();
         repo.write("sub/tracked", "changed");
         repo.write("sub/new", "delete");
-        let result = discard_changes(&repo.root.join("sub"), &names(&["tracked"]), &names(&["new"])).unwrap();
+        let result = discard_changes(
+            &repo.root.join("sub"),
+            &names(&["tracked"]),
+            &names(&["new"]),
+        )
+        .unwrap();
         assert!(result.error.is_none());
         assert_eq!(repo.read("sub/tracked"), "base");
         assert!(!repo.root.join("sub/new").exists());
@@ -3223,7 +4054,10 @@ mod tests {
 
         let find = |path: &str| changes.files.iter().find(|file| file.path == path);
         let edit = find("edit.txt").expect("edit");
-        assert_eq!((edit.status.as_str(), edit.additions, edit.deletions), ("M", 2, 1));
+        assert_eq!(
+            (edit.status.as_str(), edit.additions, edit.deletions),
+            ("M", 2, 1)
+        );
         let added = find("added.txt").expect("added");
         assert_eq!((added.status.as_str(), added.additions), ("A", 2));
         let gone = find("gone.txt").expect("delete");
@@ -3254,7 +4088,10 @@ mod tests {
         repo.write("created/deep/new.txt", "new\n");
         let end = turn_snapshot(&repo.root).unwrap();
         let changes = turn_changes(&repo.root, &start, &end).unwrap();
-        assert!(changes.files.iter().any(|file| file.path == "created/deep/new.txt"));
+        assert!(changes
+            .files
+            .iter()
+            .any(|file| file.path == "created/deep/new.txt"));
 
         let result = revert_turn(&repo.root, &changes.snapshot, &turn_targets(&changes)).unwrap();
         assert!(result.error.is_none(), "{:?}", result.error);
@@ -3298,7 +4135,10 @@ mod tests {
         let end = turn_snapshot(&repo.root).unwrap();
         let changes = turn_changes(&repo.root, &start, &end).unwrap();
 
-        let pruned = TurnSnapshot { worktree: "0".repeat(40), index: None };
+        let pruned = TurnSnapshot {
+            worktree: "0".repeat(40),
+            index: None,
+        };
         let error = revert_turn(&repo.root, &pruned, &turn_targets(&changes)).unwrap_err();
         assert_eq!(error.code, "git.turnSnapshotMissing");
 
@@ -3323,13 +4163,17 @@ mod tests {
         let end = turn_snapshot(&repo.root).unwrap();
         let changes = turn_changes(&repo.root, &start, &end).unwrap();
 
-        let error = revert_turn(&repo.root, &changes.snapshot, &turn_targets(&changes)).unwrap_err();
+        let error =
+            revert_turn(&repo.root, &changes.snapshot, &turn_targets(&changes)).unwrap_err();
         assert_eq!(error.code, "git.turnRevertBlocked");
     }
 
     #[test]
     fn parses_hunk_headers_with_and_without_counts() {
-        assert_eq!(parse_hunk_header("@@ -1,3 +4,5 @@ fn ctx"), Some((1, 3, 4, 5)));
+        assert_eq!(
+            parse_hunk_header("@@ -1,3 +4,5 @@ fn ctx"),
+            Some((1, 3, 4, 5))
+        );
         assert_eq!(parse_hunk_header("@@ -7 +7 @@"), Some((7, 1, 7, 1)));
         assert_eq!(parse_hunk_header("@@ -0,0 +1,2 @@"), Some((0, 0, 1, 2)));
         assert_eq!(parse_hunk_header("not a hunk"), None);
@@ -3352,7 +4196,15 @@ index 111..222 100644\n\
         assert_eq!(diff.deletions, 1);
         assert_eq!(diff.hunks.len(), 1);
         let hunk = &diff.hunks[0];
-        assert_eq!((hunk.old_start, hunk.old_count, hunk.new_start, hunk.new_count), (1, 2, 1, 3));
+        assert_eq!(
+            (
+                hunk.old_start,
+                hunk.old_count,
+                hunk.new_start,
+                hunk.new_count
+            ),
+            (1, 2, 1, 3)
+        );
         assert_eq!(hunk.lines.len(), 4);
         assert_eq!(hunk.lines[0].kind, "context");
         assert_eq!(hunk.lines[0].old_line, Some(1));
@@ -3400,7 +4252,6 @@ rename to new.ts\n";
         assert_eq!(diff.deletions, 0);
     }
 
-
     #[test]
     fn diffs_a_merge_commit_against_its_first_parent() {
         let repo = TestRepo::new();
@@ -3419,12 +4270,19 @@ rename to new.ts\n";
         let parent = format!("{sha}^1");
         let (ok, out, _) = run_bytes_with_timeout(
             repo.path(),
-            &["diff", "--no-color", "--unified=3", parent.as_str(), sha.as_str(), "--", "side.txt"],
+            &[
+                "diff",
+                "--no-color",
+                "--unified=3",
+                parent.as_str(),
+                sha.as_str(),
+                "--",
+                "side.txt",
+            ],
         )
         .unwrap();
         assert!(ok);
         let diff = parse_file_diff(&String::from_utf8_lossy(&out), "side.txt", None);
         assert!(!diff.hunks.is_empty());
     }
-
 }

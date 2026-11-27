@@ -27,6 +27,7 @@ vi.mock('./locale', () => ({ hasLocaleEffect: () => false, watchLocale: () => ()
 import { clearCommitDetails, useCommitHover } from '../store/commitHover'
 import {
   blameExtension,
+  BLAME_IDLE_DELAY,
   blameField,
   formatBlameText,
   setBlameContentProvider,
@@ -76,6 +77,11 @@ function createView() {
   return view
 }
 
+async function showBlame(view: EditorView, data: BlameResult) {
+  view.dispatch({ effects: setBlameEffect.of(data) })
+  await vi.advanceTimersByTimeAsync(BLAME_IDLE_DELAY)
+}
+
 beforeEach(() => {
   vi.useFakeTimers()
   vi.setSystemTime(NOW)
@@ -114,32 +120,63 @@ afterEach(async () => {
   vi.useRealTimers()
 })
 
-it('renders GitLens current-line blame without a SHA', () => {
+it('renders GitLens current-line blame without a SHA', async () => {
   const view = createView()
-  view.dispatch({ effects: setBlameEffect.of(blame()) })
+  await showBlame(view, blame())
   const text = view.dom.querySelector('.cm-blame')?.textContent
   expect(text).toBe('Author, 3 days ago • Change')
   expect(text).not.toContain('aaaaaaa')
 })
 
-it('renders the current user as You', () => {
+it('waits 1 second before showing each new cursor line and cancels rapid switches', async () => {
+  const view = createView()
+  view.dispatch({ effects: setBlameEffect.of(blame()) })
+  expect(BLAME_IDLE_DELAY).toBe(1000)
+  await vi.advanceTimersByTimeAsync(BLAME_IDLE_DELAY - 1)
+  expect(view.dom.querySelector('.cm-blame')).toBeNull()
+  expect(gitCommitDetail).not.toHaveBeenCalled()
+  await vi.advanceTimersByTimeAsync(1)
+  expect(view.dom.querySelector('.cm-blame')).not.toBeNull()
+  view.dispatch({ selection: { anchor: view.state.doc.line(2).from } })
+  expect(view.dom.querySelector('.cm-blame')).toBeNull()
+  await vi.advanceTimersByTimeAsync(1000)
+  view.dispatch({ selection: { anchor: view.state.doc.line(3).from } })
+  await vi.advanceTimersByTimeAsync(BLAME_IDLE_DELAY - 1)
+  expect(view.dom.querySelector('.cm-blame')).toBeNull()
+  expect(gitCommitDetail).not.toHaveBeenCalled()
+  await vi.advanceTimersByTimeAsync(1)
+  view.dom.querySelector('.cm-blame')!.dispatchEvent(new MouseEvent('mouseenter'))
+  expect(useCommitHover.getState().target?.line).toBe(3)
+})
+
+it('cancels the delayed display and prefetch when the view is destroyed', async () => {
+  const view = createView()
+  view.dispatch({ effects: setBlameEffect.of(blame()) })
+  view.destroy()
+  views.splice(views.indexOf(view), 1)
+  await vi.advanceTimersByTimeAsync(BLAME_IDLE_DELAY * 2)
+  expect(document.querySelector('.cm-blame')).toBeNull()
+  expect(gitCommitDetail).not.toHaveBeenCalled()
+})
+
+it('renders the current user as You', async () => {
   const view = createView()
   const data = blame()
   data.ranges[0].authorEmail = 'me@example.com'
-  view.dispatch({ effects: setBlameEffect.of(data) })
+  await showBlame(view, data)
   expect(view.dom.querySelector('.cm-blame')?.textContent).toBe('You, 3 days ago • Change')
 })
 
-it('renders uncommitted rows as You, Uncommitted changes', () => {
+it('renders uncommitted rows as You, Uncommitted changes', async () => {
   const view = createView()
   const data = blame()
   data.ranges[0].uncommitted = true
   data.ranges[0].sha = '0'.repeat(40)
-  view.dispatch({ effects: setBlameEffect.of(data) })
+  await showBlame(view, data)
   expect(view.dom.querySelector('.cm-blame')?.textContent).toBe('You, Uncommitted changes')
 })
 
-it('truncates long summaries by grapheme', () => {
+it('truncates long summaries by grapheme', async () => {
   const range = blame().ranges[0]
   range.summary = '😀'.repeat(60)
   const text = formatBlameText(range, blame())
@@ -151,7 +188,7 @@ it('truncates long summaries by grapheme', () => {
 
 it('hides the old rows immediately and only asks for new blame after the idle delay', async () => {
   const view = createView()
-  view.dispatch({ effects: setBlameEffect.of(blame()) })
+  await showBlame(view, blame())
   const provider = vi.fn()
   setBlameContentProvider(view, provider)
 
@@ -160,21 +197,22 @@ it('hides the old rows immediately and only asks for new blame after the idle de
   // A selection change while waiting must not resurrect the previous document's rows.
   view.dispatch({ selection: { anchor: view.state.doc.line(2).from } })
   expect(view.dom.querySelector('.cm-blame')).toBeNull()
-  await vi.advanceTimersByTimeAsync(449)
+  await vi.advanceTimersByTimeAsync(BLAME_IDLE_DELAY - 1)
   expect(provider).not.toHaveBeenCalled()
   await vi.advanceTimersByTimeAsync(1)
   expect(provider).toHaveBeenCalledWith(view.state.doc.toString(), 1)
 })
 
-it('ignores a buffer result from an older document version', () => {
+it('ignores a buffer result from an older document version', async () => {
   const view = createView()
-  view.dispatch({ effects: setBlameEffect.of(blame()) })
+  await showBlame(view, blame())
   view.dispatch({ changes: { from: 0, insert: 'x' } })
   // Version 0 (or an older buffer version) must not clear the waiting state.
   view.dispatch({ effects: setBlameEffect.of({ ...blame(), version: 0 }) })
   expect(view.dom.querySelector('.cm-blame')).toBeNull()
   const current = view.state.field(blameField).version
   view.dispatch({ effects: setBlameEffect.of({ ...blame(), version: current }) })
+  await vi.advanceTimersByTimeAsync(BLAME_IDLE_DELAY)
   expect(view.dom.querySelector('.cm-blame')?.textContent).toContain('Change')
 })
 
@@ -182,15 +220,15 @@ it('refreshes the relative time after a minute of inactivity', async () => {
   const view = createView()
   const data = blame()
   data.ranges[0].authorTime = Math.floor(NOW / 1000) - 30
-  view.dispatch({ effects: setBlameEffect.of(data) })
+  await showBlame(view, data)
   expect(view.dom.querySelector('.cm-blame')?.textContent).toBe('Author, just now • Change')
   await vi.advanceTimersByTimeAsync(60_000)
   expect(view.dom.querySelector('.cm-blame')?.textContent).toBe('Author, 1 minute ago • Change')
 })
 
-it('uses the blame origPath for the hover diff target', () => {
+it('uses the blame origPath for the hover diff target', async () => {
   const view = createView()
-  view.dispatch({ effects: setBlameEffect.of(blame()) })
+  await showBlame(view, blame())
   const anchor = view.dom.querySelector('.cm-blame')!
   anchor.dispatchEvent(new MouseEvent('mouseenter'))
   const target = useCommitHover.getState().target
@@ -199,18 +237,18 @@ it('uses the blame origPath for the hover diff target', () => {
   expect(target?.origLine).toBe(10)
 })
 
-it('opens the card on click as well as hover', () => {
+it('opens the card on click as well as hover', async () => {
   const view = createView()
-  view.dispatch({ effects: setBlameEffect.of(blame()) })
+  await showBlame(view, blame())
   const anchor = view.dom.querySelector('.cm-blame')!
   anchor.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
   expect(useCommitHover.getState().target).not.toBeNull()
 })
 
-it('anchors empty-line blame outside the text and lets Alt caret gestures pass through', () => {
+it('anchors empty-line blame outside the text and lets Alt caret gestures pass through', async () => {
   const view = new EditorView({ state: EditorState.create({ doc: '\ncode', extensions: blameExtension }), parent: document.body })
   views.push(view)
-  view.dispatch({ effects: setBlameEffect.of(blame()) })
+  await showBlame(view, blame())
   const text = view.dom.querySelector('.cm-blame')!
   expect(text.parentElement?.className).toBe('cm-blame-anchor')
   expect(view.state.doc.line(1).length).toBe(0)
@@ -233,7 +271,7 @@ it('opens an uncommitted card without a commit sha', async () => {
   const data = blame()
   data.ranges[0].uncommitted = true
   data.ranges[0].sha = '0'.repeat(40)
-  view.dispatch({ effects: setBlameEffect.of(data) })
+  await showBlame(view, data)
   view.dom.querySelector('.cm-blame')!.dispatchEvent(new MouseEvent('mouseenter'))
   const target = useCommitHover.getState().target
   expect(target?.uncommitted).toBe(true)

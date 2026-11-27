@@ -9,8 +9,8 @@ import { ContextMenu } from './ContextMenu'
 import { useUi } from '../store/ui'
 import { useT } from '../i18n'
 
-/** Keep the bottom quick-switch row readable at the welcome page's 620px content width. */
-const RECENT_PROJECT_LIMIT = 6
+/** Up to three rows of four cards; narrow panes use two columns without growing the data limit. */
+const RECENT_PROJECT_LIMIT = 12
 
 /** Welcome page: the empty state with all tabs closed, also a normal tab opened from the home icon (closes via its ×). */
 export function Welcome() {
@@ -21,10 +21,11 @@ export function Welcome() {
   const windowKeys = useShortcut('app.newWindow')
   const commandKeys = useShortcut('view.commands')
   const roots = useWorkspace((s) => s.roots)
+  const activeRootId = useWorkspace((s) => s.activeRootId)
+  const currentRoot = roots.find(root => root.id === activeRootId) ?? roots[0]
   const recent = useWorkspace((s) => s.recent)
   const [menu, setMenu] = useState<{ path: string; x: number; y: number } | null>(null)
-  // Projects already open in this window are listed separately as "current projects" and kept out of recents:
-  // a project only occupies one window, so "open in new window" makes no sense here
+  // Current project status lives in the heading; recents only contain other projects.
   const recentOnly = recent.filter((item) => !roots.some((root) => root.id === item.path))
     .slice(0, RECENT_PROJECT_LIMIT)
   const setOverlay = useUi((s) => s.setOverlay)
@@ -81,36 +82,22 @@ export function Welcome() {
           </button>
         </div>
 
-        {roots.length > 0 ? (
-          <div className="mt-5">
-            <div className="mb-1.5 text-2xs font-medium text-muted">
-              {t('welcome.currentProject')}
-            </div>
-            {roots.map((node) => (
-              <div
-                key={node.id}
-                className="group flex w-full items-center rounded text-sm text-muted hover:bg-hover hover:text-fg"
-              >
-                <button
-                  onClick={() => useWorkspace.getState().setActiveRoot(node.id)}
-                  className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1 text-left"
-                  title={node.id}
-                >
-                  <Icon name="folder-open" size={13} className="shrink-0 text-accent/80" />
-                  <span className="truncate">{node.name}</span>
-                  {node.isGitRepo ? (
-                    <span className="shrink-0 text-2xs text-muted/60">git</span>
-                  ) : null}
+        {currentRoot || recentOnly.length > 0 ? (
+          <section aria-label={t('welcome.recent')} className="welcome-projects mt-5 border-t border-line/60 pt-4">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <h2 className="shrink-0 text-2xs font-medium text-muted">{t('welcome.recent')}</h2>
+              {currentRoot ? <div className="flex min-w-0 max-w-[70%] items-center justify-end gap-2">
+                <span className="welcome-current-label shrink-0 text-2xs text-muted">{t('welcome.currentProject')}</span>
+                <button type="button" aria-current="true" aria-label={`${t('welcome.currentProject')}: ${currentRoot.name}`}
+                  onClick={() => useWorkspace.getState().setActiveRoot(currentRoot.id)} title={currentRoot.id}
+                  className="flex min-w-0 cursor-pointer items-center gap-1.5 rounded-[var(--r-control)] border border-accent/25 bg-accent/10 px-2 py-1 text-xs text-accent hover:bg-accent/15">
+                  <Icon name="folder-open" size={12} className="shrink-0" />
+                  <span className="min-w-0 truncate">{currentRoot.name}</span>
+                  {currentRoot.isGitRepo ? <span className="shrink-0 text-2xs text-accent/70">git</span> : null}
                 </button>
-              </div>
-            ))}
-          </div>
-        ) : null}
-
-        {recentOnly.length > 0 ? (
-          <section aria-label={t('welcome.recent')} className="mt-4 border-t border-line/60 pt-4">
-            <div className="mb-2 text-2xs font-medium text-muted">{t('welcome.recent')}</div>
-            <div className="flex gap-1.5 overflow-x-auto pb-1">
+              </div> : null}
+            </div>
+            {recentOnly.length > 0 ? <div className="welcome-project-grid">
               {recentOnly.map((item) => (
                 <button
                   key={item.path}
@@ -126,14 +113,14 @@ export function Welcome() {
                     const rect = event.currentTarget.getBoundingClientRect()
                     setMenu({ path: item.path, x: rect.left, y: rect.bottom + 4 })
                   }}
-                  className="flex h-8 min-w-[90px] flex-1 cursor-pointer items-center gap-1.5 rounded-[7px] border border-line bg-panel px-2 text-left text-xs text-muted transition-colors duration-fast hover:border-accent/60 hover:bg-hover hover:text-fg"
+                  className="flex h-8 min-w-0 cursor-pointer items-center gap-1.5 rounded-[7px] border border-line bg-panel px-2 text-left text-xs text-muted transition-colors duration-fast hover:border-accent/60 hover:bg-hover hover:text-fg"
                   title={item.path}
                 >
                   <FileIcon name={item.name} isDir isOpen={false} size={13} className="shrink-0" />
                   <span className="min-w-0 truncate">{item.name}</span>
                 </button>
               ))}
-            </div>
+            </div> : null}
           </section>
         ) : null}
       </div>

@@ -47,6 +47,9 @@ and Rust `commands/theme.rs` own defaults, migration and writes. Configuration t
   `RETIRED_KEYS`. Runtime choices write immediately and sync across windows; Go Live too.
 - `settings.json`/`session.json` use `app_config_dir` and the Rust theme lock. Sidebar/drawer widths stay
   window-local; chat storage follows [agent-storage.md](./agent-storage.md).
+- Schema 20 includes terminal styling and bounded global commit templates; missing fields use defaults.
+  Code/UI/terminal weights are independent (100–900 by 100, default 400), italic defaults off and rainbow
+  brackets on. `commitMessageLimits.json` owns template/history limits; `SHARED_KEYS` includes templates.
 - Tests: `settings.test.ts` covers recovery and unknown-field retention; `SettingsView.test.tsx` covers the page.
 
 ## Change map

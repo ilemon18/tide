@@ -143,6 +143,9 @@ export function t(key: MessageKey, params?: TranslateParams): string {
   return interpolate(template, params)
 }
 
+/** Bilingual Git setting captions reuse the already loaded English catalog without loading another locale. */
+export function englishText(key: MessageKey): string { return en[key] }
+
 /** Explicit plural choice: `tp('status.unsaved', 3)`, clearer than relying on count being implicit */
 export function tp(key: MessageKey, count: number, params?: TranslateParams): string {
   const raw = (CATALOGS[currentLocale()] ?? en)[key] ?? en[key] ?? key

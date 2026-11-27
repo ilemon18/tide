@@ -26,7 +26,171 @@
   font-display: swap;
 }
 
-/* Other selectable code fonts: latin subset only, regular/bold; CJK still falls back to system fonts */
+/* Smiley Sans includes CJK glyphs; load its upstream font design only when selected. */
+@font-face {
+  font-family: 'Smiley Sans';
+  src: url('../assets/fonts/SmileySans-Oblique.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Tide Terminal Oblique A';
+  src: url('../assets/fonts/terminal-oblique/TideTerminalA-Oblique.woff2') format('woff2');
+  font-weight: 100 800;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Tide Terminal Oblique A';
+  src: url('../assets/fonts/terminal-oblique/TideTerminalA-Oblique.woff2') format('woff2');
+  font-weight: 100 800;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Tide Terminal Oblique B';
+  src: url('../assets/fonts/terminal-oblique/TideTerminalB-Oblique-Regular.woff2') format('woff2');
+  font-weight: 100 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Tide Terminal Oblique B';
+  src: url('../assets/fonts/terminal-oblique/TideTerminalB-Oblique-Regular.woff2') format('woff2');
+  font-weight: 100 500;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Tide Terminal Oblique B';
+  src: url('../assets/fonts/terminal-oblique/TideTerminalB-Oblique-Bold.woff2') format('woff2');
+  font-weight: 600 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Tide Terminal Oblique B';
+  src: url('../assets/fonts/terminal-oblique/TideTerminalB-Oblique-Bold.woff2') format('woff2');
+  font-weight: 600 900;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Tide Terminal Oblique C';
+  src: url('../assets/fonts/terminal-oblique/TideTerminalC-Oblique-Regular.woff2') format('woff2');
+  font-weight: 100 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Tide Terminal Oblique C';
+  src: url('../assets/fonts/terminal-oblique/TideTerminalC-Oblique-Regular.woff2') format('woff2');
+  font-weight: 100 500;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Tide Terminal Oblique C';
+  src: url('../assets/fonts/terminal-oblique/TideTerminalC-Oblique-Bold.woff2') format('woff2');
+  font-weight: 600 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Tide Terminal Oblique C';
+  src: url('../assets/fonts/terminal-oblique/TideTerminalC-Oblique-Bold.woff2') format('woff2');
+  font-weight: 600 900;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Tide Terminal Oblique D';
+  src: url('../assets/fonts/terminal-oblique/TideTerminalD-Oblique-Regular.woff2') format('woff2');
+  font-weight: 100 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Tide Terminal Oblique D';
+  src: url('../assets/fonts/terminal-oblique/TideTerminalD-Oblique-Regular.woff2') format('woff2');
+  font-weight: 100 500;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Tide Terminal Oblique D';
+  src: url('../assets/fonts/terminal-oblique/TideTerminalD-Oblique-Bold.woff2') format('woff2');
+  font-weight: 600 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Tide Terminal Oblique D';
+  src: url('../assets/fonts/terminal-oblique/TideTerminalD-Oblique-Bold.woff2') format('woff2');
+  font-weight: 600 900;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Tide Terminal System Oblique';
+  src: local('Menlo Italic'), local('Consolas Italic'), local('DejaVu Sans Mono Oblique');
+  font-weight: 100 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Tide Terminal System Oblique';
+  src: local('Menlo Italic'), local('Consolas Italic'), local('DejaVu Sans Mono Oblique');
+  font-weight: 100 500;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Tide Terminal System Oblique';
+  src: local('Menlo Bold Italic'), local('Consolas Bold Italic'), local('DejaVu Sans Mono Bold Oblique');
+  font-weight: 600 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Tide Terminal System Oblique';
+  src: local('Menlo Bold Italic'), local('Consolas Bold Italic'), local('DejaVu Sans Mono Bold Oblique');
+  font-weight: 600 900;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Tide Terminal Consolas Oblique';
+  src: local('Consolas Italic'), local('Menlo Italic'), local('DejaVu Sans Mono Oblique');
+  font-weight: 100 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Tide Terminal Consolas Oblique';
+  src: local('Consolas Italic'), local('Menlo Italic'), local('DejaVu Sans Mono Oblique');
+  font-weight: 100 500;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Tide Terminal Consolas Oblique';
+  src: local('Consolas Bold Italic'), local('Menlo Bold Italic'), local('DejaVu Sans Mono Bold Oblique');
+  font-weight: 600 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Tide Terminal Consolas Oblique';
+  src: local('Consolas Bold Italic'), local('Menlo Bold Italic'), local('DejaVu Sans Mono Bold Oblique');
+  font-weight: 600 900;
+  font-style: italic;
+  font-display: swap;
+}
+
+/* Other selectable fonts use Latin subsets; CJK continues through the shared fallback stack. */
 @font-face {
   font-family: 'Fira Code';
   src: url('../assets/fonts/FiraCode-Regular.woff2') format('woff2');
@@ -76,6 +240,25 @@
 }
 
 @custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
+
+/* Recent projects follow their pane width, including split editors and narrow windows. */
+.welcome-projects {
+  container-type: inline-size;
+}
+.welcome-project-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+@container (min-width: 390px) {
+  .welcome-project-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@container (min-width: 520px) {
+  .welcome-project-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+@container (max-width: 340px) {
+  .welcome-current-label { display: none; }
+}
 
 /* Semantic color mapping: real values are written into CSS variables at runtime by src/theme/apply.ts */
 @theme inline {
@@ -135,6 +318,11 @@
     'PingFang SC', 'Hiragino Sans', 'Hiragino Sans GB', 'Apple SD Gothic Neo', 'Malgun Gothic',
     sans-serif;
 
+  --font-weight-normal: var(--ui-font-weight);
+  --font-weight-medium: min(900, calc(var(--ui-font-weight) + 100));
+  --font-weight-semibold: min(900, calc(var(--ui-font-weight) + 200));
+  --font-weight-bold: min(900, calc(var(--ui-font-weight) + 300));
+
   /* One type scale: everything follows the "UI font size" setting instead of 9 scattered px values */
   --text-2xs: calc(var(--ui-fs) - 2px);
   --text-xs: calc(var(--ui-fs) - 1px);
@@ -150,6 +338,10 @@
 :root {
   /* UI font size: adjustable in settings, all --text-* derive from it */
   --ui-fs: 13px;
+  --ui-font-weight: 400;
+  --ui-font-style: normal;
+  --code-font-weight: 400;
+  --code-font-style: normal;
 
   /* Tide (default): first-paint fallback matching src/theme/palettes.ts */
   --c-bg: #ffffff;
@@ -223,6 +415,8 @@
     color: var(--c-fg);
     font-family: var(--font-sans);
     font-size: var(--ui-fs);
+    font-weight: var(--ui-font-weight);
+    font-style: var(--ui-font-style);
     user-select: none;
     -webkit-user-select: none;
     cursor: default;
@@ -339,6 +533,8 @@
   /* Diff panes are read-only, but their text must stay selectable so it can be copied. Line numbers are
      excluded so a copied range contains code only. */
   .diff-selectable {
+    font-weight: var(--code-font-weight);
+    font-style: var(--code-font-style);
     user-select: text;
     -webkit-user-select: text;
     cursor: text;
@@ -469,6 +665,9 @@
   }
 
   .xterm {
+    /* ANSI output controls its own styling independently of the UI. */
+    font-weight: 400;
+    font-style: normal;
     user-select: text;
     -webkit-user-select: text;
     padding: 6px 8px;
@@ -488,7 +687,9 @@
 
   /* Source control: keep the file open in the editor marked, matching the explorer's selected row */
   .git-file-row-active,
-  .git-file-row-active.row-hover:hover {
+  .git-file-row-active.row-hover:hover,
+  .git-file-row-selected,
+  .git-file-row-selected.row-hover:hover {
     background-color: var(--c-row-selected);
     box-shadow: inset 2px 0 0 var(--c-accent);
   }
@@ -499,6 +700,10 @@
     align-items: center;
     height: 100%;
     background-image: linear-gradient(to right, transparent, var(--c-row-hover-solid) 16px);
+  }
+
+  .git-file-row-selected .row-actions-float {
+    background-image: linear-gradient(to right, transparent, var(--c-row-selected) 16px);
   }
 
   /* Git panel rows: the directory suffix is secondary. It is truncated from its left, so what stays

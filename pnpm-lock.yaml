@@ -62,6 +62,9 @@ importers:
       '@codemirror/view':
         specifier: ^6.0.0
         version: 6.43.15
+      '@lezer/common':
+        specifier: ^1.5.5
+        version: 1.5.5
       '@lezer/highlight':
         specifier: ^1.0.0
         version: 1.2.5

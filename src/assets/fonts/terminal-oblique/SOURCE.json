@@ -1,0 +1,62 @@
+{
+  "generator": "scripts/generate-terminal-oblique.py",
+  "shear": 0.2,
+  "faces": [
+    {
+      "source": "src/assets/fonts/JetBrainsMono-Variable.ttf",
+      "sourceSha256": "3cfafa86e28b87184d592fef82846e8c10cb48653c62efcda34f082da225ec34",
+      "asset": "src/assets/fonts/terminal-oblique/TideTerminalA-Oblique.woff2",
+      "sha256": "11de89b98a537408c309bc198242e342797945f2859ddb3c8dd2149270f08b84",
+      "family": "Tide Terminal Oblique A",
+      "license": "public/licenses/JetBrainsMono-OFL.txt"
+    },
+    {
+      "source": "src/assets/fonts/FiraCode-Regular.woff2",
+      "sourceSha256": "6dc9da171ccea71d525379ee1cbf51d143e31acac330a251bb71b3d6060e687c",
+      "asset": "src/assets/fonts/terminal-oblique/TideTerminalB-Oblique-Regular.woff2",
+      "sha256": "b77ccc96d6523aa15a37b722c51c4afb0e8ffc43fac8bfb657107451a059115f",
+      "family": "Tide Terminal Oblique B",
+      "license": "public/licenses/FiraCode-OFL.txt"
+    },
+    {
+      "source": "src/assets/fonts/FiraCode-Bold.woff2",
+      "sourceSha256": "987306692df7c81d1ffa1efc98414dfaae10de5e178cfba8e22e92ad9c872e43",
+      "asset": "src/assets/fonts/terminal-oblique/TideTerminalB-Oblique-Bold.woff2",
+      "sha256": "cf9e1de8454c18834e53713fbee76e230a590ba970435fe325b78bd932acc2bd",
+      "family": "Tide Terminal Oblique B",
+      "license": "public/licenses/FiraCode-OFL.txt"
+    },
+    {
+      "source": "src/assets/fonts/IBMPlexMono-Regular.woff2",
+      "sourceSha256": "08949f728dc52d528e69b1667d15c89a5686a4ee9a296ff90983985f99c380f7",
+      "asset": "src/assets/fonts/terminal-oblique/TideTerminalC-Oblique-Regular.woff2",
+      "sha256": "c9e356e28c99f7b791af468f718e8131c11ecbc0f5393b05bbe1886b81dedd9d",
+      "family": "Tide Terminal Oblique C",
+      "license": "public/licenses/IBMPlexMono-OFL.txt"
+    },
+    {
+      "source": "src/assets/fonts/IBMPlexMono-Bold.woff2",
+      "sourceSha256": "4f84d86cfd060f4ded334358ff8a4c81d4db2ed5addd568359d693f44a87765a",
+      "asset": "src/assets/fonts/terminal-oblique/TideTerminalC-Oblique-Bold.woff2",
+      "sha256": "4b3f4f8df76f86a12b60e03c3edcee76849732f4aca7e79ae86fba486252e476",
+      "family": "Tide Terminal Oblique C",
+      "license": "public/licenses/IBMPlexMono-OFL.txt"
+    },
+    {
+      "source": "src/assets/fonts/SourceCodePro-Regular.woff2",
+      "sourceSha256": "75aa8cacfd459d58d7c093f3ff0ab8745cc878dfc93c5d4cda052791aeace878",
+      "asset": "src/assets/fonts/terminal-oblique/TideTerminalD-Oblique-Regular.woff2",
+      "sha256": "919fa9d216d4ac212b74d6ae47f46ee8f9c63324a2cb15d612ab828f474a1ec0",
+      "family": "Tide Terminal Oblique D",
+      "license": "public/licenses/SourceCodePro-OFL.txt"
+    },
+    {
+      "source": "src/assets/fonts/SourceCodePro-Bold.woff2",
+      "sourceSha256": "34faf509fa4130733093f36100f76670ff7d93d4889746de11a62a0fe8d82084",
+      "asset": "src/assets/fonts/terminal-oblique/TideTerminalD-Oblique-Bold.woff2",
+      "sha256": "32ccdb77534a78327b5461fccfb1c61b2ad3c205aed7d87d54919077b14bdde7",
+      "family": "Tide Terminal Oblique D",
+      "license": "public/licenses/SourceCodePro-OFL.txt"
+    }
+  ]
+}

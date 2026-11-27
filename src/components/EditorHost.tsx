@@ -19,8 +19,10 @@ import {
   getEditorState,
   reconfigureTheme,
   setBlameEnabled,
+  gitEditCompartment, gitEditLock, isGitEditLocked,
 } from '../editor/stateCache'
 import { ensureEditorState } from '../editor/openState'
+import { configureRainbowBrackets } from '../editor/rainbowBrackets'
 import { stickyRange } from '../editor/highlight'
 import { setEditorView, setFocusedGroup } from '../editor/viewRef'
 import { applyDiffMarks, setDiffGutterBlameProvider } from '../editor/diffGutter'
@@ -70,6 +72,7 @@ function swapState(
   if (prevId && prevId !== id) rememberScroll(prevId, view.scrollDOM.scrollTop)
   view.setState(state)
   reconfigureTheme(view)
+  configureRainbowBrackets(view, useSettings.getState().rainbowBrackets)
   restoreScroll(view, id, fallback, keepCurrent, ratio)
 }
 
@@ -147,6 +150,9 @@ export function EditorHost({ groupId }: { groupId: TabGroupId }) {
   const palette = useSettings((s) => s.palette)
   const fontSize = useSettings((s) => s.fontSize)
   const fontFamily = useSettings((s) => s.fontFamily)
+  const fontWeight = useSettings((s) => s.fontWeight)
+  const fontItalic = useSettings((s) => s.fontItalic)
+  const rainbowBrackets = useSettings((s) => s.rainbowBrackets)
   const inlineBlame = useSettings((s) => s.inlineBlame)
   const blameData = useBlame((s) => (activeId ? s.byTab[activeId] : null))
   const blameSource = useBlame((s) => (activeId ? s.source[activeId] : undefined))
@@ -360,6 +366,7 @@ export function EditorHost({ groupId }: { groupId: TabGroupId }) {
           takeScrollRatio(activeId),
         )
       }
+      view.dispatch({ effects: gitEditCompartment.reconfigure(gitEditLock(isGitEditLocked(tab.root))) })
       applyTabDiffMarks(view, tab)
       shownIdRef.current = activeId
       editorSelections.notify(groupId)
@@ -411,6 +418,7 @@ export function EditorHost({ groupId }: { groupId: TabGroupId }) {
           takeScrollRatio(activeId),
         )
       }
+      view.dispatch({ effects: gitEditCompartment.reconfigure(gitEditLock(isGitEditLocked(tab.root))) })
       applyTabDiffMarks(view, tab)
       // A freshly mounted side pane may not be measured yet (width 0 makes CodeMirror compute no viewport),
       // so measure once after setState and once more on the next frame as a fallback
@@ -526,7 +534,12 @@ export function EditorHost({ groupId }: { groupId: TabGroupId }) {
   useEffect(() => {
     const view = viewRef.current
     if (view) reconfigureTheme(view)
-  }, [palette, fontSize, fontFamily])
+  }, [palette, fontSize, fontFamily, fontWeight, fontItalic])
+
+  useEffect(() => {
+    const view = viewRef.current
+    if (view) configureRainbowBrackets(view, rainbowBrackets)
+  }, [rainbowBrackets])
 
   useEffect(() => {
     const view = viewRef.current

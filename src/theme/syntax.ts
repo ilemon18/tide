@@ -102,7 +102,7 @@ export function diffTokenStyle(cls: string, syntax: SyntaxColors): CSSProperties
     if (!rule) continue
     style = style ?? {}
     if (rule.color) style.color = syntax[rule.color]
-    if (rule.bold) style.fontWeight = 600
+    if (rule.bold) style.fontWeight = 'min(900, calc(var(--code-font-weight, 400) + 200))'
     if (rule.italic) style.fontStyle = 'italic'
     if (rule.underline) style.textDecoration = 'underline'
   }

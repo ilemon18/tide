@@ -76,12 +76,18 @@ excludes it.
   Never store views/states in zustand or share a state.
 - `store/diffMarks` caches disk patches per root+rel; `editor/diffGutter` draws clickable changed-line bars
   ([git.md](./git.md)) and EditorHost reapplies after swaps. Dirty gutter blame reads the buffer, not disk.
-- `editor/blame` draws one current-line widget. Edits hide it; queries debounce ~450ms, versioned results
-  reject stale rows and time refreshes every 60s. Hover/click opens the card; project files only, dirty rows
-  inherit none. Zero-width anchors keep caret geometry; Alt events pass through.
+- `editor/blame` draws one current-line widget. `BLAME_IDLE_DELAY` owns the 1s display/buffer-query delay;
+  edits hide it and line changes cancel pending display/prefetch. Versioned results reject stale rows and
+  time refreshes every 60s. Hover/click opens the card; project files only, dirty rows inherit none.
+  Zero-width anchors keep caret geometry; Alt events pass through.
 - ⌘/Ctrl-click resolves import paths/identifier chains to the import line with sticky highlight; the scan is
   cached and bounded to 2000 lines/256KB. Theme/font/blame/wrap use Compartments; rebuilding discards undo.
 - ⌘F never seeds from selection; confirmed jumps center the match.
+- `rainbowBrackets` colors grammar pairs outside strings/comments in full-tier states. Viewport nodes,
+  marks and ancestor walks use `memoryBudget`; toggles use a Compartment and preserve undo. Theme rules
+  also color nested syntax spans while unmatched-bracket diagnostics retain precedence.
+- Git worktree integrations use `gitEditCompartment`, reapplied after state swaps and released on failure;
+  never rebuild states or clear undo to block editing.
 
 ## Completion
 
@@ -94,8 +100,7 @@ excludes it.
 
 ## Formatting
 
-- Settings owns `formatMode`/`formatTool`; choosing a tool while Off switches to Manual. Manual format is the
-  badge, ⇧⌥F, or context menu.
+- `formatMode`/`formatTool`: picking a tool while Off enables Manual; format via badge, ⇧⌥F or menu.
 - Prettier uses a runnable project copy or bundled; system tools label version/source via `toolpath.rs`.
 - Settings installs rustfmt/Black only, never runtimes. gofmt follows Go; Prettier follows Tide/project manager.
 - Missing runtimes get manual guidance; version probes run before install and formatting adds no persisted key
@@ -112,7 +117,7 @@ excludes it.
 - Automatic save remains opt-in and defaults off: existing input-idle debounce (800ms/full, 1500ms/large)
   saves named writable file tabs only. Untitled buffers stay excluded; queued writes recheck the switch.
 
-## Selection and change map
+## Selection
 
 - `selectionRegistry` snapshots by group reject hidden/stale views. Capture ordered nonempty ranges with
   one-based, end-exclusive UTF-16 positions. `EditorContextActions` keeps selection on toolbar focus and

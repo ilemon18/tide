@@ -36,6 +36,7 @@ jobs:
       - run: node --test scripts/dmg-contract.test.mjs
       - run: node --test scripts/release-history.test.mjs scripts/archive-release-history.test.mjs
       - run: node --test scripts/run-tauri.test.mjs
+      - run: node --test scripts/fonts.test.mjs
       - run: pnpm test:frontend
       - run: pnpm build
 

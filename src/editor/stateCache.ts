@@ -33,6 +33,11 @@ export const blameCompartment = new Compartment()
 
 /** Word wrap toggle (per file: ⌥Z / the command palette), reconfigured instead of rebuilding the state */
 export const wrapCompartment = new Compartment()
+const gitLockedRoots = new Set<string>()
+export const gitEditCompartment = new Compartment()
+export function isGitEditLocked(root: string): boolean { return gitLockedRoots.has(root) }
+export function setGitEditLocked(root: string, locked: boolean): void { if (locked) gitLockedRoots.add(root); else gitLockedRoots.delete(root) }
+export function gitEditLock(locked: boolean): Extension { return locked ? [EditorState.readOnly.of(true), EditorView.editable.of(false)] : [] }
 
 /**
  * Wrapping is only ever enabled for the `full` tier: a wrapped 5MB line makes CodeMirror measure every
@@ -47,13 +52,15 @@ export function setWordWrap(view: EditorView, enabled: boolean) {
   view.dispatch({ effects: wrapCompartment.reconfigure(wrapExtension(enabled)) })
 }
 
-type Look = { palette: Palette; fontSize: number; lineHeight: number; fontFamily: string }
+type Look = { palette: Palette; fontSize: number; lineHeight: number; fontFamily: string; fontWeight: number; fontItalic: boolean }
 
 let look: Look = {
   palette: palettes['dark-modern'],
   fontSize: 13,
   lineHeight: 1.55,
   fontFamily: BUNDLED_MONO_FONT,
+  fontWeight: 400,
+  fontItalic: false,
 }
 let themeCache: { key: string; ext: Extension } | null = null
 
@@ -82,18 +89,22 @@ export function setEditorLook(
   palette: Palette,
   fontSize: number,
   fontFamily: MonoFont | undefined = 'jetbrains',
+  fontWeight = 400,
+  fontItalic = false,
 ) {
-  look = { palette, fontSize, lineHeight: 1.55, fontFamily: monoStack(fontFamily) }
+  look = { palette, fontSize, lineHeight: 1.55, fontFamily: monoStack(fontFamily), fontWeight, fontItalic }
   themeCache = null
 }
 
 export function currentThemeExtension(): Extension {
-  const key = `${look.palette.id}:${look.fontSize}:${look.fontFamily}`
+  const key = `${look.palette.id}:${look.fontSize}:${look.fontFamily}:${look.fontWeight}:${look.fontItalic}`
   if (themeCache?.key === key) return themeCache.ext
   const ext = buildEditorTheme(look.palette, {
     fontFamily: look.fontFamily,
     fontSize: look.fontSize,
     lineHeight: look.lineHeight,
+    fontWeight: look.fontWeight,
+    fontItalic: look.fontItalic,
   })
   themeCache = { key, ext }
   return ext
@@ -289,6 +300,7 @@ export async function createFileState(opts: CreateFileOpts): Promise<EditorState
         includeSearchState: true,
         smartCompletion: smart,
       }),
+      gitEditCompartment.of(gitEditLock(isGitEditLocked(opts.root))),
       wrapCompartment.of(wrapExtension(opts.wordWrap && opts.tier === 'full')),
       lang ? [lang] : [],
       smart

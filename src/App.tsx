@@ -10,6 +10,8 @@ import { ActivityBar } from './components/ActivityBar'
 import { FileTree, ExplorerHeader } from './components/FileTree'
 import { SearchPanel } from './components/SearchPanel'
 import { GitPanel } from './components/GitPanel'
+import { GitHeaderSettings, GitHeaderRemote } from './components/GitSettings'
+import { GitBackground } from './components/GitBackground'
 import { StructurePanel } from './components/StructurePanel'
 import { TasksPanel } from './components/TasksPanel'
 import { EditorArea } from './components/EditorArea'
@@ -330,7 +332,7 @@ export function App() {
       for (const id of ids) if (!next.includes(id)) git.forget(id)
       const added = next.filter((id) => !ids.includes(id))
       ids = next
-      for (const id of added) void git.refresh(id)
+      for (const id of added) void git.refresh(id, true)
 
       // The branch menu is bound to a workspace: after a switch its root is unregistered
       const branchMenu = useUi.getState().branchMenu
@@ -473,7 +475,7 @@ export function App() {
   return (
     <div className="flex h-full w-full flex-col overflow-hidden bg-bg text-fg">
       <FileIconSprite />
-      <TitleBar />
+      <GitBackground /><TitleBar />
 
       <div className="flex min-h-0 flex-1">
         <ActivityBar
@@ -503,7 +505,8 @@ export function App() {
                 className="tide-sidebar flex min-h-0 shrink-0 flex-col overflow-hidden bg-panel"
                 style={{ width: sidebarWidth }}
               >
-                <header className="flex h-[32px] shrink-0 items-center pl-3 pr-1.5">
+                <header className={`flex h-[32px] shrink-0 items-center pr-1.5 ${activityView === 'git' ? 'pl-[3px]' : 'pl-3'}`}>
+                  {activityView === 'git' ? <GitHeaderRemote /> : null}
                   {activityView === 'explorer' ? (
                     <ExplorerHeader />
                   ) : (
@@ -511,6 +514,7 @@ export function App() {
                       {sidebarTitle}
                     </span>
                   )}
+                  {activityView === 'git' ? <GitHeaderSettings /> : null}
                 </header>
                 <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
                   <ErrorBoundary label={sidebarTitle}>

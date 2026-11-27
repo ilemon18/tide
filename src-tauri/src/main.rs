@@ -227,7 +227,11 @@ fn window_cycle_key(label: &str) -> (u8, u32, &str) {
         return (0, 0, label);
     }
     if label.starts_with("win-") {
-        if let Some(seq) = label.rsplit('-').next().and_then(|value| value.parse::<u32>().ok()) {
+        if let Some(seq) = label
+            .rsplit('-')
+            .next()
+            .and_then(|value| value.parse::<u32>().ok())
+        {
             return (1, seq, label);
         }
     }
@@ -244,7 +248,10 @@ fn cycle_window(app: tauri::AppHandle, window: tauri::Window) -> Result<(), Stri
     }
 
     let current = window.label();
-    let index = labels.iter().position(|label| label == current).unwrap_or(0);
+    let index = labels
+        .iter()
+        .position(|label| label == current)
+        .unwrap_or(0);
     let next = &labels[(index + 1) % labels.len()];
     if focus_window(&app, next) {
         Ok(())
@@ -260,8 +267,7 @@ fn handle_second_instance(app: &tauri::AppHandle, argv: Vec<String>) {
 
     let Some(root) = target.roots.first().cloned() else {
         // No path argument: focus the window the user can see; if none is left, open a blank one
-        let windows: Vec<tauri::WebviewWindow> =
-            app.webview_windows().into_values().collect();
+        let windows: Vec<tauri::WebviewWindow> = app.webview_windows().into_values().collect();
         let focus = windows
             .iter()
             .find(|w| w.is_focused().unwrap_or(false))
@@ -361,6 +367,30 @@ fn main() {
             commands::git::git_unstage,
             commands::git::git_discard,
             commands::git::git_discard_changes,
+            commands::git::git_remove_files,
+            commands::git::git_ignore_files,
+            commands::git_ui::git_identity,
+            commands::git_ui::git_last_message,
+            commands::git_history::git_commit_history,
+            commands::git_ui::git_force_push,
+            commands::git_ui::git_fetch_branch,
+            commands::git_ui::git_rename_branch,
+            commands::git_ui::git_delete_branch,
+            commands::git_ui::git_integrate_branch,
+            commands::git_ui::git_stash_list,
+            commands::git_ui::git_stash_clear,
+            commands::git_config::git_preferences,
+            commands::git_config::git_project_preferences,
+            commands::git_config::git_set_project_preferences,
+            commands::git_config::git_set_preferences,
+            commands::git_config::git_remotes,
+            commands::git_config::git_set_remote,
+            commands::git_config::git_remove_remote,
+            commands::git_config::git_set_identity,
+            commands::project_tools::git_open_remote,
+            commands::project_tools::git_prepare_config,
+            commands::project_tools::project_open_directory,
+            commands::project_tools::project_open_terminal,
             commands::git::git_commit,
             commands::git::git_undo_commit,
             commands::git::git_stash,
@@ -426,7 +456,12 @@ fn main() {
         ])
         .on_window_event(|window, event| {
             let label = window.label();
-            if matches!(event, tauri::WindowEvent::Focused(true) | tauri::WindowEvent::Resized(_) | tauri::WindowEvent::ScaleFactorChanged { .. }) {
+            if matches!(
+                event,
+                tauri::WindowEvent::Focused(true)
+                    | tauri::WindowEvent::Resized(_)
+                    | tauri::WindowEvent::ScaleFactorChanged { .. }
+            ) {
                 window_cursor::install(window.app_handle(), label);
             }
 

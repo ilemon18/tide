@@ -20,6 +20,7 @@ const { state, actions } = vi.hoisted(() => ({
   },
   actions: {
     revealInExplorer: vi.fn(),
+    openProjectDirectory: vi.fn(),
     newWindow: vi.fn(),
     openWelcome: vi.fn(),
     newChat: vi.fn(),
@@ -52,6 +53,7 @@ vi.mock('../lib/useShortcut', () => ({
 vi.mock('../lib/actions', () => ({
   newWindow: actions.newWindow,
   revealInExplorer: actions.revealInExplorer,
+  openProjectDirectory: actions.openProjectDirectory,
 }))
 vi.mock('../lib/paths', () => ({ isMac: () => false }))
 vi.mock('../i18n', () => {
@@ -89,4 +91,14 @@ it('keeps the project badge accessible without a hover tooltip', () => {
 
   fireEvent.click(badge)
   expect(revealInExplorer).toHaveBeenCalledWith('/repo', '', true)
+})
+
+it('opens the project directory on double-click without repeating the root reveal', () => {
+  render(<TitleBar />)
+  const badge = screen.getByRole('button', { name: 'Project flash' })
+  fireEvent.click(badge, { detail: 1 })
+  fireEvent.click(badge, { detail: 2 })
+  fireEvent.doubleClick(badge)
+  expect(actions.revealInExplorer).toHaveBeenCalledTimes(1)
+  expect(actions.openProjectDirectory).toHaveBeenCalledExactlyOnceWith('/repo')
 })

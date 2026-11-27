@@ -15,6 +15,8 @@ const { api, workspace, ui, tabs } = vi.hoisted(() => ({
     gitStashPop: vi.fn(),
     gitResetAll: vi.fn(),
     gitTurnRevert: vi.fn(),
+    gitProjectPreferences: vi.fn(), gitSetProjectPreferences: vi.fn(),
+    gitRemoveFiles: vi.fn(), gitIgnoreFiles: vi.fn(), gitForcePush: vi.fn(), gitIdentity: vi.fn(), gitPreferences: vi.fn(), gitSetPreferences: vi.fn(),
   },
   workspace: {
     roots: [{ id: '/repo', name: 'Repo', isGitRepo: true }],
@@ -46,7 +48,7 @@ vi.mock('./tabs', () => ({
 vi.mock('./ui', () => ({ useUi: { getState: () => ui } }))
 vi.mock('../i18n', () => ({ t: (key: string) => key }))
 
-import { useGit } from './git'
+import { useGit, commitIdentity, DEFAULT_GIT_PREFERENCES } from './git'
 
 function status(overrides: Partial<GitStatus> = {}): GitStatus {
   return {
@@ -99,6 +101,7 @@ beforeEach(() => {
     statuses: { '/repo': status({ changes: [{ path: 'a.ts', status: 'M' }] }) },
     busy: null,
     indexPending: {},
+    identities: {}, temporaryIdentity: null, preferences: DEFAULT_GIT_PREFERENCES, projectPreferences: {},
   })
 })
 
@@ -321,4 +324,75 @@ it('reports a pruned baseline as stale without a generic error toast', async () 
   expect(await useGit.getState().revertTurnChanges('/repo', changes)).toBe('stale')
   expect(ui.toast).not.toHaveBeenCalled()
   expect(useGit.getState().busy).toBeNull()
+})
+
+it('uses the effective project identity by default regardless of legacy source flags', () => {
+  useGit.setState({ identities: { '/repo': { global: { name: 'Global', email: 'g@example.invalid' }, effective: { name: 'Project', email: 'p@example.invalid' }, useGlobal: true } } })
+  expect(commitIdentity('/repo')?.name).toBe('Project')
+  useGit.setState({ identities: { '/repo': { ...useGit.getState().identities['/repo'], useGlobal: false } } })
+  expect(commitIdentity('/repo')?.name).toBe('Project')
+  useGit.getState().setTemporaryIdentity({ name: 'Temp', email: 't@example.invalid' })
+  expect(commitIdentity('/repo')?.name).toBe('Temp')
+  useGit.getState().forget('/repo')
+  expect(useGit.getState().identities['/repo']).toBeUndefined()
+  useGit.getState().reset()
+  expect(useGit.getState().temporaryIdentity?.name).toBe('Temp')
+})
+it('includes temporary identity in commit options without persisting it', async () => {
+  useGit.getState().setTemporaryIdentity({ name: 'Temp', email: 't@example.invalid' })
+  await useGit.getState().commit('/repo', 'message', { amend: true, skipHooks: true })
+  expect(api.gitCommit).toHaveBeenCalledWith('/repo', 'message', { amend: true, skipHooks: true, identity: { name: 'Temp', email: 't@example.invalid' }, resetAuthor: true })
+})
+it('skips automatic status refresh when disabled but allows explicit refresh', async () => {
+  useGit.setState({ preferences: { ...DEFAULT_GIT_PREFERENCES, autoRefresh: false } })
+  await useGit.getState().refresh('/repo')
+  expect(api.gitStatus).not.toHaveBeenCalled()
+  await useGit.getState().refresh('/repo', true)
+  expect(api.gitStatus).toHaveBeenCalledWith('/repo')
+})
+it('metadata operations keep editors untouched and do not recreate forgotten roots', async () => {
+  const pending = deferred<string>()
+  api.gitForcePush.mockReturnValue(pending.promise)
+  const running = useGit.getState().forcePush('/repo')
+  await vi.waitFor(() => expect(api.gitForcePush).toHaveBeenCalled())
+  workspace.roots = []
+  useGit.getState().forget('/repo')
+  pending.resolve('done'); await running
+  expect(api.gitStatus).not.toHaveBeenCalled()
+  expect(api.gitBranches).not.toHaveBeenCalled()
+  expect(tabs.refreshFromDisk).not.toHaveBeenCalled()
+  expect(useGit.getState().busy).toBeNull()
+})
+it('selected discard preserves unselected changes and refreshes only restored files', async () => {
+  const discardApi = vi.fn().mockResolvedValue({ restored: ['a.ts'], deleted: [], error: null })
+  Object.assign(api, { gitDiscardChanges: discardApi })
+  useGit.setState({ statuses: { '/repo': status({ changes: [{ path: 'a.ts', status: 'M' }, { path: 'b.ts', status: 'M' }] }) } })
+  await useGit.getState().discardFiles('/repo', ['a.ts'])
+  expect(discardApi).toHaveBeenCalledWith('/repo', ['a.ts'], [])
+  expect(tabs.refreshFromDisk).toHaveBeenCalledWith('/repo', { force: true, paths: ['a.ts'] })
+})
+it('does not overwrite a dirty .gitignore when ignoring files', async () => {
+  tabs.tabs = [{ id: 'ignore', root: '/repo', rel: '.gitignore', kind: 'file', dirty: true }]
+  await useGit.getState().ignoreFiles('/repo', ['new.ts'])
+  expect(api.gitIgnoreFiles).not.toHaveBeenCalled()
+  expect(ui.toast).toHaveBeenCalledWith('git.ignoreDirty', 'info')
+})
+
+it('keeps project preferences isolated and clears them with the closed root', async () => {
+  workspace.roots = [{ id: '/repo', name: 'Repo', isGitRepo: true }, { id: '/other', name: 'Other', isGitRepo: true }]
+  api.gitSetProjectPreferences.mockResolvedValue({ ...DEFAULT_GIT_PREFERENCES, autoRefresh: false })
+  await useGit.getState().setProjectPreferences('/repo', { autoRefresh: false })
+  expect(api.gitSetProjectPreferences).toHaveBeenCalledWith('/repo', { autoRefresh: false })
+  expect(api.gitSetPreferences).not.toHaveBeenCalled()
+  await useGit.getState().refresh('/repo')
+  expect(api.gitStatus).not.toHaveBeenCalled()
+  await useGit.getState().refresh('/other')
+  expect(api.gitStatus).toHaveBeenCalledWith('/other')
+  useGit.getState().forget('/repo')
+  expect(useGit.getState().projectPreferences['/repo']).toBeUndefined()
+})
+it('keeps a successful commit successful if its message history cannot be written', async () => {
+  api.gitCommit.mockResolvedValue({ output: 'done', historyError: { code: 'io.permissionDenied' } })
+  expect(await useGit.getState().commit('/repo', 'done')).toBe(true)
+  expect(ui.toast).toHaveBeenCalledWith('git.historySaveFailed', 'info')
 })

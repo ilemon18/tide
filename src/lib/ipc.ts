@@ -92,6 +92,20 @@ export type GitDiscardResult = {
   error: CodedError | null
 }
 
+export type GitRemoveResult = { deleted: string[]; error: CodedError | null }
+export type GitIdentity = { name: string; email: string }
+export type GitIdentityInfo = { global: GitIdentity; effective: GitIdentity; useGlobal: boolean }
+export type GitPreferences = { mergeAutoCommit: boolean; mergeLog: boolean; mergeNoFf: boolean; pullRebase: boolean;
+  autoRefresh: boolean; backgroundFetch: boolean; disableSubmoduleRecursion: boolean }
+export type GitRemote = { name: string; url: string }
+export type GitStashEntry = { selector: string; sha: string; time: number; message: string }
+export type GitStashPage = { entries: GitStashEntry[]; hasMore: boolean }
+export type GitCommitResult = { output: string; historyError: CodedError | null }
+export type GitCommitHistory = { messages: string[]; usedTemplates?: string[]; limit: number }
+export type GitCommitOptions = { amend?: boolean; skipHooks?: boolean; identity?: GitIdentity | null; resetAuthor?: boolean }
+export type GitBranchTarget = { name: string; kind: 'local' | 'remote' }
+export type GitBranchDeleteResult = { localDeleted: boolean; remoteDeleted: boolean; error: CodedError | null }
+
 export type GitUndoResult = {
   message: string
   /** Post-reset status when it could be read; null tells the UI to run its normal refresh. */
@@ -122,8 +136,8 @@ export type TaskDefinition = {
   cwd?: string
 }
 
-/** Mono font: bundled JetBrains Mono / Fira Code / IBM Plex Mono / Source Code Pro, or the system mono stack */
-export type MonoFont = 'jetbrains' | 'fira' | 'ibm-plex' | 'source-code' | 'system'
+/** Code font choice: bundled families, locally installed Consolas, or the system stack. */
+export type MonoFont = 'jetbrains' | 'fira' | 'consolas' | 'smiley-sans' | 'ibm-plex' | 'source-code' | 'system'
 
 export type Settings = {
   shortcutOverrides: ShortcutOverrides
@@ -135,10 +149,18 @@ export type Settings = {
   iconTheme: string
   /** Code/terminal font */
   fontFamily: MonoFont
+  /** Editor text styling; terminal output retains its ANSI styles. */
+  fontWeight: number
+  fontItalic: boolean
+  uiFontWeight: number
+  uiFontItalic: boolean
   /** UI font size; sidebar, panels and status bar scale with it */
   uiFontSize: number
   fontSize: number
+  commitMessageTemplates: string[]
   terminalFontSize: number
+  terminalFontWeight: number
+  terminalFontItalic: boolean
   /** Terminal scrollback lines */
   terminalScrollback: number
   terminalShell: string
@@ -151,6 +173,7 @@ export type Settings = {
   insertFinalNewline: boolean
   /** Draw indent guides in the editor */
   indentGuides: boolean
+  rainbowBrackets: boolean
   /** Draw ligatures such as == and => as one glyph (off by default) */
   ligatures: boolean
   /** When to format: off | manual | onSave */
@@ -668,18 +691,42 @@ export const api = {
     invoke<GitDiscardResult>('git_discard_changes', { root, trackedPaths, untrackedPaths }),
   gitDiscard: (root: string, paths: string[], fromIndex = false) =>
     invoke<void>('git_discard', { root, paths, fromIndex }),
-  gitCommit: (root: string, message: string) => invoke<string>('git_commit', { root, message }),
+  gitRemoveFiles: (root: string, paths: string[]) => invoke<GitRemoveResult>('git_remove_files', { root, paths }),
+  gitIgnoreFiles: (root: string, paths: string[]) => invoke<void>('git_ignore_files', { root, paths }),
+  gitCommit: (root: string, message: string, options?: GitCommitOptions) => invoke<GitCommitResult>('git_commit', { root, message, options }),
+  gitIdentity: (root: string) => invoke<GitIdentityInfo>('git_identity', { root }),
+  gitCommitHistory: (root: string) => invoke<GitCommitHistory>('git_commit_history', { root }),
+  gitLastMessage: (root: string) => invoke<string>('git_last_message', { root }),
+  gitProjectPreferences: (root: string) => invoke<GitPreferences>('git_project_preferences', { root }),
+  gitSetProjectPreferences: (root: string, changes: Partial<GitPreferences>) => invoke<GitPreferences>('git_set_project_preferences', { root, changes }),
+  gitPreferences: () => invoke<GitPreferences>('git_preferences'),
+  gitSetPreferences: (changes: Partial<GitPreferences>) => invoke<GitPreferences>('git_set_preferences', { changes }),
+  gitRemotes: (root: string) => invoke<GitRemote[]>('git_remotes', { root }),
+  gitSetRemote: (root: string, oldName: string | null, name: string, url: string) => invoke<void>('git_set_remote', { root, oldName, name, url }),
+  gitRemoveRemote: (root: string, name: string) => invoke<void>('git_remove_remote', { root, name }),
+  gitSetIdentity: (root: string | null, useGlobal: boolean, identity: GitIdentity | null) => invoke<void>('git_set_identity', { root, useGlobal, identity }),
+  gitOpenRemote: (root: string, name?: string) => invoke<void>('git_open_remote', { root, name }),
+  gitPrepareConfig: (root: string | null, scope: 'global' | 'local' | 'ignore') => invoke<string>('git_prepare_config', { root, scope }),
+  projectOpenDirectory: (root: string) => invoke<void>('project_open_directory', { root }),
+  projectOpenTerminal: (root: string) => invoke<void>('project_open_terminal', { root }),
+  gitStashList: (root: string, offset = 0) => invoke<GitStashPage>('git_stash_list', { root, offset }),
+  gitClearStash: (root: string) => invoke<void>('git_stash_clear', { root }),
+  gitForcePush: (root: string) => invoke<string>('git_force_push', { root }),
+  gitFetchBranch: (root: string, target: GitBranchTarget) => invoke<string>('git_fetch_branch', { root, target }),
+  gitRenameBranch: (root: string, target: GitBranchTarget, name: string) => invoke<string>('git_rename_branch', { root, target, name }),
+  gitDeleteBranch: (root: string, target: GitBranchTarget, deleteRemote: boolean, force: boolean) => invoke<GitBranchDeleteResult>('git_delete_branch', { root, target, deleteRemote, force }),
+  gitIntegrateBranch: (root: string, target: GitBranchTarget, rebase: boolean, identity?: GitIdentity | null) => invoke<string>('git_integrate_branch', { root, target, rebase, identity }),
   /** Undo the last commit (soft reset); returns that commit's message and, when available, fresh status */
   gitUndoCommit: (root: string) => invoke<GitUndoResult>('git_undo_commit', { root }),
   /** Stash tracked index + worktree changes; untracked files stay in place */
-  gitStash: (root: string) => invoke<string>('git_stash', { root }),
+  gitStash: (root: string, message?: string, identity?: GitIdentity | null) => invoke<string>('git_stash', { root, message, identity }),
   /** Pop the latest stash; a conflict returns raw git output after partially applying it */
-  gitStashPop: (root: string) => invoke<string>('git_stash_pop', { root }),
+  gitStashPop: (root: string, sha?: string) => invoke<string>('git_stash_pop', { root, sha }),
   /** Number of stash entries, asked only when the more-actions menu opens */
   gitStashCount: (root: string) => invoke<number>('git_stash_count', { root }),
   /** `git reset --hard HEAD`: staged + unstaged tracked changes, untracked files kept */
   gitResetAll: (root: string) => invoke<void>('git_reset_all', { root }),
-  gitPull: (root: string) => invoke<string>('git_pull', { root }),
+  gitPull: (root: string, identity?: GitIdentity | null) => invoke<string>('git_pull', { root, identity }),
   gitPush: (root: string) => invoke<string>('git_push', { root }),
   gitFetch: (root: string) => invoke<string>('git_fetch', { root }),
   gitBlame: (root: string, rel: string, contents: string | null = null, version = 0) =>
@@ -696,11 +743,11 @@ export const api = {
   gitCheckout: (root: string, branch: string, kind: string) =>
     invoke<string>('git_checkout', { root, branch, kind }),
   /** Create a branch from the current HEAD and switch to it */
-  gitBranchCreate: (root: string, branch: string) =>
-    invoke<string>('git_branch_create', { root, branch }),
+  gitBranchCreate: (root: string, branch: string, checkout = true) =>
+    invoke<string>('git_branch_create', { root, branch, checkout }),
   gitUnmerged: (root: string, rel: string) => invoke<boolean>('git_unmerged', { root, rel }),
-  gitContinue: (root: string, message: string | null) =>
-    invoke<string>('git_continue', { root, message }),
+  gitContinue: (root: string, message: string | null, identity?: GitIdentity | null) =>
+    invoke<GitCommitResult>('git_continue', { root, message, identity }),
   gitAbort: (root: string) => invoke<string>('git_abort', { root }),
   gitSkip: (root: string) => invoke<string>('git_skip', { root }),
   gitConflictReset: (root: string, rel: string) =>

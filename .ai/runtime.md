@@ -52,33 +52,32 @@ themes: [themes.md](./themes.md); updates: [updates.md](./updates.md).
 ## Windows and startup
 
 - Welcome orders Open file/folder; exact grants release on Destroyed. Recents exclude open roots;
-  `RECENT_PROJECT_LIMIT` (Welcome.tsx) caps six scrollable cards. `openWorkspace` owns dirty consent/
+  `RECENT_PROJECT_LIMIT` (Welcome.tsx) caps 12 cards; `.welcome-project-grid` adapts to 2/3/4 columns by pane width.
+  Current status shares the heading; `openWorkspace` owns dirty consent/
   other-window focus; menus: new-window/remove.
-- Explorer/Search always show; hidden views retain commands. Disabling the current view falls back to Explorer;
-  `tasksEnabled` alone controls Tasks.
+- Explorer/Search always show; hidden views retain commands. Disabling the current view opens Explorer;
+  `tasksEnabled` controls Tasks.
 - Mod+Shift+A opens Agent from any surface; Mod+A stays native and dialogs/overlays block app shortcuts.
-- `useUi.page` switches workspace and standalone history; the workspace stays mounted but inert. While
-  history is visible, workspace edit/tab/terminal/context commands are unavailable, Find targets history
-  search, and hidden Agent handlers must not consume input. Details: [agent-storage.md](./agent-storage.md).
-- One window per project. Only `IS_PRIMARY_WINDOW` persists editor/chat state; the last focused layout is
-  restored after close, and blank windows never overwrite it.
+- `useUi.page` keeps workspace mounted/inert behind history. Workspace edit/tab/terminal/context commands
+  are unavailable there; Find targets history; hidden Agent handlers consume no input ([agent-storage.md](./agent-storage.md)).
+- One window per project; `IS_PRIMARY_WINDOW` persists editor/chat state. Restore the last focused layout;
+  blank windows never overwrite it.
 - macOS hides on close: Rust flushes settings/session, then destroys; `app:hidden` releases memory and
   `Destroyed` reaps PTYs/grants. Window commands need `core:window:allow-*` in
   `src-tauri/capabilities/default.json`.
 
 ## Keyboard shortcuts
 
-- `commandRegistry` owns metadata/default strokes/scopes, `commandRuntime` registers callbacks, and the
-  resolver handles overrides/platform identities/conflicts. App capture runs before CodeMirror/xterm;
-  settings/palette/tooltips share the resolver.
-- One stroke has one owner across managed actions; Mod expands before comparison. Close commands are
+- `commandRegistry` owns defaults/scopes, `commandRuntime` callbacks. The resolver handles platform overrides/
+  conflicts; app capture precedes CodeMirror/xterm; settings/palette/tooltips share it.
+- Managed strokes have one owner; expand Mod before comparison. Close commands are
   unavailable while a target includes a running Agent chat. Native editing and terminal input stay local.
-- Recording/reset transfer strokes and unbind old owners atomically; global reset confirms. Escape cancels;
-  modifiers alone, repeats and composition never save. Plain/Shift typing and clipboard/undo keys are reserved;
-  only explicit Save commits.
+- Recording/reset transfers strokes atomically; global reset confirms. Escape cancels; modifiers/repeats/IME
+  never save. Typing/clipboard/undo keys are reserved; explicit Save commits.
 - v14 `shortcutOverrides` defaults to `{}`; absent means default, `[]` unbinds. Normalize damaged entries
   without resetting other settings, keep unknown ids but never execute them, and share across windows.
 - `ShortcutSettings`: searchable, read-only Alt gesture help in six locales.
+- Quick Open defaults to Mod+P / Ctrl+G / Mod+G; line jumps use the same picker (`:line`), no default binding.
 
 ## Memory budget
 
@@ -86,14 +85,14 @@ themes: [themes.md](./themes.md); updates: [updates.md](./updates.md).
   release editor/search/quick-open caches on `app:hidden`. Lightweight disables `smartCompletion`; reclaim
   clears its completion cache via `clearCompletionCache`.
 
-## Native cursors and configuration
+## Cursors and configuration
 
-- Configuration export precedes About; schema 18 sync defaults off. Transfer/recovery and the primary-window
+- Configuration export precedes About; backup sync defaults off. Transfer/recovery and the primary-window
   scheduler are owned by [configuration.md](./configuration.md).
 - `index.css`: actions=pointer, text=text, unavailable=not-allowed with hints, busy=wait, drag=grabbing.
-  `window_cursor.rs` registers native cursor rectangles via ivar-free subclasses, preserving actions/layout
-  without retained windows/timers. Tests guard instance size/reuse.
-  Caption inset: original Y, X shifted left 4px; no native layout overrides.
+  `window_cursor.rs` uses ivar-free cursor subclasses, preserving native actions/layout without retained
+  windows/timers. Tests guard instance size/reuse.
+  Caption: original Y, X minus 4px; no native layout overrides.
 
 ## Change map
 

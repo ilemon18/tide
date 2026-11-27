@@ -34,6 +34,16 @@ keywords:
   tail without recreating xterm. Trimming never splits UTF-16 surrogate pairs; limits come from
   memoryBudget/settings at use time.
 
+## Font styling
+
+- v19 terminal weight/italic default to 400/off and are independent of code/UI styling. `fonts.ts` maps
+  xterm's public fontFamily API to intrinsic oblique faces; normal and ANSI italic descriptors share faces
+  to avoid double shear. WeightBold is weight + 300 capped at 900. Never override a chosen weight for DPI.
+- `generate-terminal-oblique.py` (fontTools 4.60.2 + brotli/zopfli) removes upright hints, expands variation
+  deltas before shear, preserves advances/cmap/features and renames derived families. SOURCE.json records
+  sources/hashes/licenses; generators run only during development. No PTY recreation on styling changes:
+  load regular/bold fonts, clear atlas, refresh/fit, resize. Ignore obsolete font-load completions.
+
 ## Keyboard and IME
 
 - App capture shortcuts use the shared configurable dispatcher before xterm; clear terminal is a mounted

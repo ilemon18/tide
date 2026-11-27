@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-export function Row({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
+export function Row({ label, hint, children }: { label: ReactNode; hint?: string; children: ReactNode }) {
   return (
     <div className="flex items-center justify-between gap-8 border-b border-line/60 px-4 py-3 last:border-b-0">
       <div className="min-w-0">
