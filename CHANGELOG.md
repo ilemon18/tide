@@ -2,7 +2,7 @@
 
 Generated from release tags and commit ranges. Missing version tags are not invented.
 
-## Unreleased
+## v0.0.19 — 2026-11-27
 
 - 首页“当前项目”下方新增一行最近项目快速切换卡片，展示最近 6 个项目；悬停查看完整路径，右键支持新窗口打开和移除最近记录。
 - 新增统一 JSON 配置导出，支持本地文件和 URL 导入；缺失或损坏字段回退默认值，保留未知设置，导入前自动保存恢复副本。
@@ -28,6 +28,20 @@ Generated from release tags and commit ranges. Missing version tags are not inve
 - 聊天面板在切换标签时保持驻留，保留聊天状态并限制隐藏面板的交互。
 - 目录定位支持分页查找深层文件，双击定位在折叠目录链稳定后保持文字水平与垂直居中；切换标签的靠上定位兼容同一流程。
 - 编辑器查找不再自动使用已选文本作为搜索词，跳转结果在视口内居中。
+
+- feat(welcome): add recent project quick switching (cf1e0e9)
+
+## v0.0.18 — 2026-11-27
+
+- docs(ai): slim routed docs and skills while keeping contracts (1eff9de)
+- feat(blame): add GitLens-style content-aware current-line blame (28e6fdd)
+- feat(theme): align palettes with official upstream themes (56a14fc)
+- feat(format): add formatter install/update and editor menu (d9da4bc)
+- fix(explorer): reveal paged tree targets and center them (4323c3b)
+- perf(agent): keep chat panes mounted across tab switches (c00d499)
+- fix(editor): stop seeding find query and center match jumps (97f4b55)
+- test: repair release preflight fixtures and assertions (0518a6e)
+- feat: add live previews, config backups and editor refinements (8dca50e)
 
 ## v0.0.17 — 2026-11-26
 
