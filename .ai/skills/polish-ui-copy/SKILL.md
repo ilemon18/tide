@@ -1,14 +1,19 @@
 ---
 name: polish-ui-copy
-description: Tighten UI copy introduced by a feature by removing redundant labels, helper text and decoration while preserving actions, consequences, errors and accessibility. Use only when the user explicitly asks to polish copy, reduce UI text, simplify hints, 精简文案, 优化文案 or 去掉多余提示.
+description: Check every user-visible string you add or edit for necessity, keeping only text the user needs to act, decide, recover or understand risk while preserving actions, consequences, errors and accessibility. Run the full polish pass only when the user explicitly asks to polish copy, reduce UI text, simplify hints, 精简文案, 优化文案 or 去掉多余提示.
 ---
 
 # Polish UI copy
 
-Use only when explicitly invoked. Edit the smallest UI scope and its locale catalogs directly; this is not a
-verification gate. Avoid unnecessary secondary labels and descriptions. Let the layout do the explaining.
+The necessity check is always on: before adding or editing any user-visible string, triage it below and write
+only what the user must understand, decide, do or recover from. Apply the result directly; do not scan the
+diff or report a mapping in this mode. Let the layout do the explaining.
 
-## Scope
+The full pass runs only when the user explicitly asks to polish copy, reduce UI text, simplify hints, 精简文案,
+优化文案 or 去掉多余提示: edit the smallest UI scope and its locale catalogs directly, then report the mapping.
+Neither mode is a verification gate.
+
+## Scope (full pass)
 
 - Start with the paths, screen or feature the user names. Otherwise inspect `git diff --name-only` and
   `git diff` for the current feature, including staged and untracked files. If no scope exists, review the
@@ -51,7 +56,7 @@ longer make the same decision safely.
 - Do not run project gates, build the app or perform GUI checks from this skill. When the user separately asks
   for verification, follow the project verification gate.
 
-## Report
+## Report (full pass)
 
 Make the edits, then show a compact mapping of location, before, after and reason: removed repeated subtitle,
 merged hint, shortened action label or kept destructive consequence. Call out warnings, errors and

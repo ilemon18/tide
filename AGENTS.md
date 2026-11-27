@@ -4,7 +4,11 @@
    `pnpm docs:route <paths>` and load the returned docs. Cross-domain paths may require several.
 2. Before paths are known, `pnpm docs:route --query "task"` recommends candidates; locate code and confirm
    scopes before loading. Linked docs are conditional references, not an instruction to load every link.
-3. Load skills only on explicit triggers. Search targeted paths first; expand when needed and keep output focused.
+3. Load skills only on explicit triggers, except the copy check in rule 4. Search targeted paths first;
+   expand when needed and keep output focused.
+4. Whenever a task adds or edits user-visible copy, run the necessity check in
+   [polish-ui-copy](./.ai/skills/polish-ui-copy/SKILL.md): keep only text the user needs to act, decide,
+   recover or understand risk; remove repetition and decoration.
 
 ## Run policy
 
