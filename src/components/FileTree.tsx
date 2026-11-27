@@ -304,7 +304,7 @@ export function FileTree() {
 
   const containerRef = useRef<HTMLDivElement>(null)
   const handledReveal = useRef(0)
-  const pendingCenter = useRef<{ key: string; root: string } | null>(null)
+  const pendingCenter = useRef<{ key: string; root: string; upper?: boolean } | null>(null)
   const centerSettleTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const centerDeadlineTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const centerFrame = useRef<number | null>(null)
@@ -382,9 +382,9 @@ export function FileTree() {
     }
   }, [])
 
-  const beginPendingCenter = useCallback((key: string, root: string) => {
+  const beginPendingCenter = useCallback((key: string, root: string, upper = false) => {
     cancelPendingCenter()
-    pendingCenter.current = { key, root }
+    pendingCenter.current = { key, root, upper }
     centerDeadlineTimer.current = setTimeout(cancelPendingCenter, REVEAL_CENTER_MAX_MS)
   }, [cancelPendingCenter])
 
@@ -548,7 +548,7 @@ export function FileTree() {
   useEffect(() => {
     if (!treeReveal || treeReveal.nonce === handledReveal.current) return
     handledReveal.current = treeReveal.nonce
-    const { root, rel, isDir, nonce, center } = treeReveal
+    const { root, rel, isDir, nonce, center, upper } = treeReveal
     const ws = useWorkspace.getState()
     const node = ws.roots.find((r) => r.id === root)
     if (!node) {
@@ -571,8 +571,8 @@ export function FileTree() {
       if (!result.found && rel) {
         useUi.getState().toast(t('error.io.notFound', { path: rel }), 'error')
       }
-      if (center && key) {
-        beginPendingCenter(key, root)
+      if ((center || upper) && key) {
+        beginPendingCenter(key, root, upper)
         setRevealTick((value) => value + 1)
       } else {
         cancelPendingCenter()
@@ -659,7 +659,7 @@ export function FileTree() {
   // view. Expansion is left untouched on purpose — only the scroll moves, and once a file was followed the user
   // keeps control (a row rebuild must not yank the view again)
   useLayoutEffect(() => {
-    if (!activeKey || !activeRoot || !activeRel) return
+    if (!activeKey || !activeRoot || !activeRel) { followed.current = ''; return }
     if (activeKey === followed.current) return
 
     const el = containerRef.current
@@ -711,8 +711,11 @@ export function FileTree() {
     if (index === -1) return
     const el = containerRef.current
     if (!el) return
-    scrollTreeTo(el, centeredTreeTop(index, el.clientHeight, rows.length))
-    centerRevealHorizontally()
+    const top = target.upper
+      ? Math.max(0, Math.min(index * ROW_H - el.clientHeight / 4, rows.length * ROW_H - el.clientHeight))
+      : centeredTreeTop(index, el.clientHeight, rows.length)
+    scrollTreeTo(el, top)
+    if (!target.upper) centerRevealHorizontally()
     if (centerSettleTimer.current !== null) clearTimeout(centerSettleTimer.current)
     centerSettleTimer.current = setTimeout(cancelPendingCenter, REVEAL_CENTER_SETTLE_MS)
   }, [cancelPendingCenter, centerRevealHorizontally, revealTick, rows, scrollTreeTo, selected])
@@ -927,7 +930,7 @@ export function FileTree() {
                     isSymlink: row.isSymlink,
                   })
                 }}
-                className={`tree-row group relative flex cursor-default items-center gap-1.5 pr-2 text-sm ${
+                className={`tree-row group relative flex cursor-pointer items-center gap-1.5 pr-2 text-sm ${
                   selected === row.key ? 'text-fg' : 'text-fg/90'
                 } ${row.kind === 'more' ? 'text-muted' : ''} ${
                   row.kind === 'node' && row.ignored ? 'opacity-45' : ''
@@ -1159,7 +1162,7 @@ export function ExplorerHeader() {
           size={12}
           className="shrink-0 text-muted"
         />
-        <span className="min-w-0 truncate">{root?.name ?? t('explorer.noProject')}</span>
+        <span data-explorer-project-label className="min-w-0 truncate">{root?.name ?? t('explorer.noProject')}</span>
       </button>
 
       <div className="flex shrink-0 items-center gap-0.5">

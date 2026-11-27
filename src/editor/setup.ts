@@ -7,7 +7,6 @@ import {
   highlightSpecialChars,
   keymap,
   lineNumbers,
-  rectangularSelection,
 } from '@codemirror/view'
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
 import {
@@ -28,6 +27,7 @@ import {
   selectNextOccurrence,
   selectSelectionMatches,
 } from '@codemirror/search'
+import { altSelection } from './altSelection'
 import { foldingExtension } from './folding'
 import { indentGuides } from './indentGuides'
 import type { DocTier } from './largeFile'
@@ -87,10 +87,9 @@ export function buildBaseExtensions(opts: BaseOptions): Extension[] {
     highlightSpecialChars(),
     drawSelection(),
     dropCursor(),
-    // Multi-cursor: rectangular selection (⌥ drag for column select) keeps multiple ranges only with this facet,
-    // otherwise CM collapses the selection into one
+    // Alt clicks/drags create multiple empty carets; this facet keeps them independent.
     EditorState.allowMultipleSelections.of(true),
-    rectangularSelection(),
+    altSelection,
     highlightActiveLine(),
     highlightSelectionMatches(),
     // searchKeymap is deliberately omitted: the custom VSCode-style bar owns ⌘F,

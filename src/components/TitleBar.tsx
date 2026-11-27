@@ -1,5 +1,5 @@
 import { useShortcut, useShortcutTip } from '../lib/useShortcut'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { IS_PRIMARY_WINDOW, useWorkspace } from '../store/workspace'
 import { useTabs } from '../store/tabs'
@@ -7,6 +7,7 @@ import { useSettings } from '../store/settings'
 import { useAgent } from '../store/agent'
 import { Icon } from './Icon'
 import { UpdateBadge } from './UpdateBadge'
+import { BreadcrumbMenu } from './BreadcrumbMenu'
 import { newWindow, revealInExplorer } from '../lib/actions'
 import { isMac } from '../lib/paths'
 import { useT } from '../i18n'
@@ -100,7 +101,7 @@ function WindowControls() {
 
 /**
  * Project badge: first two letters/digits of the name (for CJK, the first two chars),
- * uppercased into a solid accent square with no radius or hover motion. Clicking reveals the project root;
+ * uppercased into a solid accent square with a 2px radius. Clicking reveals the project root;
  * full name in a tooltip.
  */
 function ProjectBadge({ name, root }: { name: string; root: string }) {
@@ -125,7 +126,7 @@ function ProjectBadge({ name, root }: { name: string; root: string }) {
       onClick={() => revealInExplorer(root, '', true)}
       data-tip={t('titlebar.projectTip', { name })}
       aria-label={t('titlebar.projectAria', { name })}
-      className="flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-none bg-accent p-0 text-[10px] font-semibold uppercase leading-none tracking-[0.02em] text-accent-fg"
+      className="flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-[2px] bg-accent p-0 text-[10px] font-semibold uppercase leading-none tracking-[0.02em] text-accent-fg"
     >
       {initials}
     </button>
@@ -135,7 +136,11 @@ function ProjectBadge({ name, root }: { name: string; root: string }) {
 /** Custom title bar: traffic-light inset on macOS, caption buttons on Windows/Linux */
 export function TitleBar() {
   const t = useT()
+  const [menu, setMenu] = useState<{ root: string; rel: string; x: number; y: number } | null>(null)
   const mac = isMac()
+  const barRef = useRef<HTMLDivElement>(null)
+  const [projectInset, setProjectInset] = useState(84)
+  const sidebarVisible = useSettings(s => s.sidebarVisible)
   const roots = useWorkspace((s) => s.roots)
   const activeRootId = useWorkspace(s => s.activeRootId)
   const activeId = useTabs((s) => s.activeId)
@@ -149,6 +154,30 @@ export function TitleBar() {
   // Breadcrumbs follow the active tab's project so they can't disagree with activeRoot
   const root = roots.find((r) => r.id === active?.root) ?? roots.find(root => root.id === activeRootId) ?? roots[0]
 
+  useLayoutEffect(() => {
+    const bar = barRef.current
+    if (!mac || !bar) return
+    let observed: HTMLElement | null = null
+    const measure = () => {
+      const label = document.querySelector<HTMLElement>('[data-explorer-project-label]')
+      if (label !== observed) {
+        if (observed) observer?.unobserve(observed)
+        observed = label
+        if (observed) observer?.observe(observed)
+      }
+      const barRect = bar.getBoundingClientRect()
+      const labelRect = label?.getBoundingClientRect()
+      const scale = bar.offsetWidth ? barRect.width / bar.offsetWidth : 0
+      const inset = labelRect?.width && scale > 0 ? Math.max(72, (labelRect.left - barRect.left) / scale) : 84
+      setProjectInset(previous => Math.abs(previous - inset) < 0.5 ? previous : inset)
+    }
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure)
+    observer?.observe(bar)
+    measure()
+    window.addEventListener('resize', measure)
+    return () => { observer?.disconnect(); window.removeEventListener('resize', measure) }
+  }, [mac, sidebarVisible, root?.name])
+
   const crumbs = useMemo(() => {
     // Welcome/settings tabs have no file path, so only the project badge is shown
     if (
@@ -156,7 +185,7 @@ export function TitleBar() {
       active.kind === 'welcome' ||
       active.kind === 'settings' ||
       active.kind === 'chat' ||
-      !root
+      !root || !active.rel || active.external
     )
       return []
     const parts = active.rel.split('/')
@@ -167,11 +196,15 @@ export function TitleBar() {
     }))
   }, [active?.rel, active?.root, root?.id, root?.name])
 
+  useEffect(() => setMenu(null), [activeId, root?.id])
+
   return (
     <div
+      ref={barRef}
       data-tauri-drag-region
+      style={mac ? { paddingLeft: projectInset } : undefined}
       className={`flex h-[35px] shrink-0 select-none items-center gap-2 border-b border-line bg-title-bar ${
-        mac ? 'pl-[92px] pr-2' : 'pl-2 pr-0'
+        mac ? 'pr-2' : 'pl-2 pr-0'
       }`}
     >
       <div data-tauri-drag-region className="flex min-w-0 flex-1 items-center gap-1.5">
@@ -189,8 +222,13 @@ export function TitleBar() {
               <span className="text-xs text-muted/50">›</span>
               <button
                 type="button"
-                onClick={() => {
-                  if (root) revealInExplorer(root.id, crumb.rel, crumb.isDir)
+                data-breadcrumb-trigger
+                aria-haspopup="tree"
+                aria-expanded={menu?.rel === crumb.rel}
+                onClick={event => {
+                  if (!root) return
+                  const rect = event.currentTarget.getBoundingClientRect()
+                  setMenu(previous => previous?.rel === crumb.rel ? null : { root: root.id, rel: crumb.rel, x: rect.left, y: rect.bottom + 6 })
                 }}
                 className={`min-w-0 truncate rounded-[var(--r-row)] px-1 text-sm transition-colors duration-fast hover:bg-hover hover:text-fg ${
                   last ? 'text-fg/85' : 'text-muted'
@@ -231,6 +269,7 @@ export function TitleBar() {
         </button>
       </div>
       {!mac && hasTauriWindow() ? <WindowControls /> : null}
+      {menu ? <BreadcrumbMenu key={`${menu.root}:${menu.rel}`} {...menu} onClose={() => setMenu(null)} /> : null}
     </div>
   )
 }

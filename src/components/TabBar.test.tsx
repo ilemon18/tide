@@ -17,6 +17,8 @@ vi.mock('../store/tabs', async () => {
       (group?.order ?? []).flatMap((id) => tabs.filter((tab) => tab.id === id)),
   }
 })
+const { requestTreeReveal } = vi.hoisted(() => ({ requestTreeReveal: vi.fn() }))
+vi.mock('../store/workspace', () => ({ useWorkspace: { getState: () => ({ requestTreeReveal }) } }))
 vi.mock('../store/agent', async () => {
   const { create } = await import('zustand')
   return { useAgent: create(() => ({ chats: {} as Record<string, AgentChat>, pages: {} })) }
@@ -219,4 +221,21 @@ it('keeps tab double-click as promotion without opening the blank menu', () => {
   fireEvent.doubleClick(item, { clientX: 40, clientY: 10 })
   expect(useTabs.getState().promoteTab).toHaveBeenCalledWith('example')
   expect(contextMenu.current).toBeNull()
+})
+
+it('reveals a file near the top every time another tab is selected and selected back', () => {
+  useTabs.setState({ tabs: [{ ...tab('a', 'file'), rel: 'src/a.ts' }, { ...tab('b', 'file'), rel: 'src/b.ts' }],
+    groups: [{ id: 'primary', activeId: 'a', order: ['a', 'b'] }] })
+  vi.mocked(useTabs.getState().activate).mockImplementation((id) => {
+    useTabs.setState({ groups: [{ id: 'primary', activeId: id, order: ['a', 'b'] }] })
+  })
+  const { container } = render(<TabBar groupId="primary" />)
+  for (const id of ['b', 'a']) {
+    fireEvent(container.querySelector(`[data-tab-id="${id}"]`)!, new MouseEvent('pointerdown', { bubbles: true, button: 0, clientX: 20, clientY: 10 }))
+    fireEvent(window, new MouseEvent('pointerup', { bubbles: true, button: 0 }))
+  }
+  expect(requestTreeReveal).toHaveBeenCalledTimes(2)
+  expect(requestTreeReveal).toHaveBeenLastCalledWith({ root: '/repo', rel: 'src/a.ts', isDir: false, upper: true })
+  expect(revealInExplorer).not.toHaveBeenCalled()
+  vi.mocked(useTabs.getState().activate).mockReset()
 })

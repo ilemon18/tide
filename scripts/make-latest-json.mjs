@@ -39,13 +39,14 @@ function fail(message) {
 }
 
 function parseArgs(argv) {
-  const out = { dist: 'dist', version: '', repo: '', notes: '' }
+  const out = { dist: 'dist', version: '', repo: '', notes: '', notesFile: '' }
   for (let i = 0; i < argv.length; i += 1) {
     const flag = argv[i]
     const value = argv[i + 1]
     if (flag === '--dist') out.dist = value ?? ''
     else if (flag === '--version') out.version = value ?? ''
     else if (flag === '--repo') out.repo = value ?? ''
+    else if (flag === '--notes-file') out.notesFile = value ?? ''
     else if (flag === '--notes') out.notes = value ?? ''
     else if (flag.startsWith('--')) fail(`unknown argument ${flag}`)
     if (flag.startsWith('--')) i += 1
@@ -106,7 +107,7 @@ const manifest = {
   tag: `v${version}`,
   pageUrl: `https://github.com/${repo}/releases/tag/v${version}`,
   publishedAt: new Date().toISOString(),
-  ...(args.notes ? { notes: args.notes } : {}),
+  ...((args.notesFile || args.notes) ? { notes: args.notesFile ? readFileSync(resolve(args.notesFile), 'utf8').trim() : args.notes } : {}),
   assets,
 }
 

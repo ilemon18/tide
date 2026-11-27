@@ -70,6 +70,8 @@ function isBadDropTarget(from: string, toDir: string): boolean {
 export function lockTextSelection(): () => void {
   const html = document.documentElement
   const body = document.body
+  const hadDrag = html.dataset.pointerDrag
+  html.dataset.pointerDrag = 'true'
   const hadHtml = html.style.userSelect
   const hadBody = body.style.userSelect
 
@@ -89,6 +91,8 @@ export function lockTextSelection(): () => void {
     document.removeEventListener('selectionchange', clear)
     // Release may have just painted a selection: clear again so the editor does not inherit it on focus
     clear()
+    if (hadDrag === undefined) delete html.dataset.pointerDrag
+    else html.dataset.pointerDrag = hadDrag
     html.style.userSelect = hadHtml
     html.style.removeProperty('-webkit-user-select')
     body.style.userSelect = hadBody

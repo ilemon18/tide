@@ -1,5 +1,8 @@
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
+mod live_preview;
+mod window_cursor;
+
 mod agent;
 mod commands;
 mod error;
@@ -80,14 +83,16 @@ fn create_window(
     let builder = builder
         .title_bar_style(tauri::TitleBarStyle::Overlay)
         .hidden_title(true)
-        .traffic_light_position(tauri::LogicalPosition::new(16.0, 18.0));
+        .traffic_light_position(tauri::LogicalPosition::new(12.0, 18.0));
 
     // Windows / Linux: `titleBarStyle` is macOS-only, and the native title bar would stack on top
     // of the frontend one. Drop native decorations; TitleBar draws the drag area and caption buttons.
     #[cfg(not(target_os = "macos"))]
     let builder = builder.decorations(false);
 
-    builder.build().map_err(|e| e.to_string())
+    let window = builder.build().map_err(|e| e.to_string())?;
+    window_cursor::install(app, window.label());
+    Ok(window)
 }
 
 /// Bring a window to the front (restoring it if minimized). false = the label no longer exists
@@ -303,6 +308,16 @@ fn main() {
         // Holds the downloaded installer until update_install consumes it
         .manage(update::UpdateState::default())
         .invoke_handler(tauri::generate_handler![
+            commands::config::config_import_file,
+            commands::config::config_import_url,
+            commands::config::config_choose_folder,
+            commands::config::config_export,
+            commands::config::config_recovery,
+            live_preview::live_start,
+            live_preview::live_list,
+            live_preview::live_stop,
+            live_preview::live_stop_all,
+            live_preview::live_open,
             // window
             new_window,
             cycle_window,
@@ -411,6 +426,9 @@ fn main() {
         ])
         .on_window_event(|window, event| {
             let label = window.label();
+            if matches!(event, tauri::WindowEvent::Focused(true) | tauri::WindowEvent::Resized(_) | tauri::WindowEvent::ScaleFactorChanged { .. }) {
+                window_cursor::install(window.app_handle(), label);
+            }
 
             // Close: flush the frontend's debounced settings / session, then really destroy the
             // window (macOS keeps it in the Dock; Windows / Linux quit on the last closed window).
@@ -436,6 +454,7 @@ fn main() {
             // both directory grants and file watchers.
             if matches!(event, tauri::WindowEvent::Destroyed) {
                 let state = window.state::<state::AppState>();
+                state.live.stop_matching(Some(label), None);
                 state.kill_window_ptys(label);
                 state.kill_window_tasks(label);
                 state.kill_window_agent_turns(label);
@@ -449,6 +468,7 @@ fn main() {
             let theme = commands::theme::native_theme(&settings.theme);
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.set_theme(theme);
+                window_cursor::install(app.handle(), window.label());
                 // The main window is created hidden: drop the native title bar per platform before
                 // showing it, or Windows flashes it first. macOS uses Overlay and needs nothing.
                 #[cfg(not(target_os = "macos"))]
@@ -466,6 +486,7 @@ fn main() {
             // On exit stop the watchers first, then reap the PTY children
             tauri::RunEvent::Exit => {
                 let state = app.state::<state::AppState>();
+                state.live.stop_matching(None, None);
                 state.kill_all_watchers();
                 state.kill_all_ptys();
                 state.kill_all_tasks();

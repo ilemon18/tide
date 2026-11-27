@@ -237,7 +237,7 @@ export function SearchPanel({ focusSeq }: { focusSeq: number }) {
                 <div key={file.file}>
                   <div
                     onClick={() => toggleExpanded(file.file)}
-                    className="group flex cursor-default items-center gap-1.5 px-2 py-[3px] text-sm row-hover"
+                    className="group flex cursor-pointer items-center gap-1.5 px-2 py-[3px] text-sm row-hover"
                   >
                     <Icon
                       name={open ? 'chevron-down' : 'chevron-right'}
@@ -287,7 +287,7 @@ export function SearchPanel({ focusSeq }: { focusSeq: number }) {
                                 match.length,
                               )
                             }
-                            className="group flex cursor-default items-baseline gap-2 py-[2px] pl-8 pr-2 text-xs row-hover"
+                            className="group flex cursor-pointer items-baseline gap-2 py-[2px] pl-8 pr-2 text-xs row-hover"
                           >
                             <span className="w-8 shrink-0 text-right text-2xs text-muted/60">
                               {match.line}

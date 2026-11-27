@@ -129,7 +129,7 @@ function HistoryList({ root }: { root: string }) {
                     disabled={isRunning || deleting[item.id] || !!resuming}
                     aria-label={t('agent.history.delete', { title })}
                     data-tip={t(isRunning ? 'agent.history.deleteRunning' : 'agent.history.deleteTitle')}
-                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--r-control)] text-muted hover:bg-danger/10 hover:text-danger disabled:cursor-default disabled:opacity-40"
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--r-control)] text-muted hover:bg-danger/10 hover:text-danger disabled:cursor-not-allowed disabled:opacity-40"
                     onClick={async event => {
                       if (confirmPending.current) return
                       confirmPending.current = true

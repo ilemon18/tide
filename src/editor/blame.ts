@@ -141,6 +141,9 @@ class BlameWidget extends WidgetType {
   }
 
   toDOM() {
+    // Keep the annotation out of text geometry, especially on empty lines and at EOF.
+    const anchor = document.createElement('span')
+    anchor.className = 'cm-blame-anchor'
     const span = document.createElement('span')
     span.className = 'cm-blame'
     span.textContent = this.text
@@ -155,8 +158,9 @@ class BlameWidget extends WidgetType {
         rect: { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom },
       })
     }
-    span.addEventListener('mouseenter', open)
+    span.addEventListener('mouseenter', (event) => { if (!event.altKey) open() })
     span.addEventListener('click', (event) => {
+      if (event.altKey) return
       event.preventDefault()
       event.stopPropagation()
       pinned = true
@@ -165,11 +169,12 @@ class BlameWidget extends WidgetType {
     span.addEventListener('mouseleave', () => {
       if (!pinned) useCommitHover.getState().hideSoon()
     })
-    return span
+    anchor.appendChild(span)
+    return anchor
   }
 
-  ignoreEvent() {
-    return true
+  ignoreEvent(event: Event) {
+    return !(event instanceof MouseEvent && event.altKey)
   }
 }
 

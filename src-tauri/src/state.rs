@@ -35,6 +35,7 @@ pub enum RootRelease {
 /// permission boundary); `ptys` is the terminal session table (processes owned by the backend).
 #[derive(Default)]
 pub struct AppState {
+    pub live: crate::live_preview::LiveRegistry,
     grants: Mutex<RootGrants>,
     /// Exact external-file grants, per window. A file opened outside every workspace gets its
     /// own entry instead of granting the whole parent directory; reads/writes must match exactly.
@@ -162,6 +163,7 @@ impl AppState {
             RootRelease::StillHeld
         };
         drop(grants);
+        self.live.stop_matching(Some(owner), Some(&path));
         self.kill_root_tasks(owner, &path);
         released
     }
@@ -203,6 +205,7 @@ impl AppState {
 
     /// Window destroyed: release every directory it held and stop the watchers nobody uses.
     pub fn release_window(&self, owner: &str) {
+        self.live.stop_matching(Some(owner), None);
         // Also clear reservations without a grant, or a dead window keeps holding projects
         self.pending.lock().retain(|_, value| value != owner);
         // External files have no watcher/refcount: the window owns them outright.
@@ -267,6 +270,15 @@ impl AppState {
             || self.file_grants.lock().values().any(|paths| paths.contains(&canon))
         {
             return Ok(canon);
+        }
+        Err(AppError::c("workspace.notAuthorized"))
+    }
+
+    pub fn authorize_window(&self, owner: &str, root: &str) -> AppResult<PathBuf> {
+        let path = self.authorize(root)?;
+        if self.grants.lock().owners.get(owner).is_some_and(|roots| roots.contains(&path))
+            || self.file_grants.lock().get(owner).is_some_and(|files| files.contains(&path)) {
+            return Ok(path);
         }
         Err(AppError::c("workspace.notAuthorized"))
     }

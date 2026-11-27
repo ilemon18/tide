@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use serde::Serialize;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 use crate::paths;
 use crate::proc;
@@ -209,6 +209,9 @@ fn flush_due(deadline: Option<Instant>, now: Instant) -> bool {
 }
 
 fn emit(app: &AppHandle, batch: FsChanged) {
+    if batch.worktree || batch.rescan {
+        if let Some(state) = app.try_state::<crate::state::AppState>() { state.live.notify(&batch.root); }
+    }
     if batch.git || batch.worktree || batch.rescan {
         let _ = app.emit("fs:changed", batch);
     }

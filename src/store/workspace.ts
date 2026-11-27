@@ -79,6 +79,7 @@ export type TreeReveal = {
   nonce: number
   /** Centre the revealed row in the tree viewport instead of only scrolling it into view */
   center?: boolean
+  upper?: boolean
 }
 
 export type RevealPathResult = {

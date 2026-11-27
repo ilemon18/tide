@@ -45,6 +45,7 @@ vi.mock('../lib/useShortcut', () => ({
   useShortcutTip: (_id: string, fallback: string) => fallback,
 }))
 vi.mock('../lib/actions', () => ({ toggleTerminal: actions.toggleTerminal }))
+vi.mock('../lib/update', () => ({ updateApi: { appVersion: vi.fn().mockResolvedValue('2.3.4') } }))
 vi.mock('../i18n', () => ({ useT: () => (key: string) => key }))
 vi.mock('./Icon', () => ({ Icon: ({ name }: { name: string }) => <span data-icon={name} /> }))
 
@@ -75,6 +76,13 @@ beforeEach(() => {
 })
 
 afterEach(() => cleanup())
+
+it('shows the native running version in the unobtrusive footer', async () => {
+  renderBar()
+  const version = await screen.findByText('v2.3.4')
+  expect(version.getAttribute('title')).toBe('v2.3.4')
+  expect(version.classList.contains('text-center')).toBe(true)
+})
 
 it('opens the welcome tab once and ignores the second click of a double-click', () => {
   renderBar()

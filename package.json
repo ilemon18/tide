@@ -1,7 +1,7 @@
 {
   "name": "tide",
   "private": true,
-  "version": "0.0.1",
+  "version": "0.0.17",
   "license": "MIT",
   "type": "module",
   "scripts": {
@@ -17,7 +17,7 @@
     "check:docs": "node --test scripts/ai-docs.test.mjs && node scripts/check-ai-docs.mjs",
     "check": "pnpm i18n && pnpm i18n:scan && pnpm check:workflows && pnpm typecheck",
     "verify": "pnpm check && pnpm check:rust && pnpm check:docs",
-    "tauri": "tauri",
+    "tauri": "node scripts/run-tauri.mjs",
     "app:build": "tauri build --debug --bundles app && node scripts/collect-app.mjs",
     "app:build:win": "tauri build --debug --bundles nsis && node scripts/collect-app.mjs",
     "release:check": "node scripts/release-check.mjs",

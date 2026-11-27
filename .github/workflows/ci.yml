@@ -34,6 +34,8 @@ jobs:
       # Anyone who has run these three separately once wants a single command from the start.
       - run: pnpm check
       - run: node --test scripts/dmg-contract.test.mjs
+      - run: node --test scripts/release-history.test.mjs scripts/archive-release-history.test.mjs
+      - run: node --test scripts/run-tauri.test.mjs
       - run: pnpm test:frontend
       - run: pnpm build
 

@@ -4,7 +4,7 @@ import { api, type AgentPermissionMode, type Settings } from '../lib/ipc'
 import { DEFAULT_SETTINGS, SETTINGS_SCHEMA_VERSION, useSettings } from './settings'
 
 vi.mock('../lib/ipc', () => ({
-  api: { loadSettings: vi.fn(), saveSettings: vi.fn() },
+  api: { loadSettings: vi.fn(), saveSettings: vi.fn(), configRecovery: vi.fn().mockResolvedValue(undefined) },
   errorText: (error: unknown) => String(error),
 }))
 vi.mock('../theme/apply', async () => {
@@ -339,5 +339,41 @@ describe('Shortcut settings', () => {
     useSettings.getState().applyExternal(old)
     expect(useSettings.getState().shortcutOverrides).toEqual({ 'agent.ask': ['Mod+Shift+l'] })
     expect(api.saveSettings).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('Configuration import and forward compatibility', () => {
+  it('falls back from timestamps outside the calendar range without resetting other imports', async () => {
+    await useSettings.getState().importSettings({ ...DEFAULT_SETTINGS, fontSize: 20,
+      configBackupLastAt: 1e30, futureSetting: { enabled: true } } as Settings)
+    expect(useSettings.getState()).toMatchObject({ fontSize: 20, configBackupLastAt: 0 })
+    expect(api.saveSettings).toHaveBeenLastCalledWith(expect.objectContaining({
+      configBackupLastAt: 0, futureSetting: { enabled: true },
+    }))
+  })
+  it('normalizes damaged fields individually, preserves future fields and schema, and saves a recovery copy first', async () => {
+    useSettings.getState().patch({ fontSize: 18 })
+    await useSettings.getState().importSettings({ schemaVersion: 99, fontSize: 'broken', wordWrap: false,
+      uiFontSize: -8, terminalScrollback: null, configBackupInterval: 'unknown',
+      shortcutOverrides: { 'agent.ask': [], futureCommand: ['Mod+Shift+i'] },
+      futureSetting: { value: 42 }, patch: 'untrusted' } as unknown as Settings)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(api.configRecovery).toHaveBeenCalledWith(expect.objectContaining({ fontSize: 18 }))
+    expect(useSettings.getState()).toMatchObject({ schemaVersion: 99, fontSize: DEFAULT_SETTINGS.fontSize,
+      uiFontSize: DEFAULT_SETTINGS.uiFontSize, wordWrap: false, configBackupEnabled: false })
+    expect(typeof useSettings.getState().patch).toBe('function')
+    expect(api.saveSettings).toHaveBeenLastCalledWith(expect.objectContaining({ schemaVersion: 99,
+      futureSetting: { value: 42 }, shortcutOverrides: { 'agent.ask': [], futureCommand: ['Mod+Shift+i'] } }))
+  })
+  it('keeps settings unchanged when the recovery copy cannot be saved', async () => {
+    vi.mocked(api.configRecovery).mockRejectedValueOnce(new Error('disk full'))
+    await expect(useSettings.getState().importSettings({ ...DEFAULT_SETTINGS, fontSize: 20 })).rejects.toThrow('disk full')
+    expect(useSettings.getState().fontSize).toBe(DEFAULT_SETTINGS.fontSize)
+  })
+  it('exports the native shell preference and retains unknown fields across reloads', async () => {
+    vi.mocked(api.loadSettings).mockResolvedValue({ ...DEFAULT_SETTINGS, terminalShell: '/bin/fish',
+      futureSetting: { enabled: true } } as Settings)
+    await useSettings.getState().load()
+    expect(useSettings.getState().exportSettings()).toMatchObject({ terminalShell: '/bin/fish', futureSetting: { enabled: true } })
   })
 })

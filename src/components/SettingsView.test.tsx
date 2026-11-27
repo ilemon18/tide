@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from 'react'
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { SettingsSectionId } from '../lib/settingsSections'
 
@@ -14,6 +14,7 @@ vi.mock('../store/settings', async () => {
     terminalFontSize: 13, terminalScrollback: 2000, terminalWebgl: false, agentEnabled: true, tasksEnabled: true,
     agentDefaultProvider: '', agentDefaultModel: '', agentDefaultEffort: '',
     agentDefaultPermissionMode: 'workspace-write', agentHistoryEnabled: true, autoUpdate: false,
+    configBackupEnabled: false, configBackupFolder: '', configBackupInterval: 'daily', configBackupMode: 'dated', configBackupLastAt: 0,
     activityBarWelcomeVisible: true, activityBarGitVisible: true, activityBarStructureVisible: true,
     patch: vi.fn(),
   })) }
@@ -152,4 +153,30 @@ it('removes the default permission picker and explanation from Agent settings', 
   expect(screen.getByText(t('settings.agent.defaultAgent'))).toBeTruthy()
   expect(screen.getByText(t('settings.agent.defaultModel'))).toBeTruthy()
   expect(screen.getByText(t('settings.agent.defaultComplexity'))).toBeTruthy()
+})
+
+it('places configuration export above About and keeps automatic sync disabled initially', () => {
+  render(<SettingsView />)
+  const config = screen.getByRole('button', { name: t('settings.section.config.label') })
+  const about = screen.getByRole('button', { name: t('settings.section.about.label') })
+  expect(config.compareDocumentPosition(about) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  fireEvent.click(config)
+  expect(screen.getByRole('switch', { name: t('config.automatic') }).getAttribute('aria-checked')).toBe('false')
+  expect(screen.getByRole('button', { name: t('config.export') })).toBeTruthy()
+  expect(screen.getByRole('button', { name: t('config.importFile') })).toBeTruthy()
+})
+it('shows incoming release notes from the update manifest in About', () => {
+  useUpdate.setState({ info: { available: true, hasRelease: true, current: '1.0.0', latest: '9.0.0', publishedAt: '2026-11-27', notes: '- Export preferences to JSON' } as never })
+  render(<SettingsView />)
+  selectSection('about')
+  expect(screen.getByRole('heading', { name: t('settings.about.changelog') })).toBeTruthy()
+  expect(screen.getByText('Export preferences to JSON')).toBeTruthy()
+})
+
+it('does not show release notes while up to date or before checking updates', () => {
+  render(<SettingsView />)
+  selectSection('about')
+  expect(screen.queryByRole('heading', { name: t('settings.about.changelog') })).toBeNull()
+  act(() => useUpdate.setState({ info: { available: false, hasRelease: true, current: '1.0.0', latest: '1.0.0', publishedAt: '2026-11-27', notes: '- Old changes' } as never }))
+  expect(screen.queryByRole('heading', { name: t('settings.about.changelog') })).toBeNull()
 })

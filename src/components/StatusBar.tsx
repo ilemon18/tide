@@ -9,6 +9,7 @@ import { useSettings } from '../store/settings'
 import { useUi } from '../store/ui'
 import { useWorkspace } from '../store/workspace'
 import { fetchRemote, openSettings } from '../lib/actions'
+import { GoLive } from './GoLive'
 import { Icon } from './Icon'
 import { languageLabel } from '../editor/languages'
 import { themeLabel } from '../theme/palettes'
@@ -218,6 +219,8 @@ export function StatusBar() {
                         active?.external ? (active?.name ?? '') : (active?.rel ?? ''),
                       )}
       </span>
+
+      <GoLive />
 
       <button
         onClick={(e) => {

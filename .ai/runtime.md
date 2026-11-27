@@ -9,7 +9,11 @@ scope:
   - src/main.tsx
   - src/lib/contextMenu*.ts
   - src/components/TitleBar.tsx
+  - src/styles/index.css
+  - src-tauri/src/window_cursor.rs
+  - src-tauri/Cargo.toml
   - src/components/SettingsView.tsx
+  - src/components/SettingsControls.tsx
   - src/components/SettingsView.test.tsx
   - src/components/ThemeMenu.tsx
   - src/lib/memoryBudget.ts
@@ -55,8 +59,8 @@ keywords:
 
 ## Ownership
 
-App owns hydration/window coordination; the settings store and Rust theme commands own defaults/migration;
-`src/lib/memoryBudget.ts` owns memory limits. Updates: [updates.md](./updates.md).
+App owns hydration/windows; settings and Rust theme commands own defaults/migration; `memoryBudget.ts`
+owns memory limits. Updates: [updates.md](./updates.md).
 
 ## Windows and startup
 
@@ -80,20 +84,21 @@ App owns hydration/window coordination; the settings store and Rust theme comman
   settings/palette/tooltips share the resolver.
 - One stroke has one owner across managed actions; Mod expands before comparison. Close commands are
   unavailable while a target includes a running Agent chat. Native editing and terminal input stay local.
-- Recording and reset transfer strokes and explicitly unbind previous owners in one patch; global reset
-  confirms first. Escape cancels; modifier-only, repeat and composition events never save. Plain/Shift-only
-  typing and native clipboard/undo keys cannot be assigned; only explicit Save commits.
+- Recording/reset transfer strokes and unbind old owners atomically; global reset confirms. Escape cancels;
+  modifiers alone, repeats and composition never save. Plain/Shift typing and clipboard/undo keys are reserved;
+  only explicit Save commits.
 - v14 `shortcutOverrides` defaults to `{}`; absent means default, `[]` unbinds. Normalize damaged entries
   without resetting other settings, keep unknown ids but never execute them, and share across windows.
+- `ShortcutSettings`: searchable, read-only Alt gesture help in six locales.
 
 ## Settings and memory
 
 - Read `memoryBudget` limits/features at use time, including lightweight profiles; never copy ceilings.
   Evict inactive editor states, preserve active/dirty ones, and release editor/search/quick-open caches on
   `app:hidden`.
-- `DEFAULT_SETTINGS` in `src/store/settings.ts` and `Settings::default` in
-  `src-tauri/src/commands/theme.rs` stay identical. Fresh installs use Rust schema-0 defaults, then
-  migration/writeback; afterwards `settings.json` wins. Migrations only append and preserve unknown fields.
+- `DEFAULT_SETTINGS` (`store/settings.ts`) and `Settings::default` (`commands/theme.rs`) stay identical.
+  Fresh installs migrate/write back Rust schema-0 defaults; then `settings.json` wins. Migrations append
+  and preserve unknown fields.
 - Add settings in types/defaults, migration, UI and `SHARED_KEYS`; retirement removes both defaults and adds
   `RETIRED_KEYS`. Runtime choices write immediately and sync windows.
 - Formatting settings query tool availability/version and may install rustfmt (rustup) or Black (pipx/pip)
@@ -102,6 +107,15 @@ App owns hydration/window coordination; the settings store and Rust theme comman
 - `settings.json`/`session.json` use `app_config_dir` and the Rust theme lock; chat storage follows
   [agent-storage.md](./agent-storage.md). `public/theme-boot.js` paints before React. Sidebar/drawer widths
   are window-local, not synced.
+
+## Native cursors and configuration
+
+- Configuration export precedes About; schema 17 sync defaults off. Transfer/recovery and the primary-window
+  scheduler are owned by [configuration.md](./configuration.md).
+- `index.css` owns semantic cursors: actions=pointer, text=text, unavailable=not-allowed (keep hints), busy=wait,
+  drag=grabbing. `window_cursor.rs` registers cursor rectangles on native resets via ivar-free subclasses,
+  preserving AppKit actions/layout without retained windows/timers. Tests guard instance size/reuse.
+  Caption inset: original Y, X shifted left 4px; no native layout overrides.
 
 ## Change map
 

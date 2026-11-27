@@ -1,3 +1,4 @@
+import { startConfigBackups } from './lib/configBackup'
 import { dispatchShortcut } from './lib/shortcutDispatch'
 import { registerCommandHandlers } from './lib/commandRuntime'
 import { dragTerminalHeight, terminalAvailableHeight } from './lib/terminalLayout'
@@ -243,6 +244,11 @@ export function App() {
     return () => {
       unlisten?.()
     }
+  }, [])
+
+  useEffect(() => {
+    if (!IS_PRIMARY_WINDOW) return
+    return startConfigBackups()
   }, [])
 
   // In-app update: release builds report the last install and run one quiet check at startup; debug

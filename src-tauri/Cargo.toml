@@ -1,6 +1,6 @@
 [package]
 name = "tide"
-version = "0.0.1"
+version = "0.0.17"
 description = "Tide — a lightweight code editor"
 authors = ["Tide"]
 license = "MIT"
@@ -42,8 +42,8 @@ libc = "0.2"
 # （版本和 tauri→tao 已解析的一致，不会多编一份）
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
-objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSObject", "NSString"] }
-objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSMenu", "NSMenuItem", "NSResponder"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSObject", "NSString", "NSGeometry", "objc2-core-foundation"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSMenu", "NSMenuItem", "NSResponder", "NSCursor", "NSView", "NSWindow", "NSButton"] }
 
 
 # 低内存 / 小体积的 release 配置

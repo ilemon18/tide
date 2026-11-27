@@ -197,7 +197,7 @@ const GitFileRow = memo(function GitFileRow({
       }}
       tabIndex={0}
       data-active={active}
-      className={`group absolute left-0 right-0 top-0 flex h-7 cursor-default items-center gap-1.5 overflow-hidden pl-7 pr-2 text-sm text-fg/90 row-hover ${
+      className={`group absolute left-0 right-0 top-0 flex h-7 cursor-pointer items-center gap-1.5 overflow-hidden pl-7 pr-2 text-sm text-fg/90 row-hover ${
         active ? 'git-file-row-active' : ''
       }`}
       style={{ transform: `translateY(${index * FILE_ROW_H}px)` }}
@@ -217,7 +217,7 @@ const GitFileRow = memo(function GitFileRow({
         <StatusBadge status={file.status} conflict={conflictGroup} />
       </span>
       {actionsVisible ? (
-        <span className="row-actions-float absolute inset-y-0 right-1.5 flex items-center gap-0.5 pl-5">
+        <span className="row-actions-float absolute inset-y-0 right-[2px] flex items-center self-center gap-0.5 pl-5">
           {rowActions(file).map((action) => (
             <button
               key={action.title}
@@ -228,7 +228,7 @@ const GitFileRow = memo(function GitFileRow({
                 event.stopPropagation()
                 action.run()
               }}
-              className="flex h-[18px] w-[18px] items-center justify-center rounded-[4px] text-muted hover:bg-hover-strong hover:text-fg"
+              className="flex h-[18px] w-[18px] shrink-0 self-center items-center justify-center rounded-[4px] text-muted hover:bg-hover-strong hover:text-fg"
             >
               <Icon name={action.icon} size={12} />
             </button>
@@ -577,7 +577,7 @@ const RepoSection = memo(function RepoSection({
                 aria-label={action.label}
                 disabled={busy !== null || action.disabled}
                 onClick={action.run}
-                className="flex h-[18px] w-[18px] items-center justify-center rounded-[4px] text-muted hover:bg-hover hover:text-fg disabled:pointer-events-none disabled:opacity-40"
+                className="flex h-[18px] w-[18px] shrink-0 self-center items-center justify-center rounded-[4px] text-muted hover:bg-hover hover:text-fg disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <Icon name={action.icon} size={12} />
               </button>

@@ -112,6 +112,10 @@ export function ShortcutSettings() {
       formatBinding(key, mac, bindingOptions)])]
     .some(text => text.toLowerCase().includes(q)))
   const groups = [...new Set(commands.map(command => command.groupKey))]
+  const gestureTitle = t('shortcuts.multicursor')
+  const gestureHint = t('shortcuts.multicursorHint')
+  const showGesture = !q || [gestureTitle, gestureHint, 'alt', 'option', '⌥']
+    .some(text => text.toLowerCase().includes(q))
   const conflicts = recording?.candidate ? shortcutConflicts(recording.id, [recording.candidate], overrides, mac) : []
   const preview = recording?.candidate
     ? formatBinding(recording.candidate, mac, bindingOptions)
@@ -126,6 +130,10 @@ export function ShortcutSettings() {
         <button className={buttonClass} disabled={Object.keys(overrides).length === 0}
           onClick={() => void resetAll()}>{t('shortcuts.resetAll')}</button>
       </div>
+      {showGesture && <section aria-label={gestureTitle} className="rounded border border-line-soft bg-panel px-4 py-3">
+        <div className="text-sm text-fg">{gestureTitle}</div>
+        <p className="mt-1 cursor-text select-text text-xs leading-relaxed text-muted">{gestureHint}</p>
+      </section>}
       {recording && createPortal(
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/35 p-4"
           onMouseDown={event => { if (event.target === event.currentTarget) setRecording(null) }}>
@@ -193,7 +201,7 @@ export function ShortcutSettings() {
           </div>
         </section>
       ))}
-      {!commands.length && <p className="text-sm text-muted">{t('commands.noResults')}</p>}
+      {!commands.length && !showGesture && <p className="text-sm text-muted">{t('commands.noResults')}</p>}
     </div>
   )
 }

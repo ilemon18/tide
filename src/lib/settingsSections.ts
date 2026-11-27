@@ -14,6 +14,7 @@ export type SettingsSectionId =
   | 'terminal'
   | 'agent'
   | 'keys'
+  | 'config'
   | 'about'
 
 export type SettingsSection = {
@@ -58,6 +59,7 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
     labelKey: 'settings.section.keys.label',
     icon: 'command',
   },
+  { id: 'config', labelKey: 'settings.section.config.label', icon: 'download' },
   {
     id: 'about',
     labelKey: 'settings.section.about.label',

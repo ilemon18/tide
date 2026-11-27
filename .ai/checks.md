@@ -2,6 +2,9 @@
 summary: Guards, docs, CI and release
 scope:
   - .ai/checks.md
+  - CHANGELOG.md
+  - changes/**
+  - changes/releases.json
   - package.json
   - pnpm-lock.yaml
   - scripts/**
@@ -40,7 +43,9 @@ Gate procedures live in `.ai/skills` and run only when the user triggers them (A
 
 | Command | Protects |
 |---|---|
+| `node --test scripts/run-tauri.test.mjs` | Dev version from reachable semantic tags, package fallback and branch isolation |
 | `node --test scripts/release-git-state.test.mjs` | Release preflight tolerates local tracking-ref drift without fetch/push |
+| `node --test scripts/release-history.test.mjs scripts/archive-release-history.test.mjs` | Tag ranges, summary assignment, non-forced archival and concurrent-summary preservation |
 | `node --test scripts/dmg-contract.test.mjs` | DMG artwork/layout, dimensions and macOS Finder opt-in before packaging |
 | `pnpm release:check` | Local Git/version, workflows, bundle and update-manifest contracts |
 | `pnpm i18n` | Six-locale keys/placeholders/plurals and emitted error coverage |
@@ -54,7 +59,30 @@ Gate procedures live in `.ai/skills` and run only when the user triggers them (A
 | `pnpm check:docs` | Doc tests, metadata, fixtures, budgets, index, wrappers and links |
 
 `pnpm check` runs frontend guards; `pnpm verify` adds Rust and doc checks. Native account compatibility,
-IME ordering and native layout/scrolling need explicit manual verification; automated tests do not prove them.
+IME ordering and native layout/scrolling/caption cursors need explicit manual verification;
+automated tests do not prove them.
+
+## Release history
+
+`changes/unreleased.md` owns the current human-written change summary; update it with feature/fix work.
+`scripts/release-history.mjs` backfills from v0.0.10 using actual tag ranges and commit SHAs, retains curated notes,
+fetches published descriptions with the workflow token, preserves records if tags disappear, and assigns
+the summary to the requested version.
+`changes/releases.json` and `CHANGELOG.md` are generated project records; no missing tags are invented.
+The version job generates one artifact for both builds and publication. `make-latest-json` carries its notes
+to existing apps; the complete history remains an archive asset. Publication attaches the history and changelog; `scripts/archive-release-history.cjs`
+archives only these records to the default branch via a non-forced Git update, retrying contention. It consumes
+only the exact published summary, preserving concurrent new entries. Installers/version stamps are separate.
+
+Go Live lifetimes and HTTP isolation are owned by [live-preview.md](./live-preview.md); Alt gesture tests
+are in `src/editor/altSelection.test.ts`; blame geometry and terminal drag teardown have area tests.
+`GoLive.test.tsx` covers unavailable cursor/hint semantics; shared cursor policy lives in context.
+`window_cursor.rs` tests native subclass reuse/instance-size safety without creating GUI windows.
+`ShortcutSettings.test.tsx` covers searchable mouse-gesture help without modifying key bindings.
+`FileTree.test.tsx` keeps upper-position tab reveals compatible with paged/settled centered reveals.
+Configuration compatibility/scheduling contracts: [configuration.md](./configuration.md).
+`pnpm tauri dev` uses `run-tauri.mjs` to stamp the highest reachable semantic tag via `set-version.mjs`,
+falling back to package metadata. UI version comes from native `app_version`; release builds retain tag stamps.
 
 ## Documentation contract
 

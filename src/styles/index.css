@@ -271,6 +271,40 @@
     color: inherit;
   }
 
+  button:not(:disabled):not([aria-disabled='true']),
+  a[href],
+  summary,
+  select,
+  [role='button']:not([aria-disabled='true']),
+  [role='tab'],
+  [role='option'],
+  input[type='checkbox'],
+  input[type='radio'],
+  input[type='range'],
+  input[type='button'],
+  input[type='submit'],
+  input[type='reset'],
+  input[type='file'],
+  input[type='image'],
+  input[type='color'] {
+    cursor: pointer;
+  }
+
+  input:not([type]),
+  input:is([type='text'], [type='search'], [type='url'], [type='email'], [type='tel'], [type='password'], [type='number']),
+  textarea,
+  [contenteditable='true'] {
+    cursor: text;
+  }
+
+  button:disabled,
+  input:disabled,
+  select:disabled,
+  textarea:disabled,
+  [aria-disabled='true'] {
+    cursor: not-allowed;
+  }
+
   button {
     font: inherit;
     color: inherit;
@@ -297,6 +331,7 @@
     height: 100%;
     display: flex;
     flex-direction: column;
+    cursor: text;
     user-select: text;
     -webkit-user-select: text;
   }
@@ -461,6 +496,8 @@
   /* Git panel file rows: the trailing action buttons float absolutely over the name without taking row width,
      and the 16px gradient on the left fades the text out so long names can run to the row end */
   .row-actions-float {
+    align-items: center;
+    height: 100%;
     background-image: linear-gradient(to right, transparent, var(--c-row-hover-solid) 16px);
   }
 
@@ -516,6 +553,16 @@
   /* While hovering another pane, this tab in its source strip is in a "picked up" state */
   .tab-pill[data-away='true'] {
     opacity: 0;
+  }
+
+  .terminal-tab {
+    transition: transform var(--dur-fast) var(--ease-islands),
+      background-color var(--dur-fast) var(--ease-islands),
+      color var(--dur-fast) var(--ease-islands);
+  }
+  .terminal-tab[data-dragging='true'] {
+    transition: none;
+    cursor: grabbing;
   }
 
   /* Cursor-following ghost for cross-pane dragging (on body so the tab strip's overflow can't clip it) */
@@ -905,12 +952,21 @@
   }
 
 /* ---- CodeMirror inline decorations (outside @layer so they beat injected styles) ---- */
+.cm-blame-anchor {
+  position: relative;
+  display: inline-block;
+  width: 0;
+  height: 0;
+  vertical-align: baseline;
+}
 .cm-blame {
-  margin-left: 1.6em;
+  position: absolute;
+  left: 1.6em;
+  bottom: -0.25em;
   padding: 0 3px;
   font-size: 0.85em;
   color: color-mix(in srgb, var(--c-muted) 80%, transparent);
-  /* Hit testing must stay open so hovering shows the full commit info; the widget's ignoreEvent already makes the editor ignore events */
+  /* Hover/click shows commit info; Alt gestures pass through to caret placement. */
   pointer-events: auto;
   cursor: pointer;
   user-select: none;
@@ -1183,3 +1239,15 @@
   --c-row-selected: color-mix(in srgb, var(--c-fg) 8%, var(--c-panel));
   --c-tab-active-border: color-mix(in srgb, var(--c-fg) 16%, var(--c-border));
 }
+
+/* Native pointer feedback follows semantics even inside selectable editor/preview content. */
+.cm-content, .cm-line, .xterm, .markdown-body { cursor: text; }
+.cm-gutters { cursor: default; }
+.cm-foldGutter .cm-gutterElement, .cm-gutterElement[data-blame], .markdown-body a[href] { cursor: pointer; }
+html[data-pointer-drag='true'] * { cursor: grabbing !important; }
+
+.release-notes { cursor: text; }
+.release-notes ul { list-style: disc; padding-left: 1.25rem; }
+.release-notes ol { list-style: decimal; padding-left: 1.25rem; }
+.release-notes li + li, .release-notes p + p { margin-top: 0.4rem; }
+.release-notes button { cursor: pointer; }

@@ -1,3 +1,6 @@
+import { Row, Card, Toggle } from './SettingsControls'
+import { ReleaseNotes } from './ReleaseNotes'
+import { ConfigSettings } from './ConfigSettings'
 import { ShortcutSettings } from './ShortcutSettings'
 import { useEffect, useRef, useState } from 'react'
 import { useUi } from '../store/ui'
@@ -34,64 +37,6 @@ import {
   useT,
   type MessageKey,
 } from '../i18n'
-
-function Row({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
-  return (
-    <div className="flex items-center justify-between gap-8 border-b border-line/60 px-4 py-3 last:border-b-0">
-      <div className="min-w-0">
-        <div className="text-sm text-fg">{label}</div>
-        {hint ? <div className="mt-0.5 text-xs leading-relaxed text-muted">{hint}</div> : null}
-      </div>
-      <div className="shrink-0">{children}</div>
-    </div>
-  )
-}
-
-/** A settings group: title + an outlined card (cards keep a page from stretching into one long row) */
-function Card({ title, children }: { title?: string; children: React.ReactNode }) {
-  return (
-    <section className="mb-5">
-      {title ? (
-        <div className="mb-1.5 px-1">
-          <h3 className="text-xs font-medium text-fg/80">{title}</h3>
-        </div>
-      ) : null}
-      <div className="overflow-hidden rounded-[var(--r-popup)] border border-line-soft bg-panel">
-        {children}
-      </div>
-    </section>
-  )
-}
-
-function Toggle({
-  value,
-  onChange,
-  disabled,
-  ariaLabel,
-}: {
-  value: boolean
-  onChange: (v: boolean) => void
-  disabled?: boolean
-  ariaLabel?: string
-}) {
-  return (
-    <button
-      onClick={() => onChange(!value)}
-      disabled={disabled}
-      aria-label={ariaLabel}
-      className={`relative h-[18px] w-[32px] rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
-        value ? 'bg-accent' : 'bg-active'
-      }`}
-      aria-pressed={value}
-    >
-      <span
-        className={`absolute top-[2px] h-[14px] w-[14px] rounded-full bg-white transition-all ${
-          value ? 'left-[16px]' : 'left-[2px]'
-        }`}
-      />
-    </button>
-  )
-}
 
 function Stepper({
   value,
@@ -388,7 +333,7 @@ export function SettingsView() {
     editor: (
       <>
         <Card title={t('settings.editor.edit')}>
-          <Row label={t('settings.editor.autoSave')}>
+          <Row label={t('settings.editor.autoSave')} hint={t('settings.editor.autoSaveHint')}>
             <Toggle value={settings.autoSave} onChange={(v) => set('autoSave', v)} />
           </Row>
           <Row label={t('settings.editor.wordWrap')} hint={t('settings.editor.wordWrapHint')}>
@@ -631,7 +576,7 @@ export function SettingsView() {
                   }
                 })
               }}
-              className="flex shrink-0 items-center gap-1 rounded-[var(--r-control)] border border-line-soft px-2 py-0.5 text-2xs text-fg/80 transition-colors duration-fast hover:bg-hover disabled:cursor-default disabled:opacity-70 disabled:hover:bg-transparent"
+              className="flex shrink-0 items-center gap-1 rounded-[var(--r-control)] border border-line-soft px-2 py-0.5 text-2xs text-fg/80 transition-colors duration-fast hover:bg-hover disabled:cursor-not-allowed disabled:opacity-70 disabled:hover:bg-transparent"
             >
               {agentProvidersLoading ? (
                 <>
@@ -701,6 +646,7 @@ export function SettingsView() {
 
     keys: section === 'keys' ? <ShortcutSettings /> : null,
 
+    config: <ConfigSettings />,
     about: (
       <>
         <Card>
@@ -752,7 +698,7 @@ export function SettingsView() {
               aria-busy={busy}
               className={`flex items-center gap-2 rounded-[var(--r-control)] px-3 py-1.5 text-sm transition-colors duration-fast ${
                 busy
-                  ? 'cursor-default bg-active/60 text-muted'
+                  ? 'cursor-wait bg-active/60 text-muted'
                   : action.tone === 'accent'
                     ? 'bg-accent/15 text-accent hover:bg-accent/25'
                     : action.tone === 'danger'
@@ -778,6 +724,7 @@ export function SettingsView() {
             ) : null}
           </div>
         </Card>
+        <ReleaseNotes />
       </>
     ),
   }

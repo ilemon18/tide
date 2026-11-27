@@ -141,6 +141,7 @@ export type Settings = {
   terminalFontSize: number
   /** Terminal scrollback lines */
   terminalScrollback: number
+  terminalShell: string
   tabSize: number
   autoSave: boolean
   wordWrap: boolean
@@ -165,6 +166,11 @@ export type Settings = {
   lightweightMode: boolean
   /** Download application updates in the background, but always ask before installing */
   autoUpdate: boolean
+  configBackupEnabled: boolean
+  configBackupFolder: string
+  configBackupInterval: 'daily' | 'threeDays' | 'weekly' | 'monthly'
+  configBackupMode: 'overwrite' | 'dated'
+  configBackupLastAt: number
   /** Built-in agent service: title-bar entry, explorer context menu, chat tabs */
   agentEnabled: boolean
   /** Project task discovery, execution and Problems diagnostics */
@@ -606,7 +612,14 @@ export type AgentChatListPage = {
   total: number
 }
 
+export type LiveInfo = { id: string; root: string; rel: string; port: number; url: string }
+
 export const api = {
+  liveStart: (root: string, rel: string) => invoke<LiveInfo>('live_start', { root, rel }),
+  liveList: () => invoke<LiveInfo[]>('live_list'),
+  liveStop: (id: string) => invoke<void>('live_stop', { id }),
+  liveStopAll: () => invoke<void>('live_stop_all'),
+  liveOpen: (id: string) => invoke<void>('live_open', { id }),
   agentPermissionRespond: (chatId: string, runId: string, requestId: string, allow: boolean) =>
     invoke<void>('agent_permission_respond', { chatId, runId, requestId, allow }),
   // ---- File system ----
@@ -751,6 +764,12 @@ export const api = {
   taskStop: (id: string) => invoke<void>('task_stop', { id }),
 
   // ---- Settings ----
+  configImportFile: () => invoke<unknown | null>('config_import_file'),
+  configImportUrl: (url: string) => invoke<unknown>('config_import_url', { url }),
+  configChooseFolder: () => invoke<string | null>('config_choose_folder'),
+  configExport: (document: unknown, automatic = false, fileName = 'tide-config.json') =>
+    invoke<string | null>('config_export', { document, automatic, fileName }),
+  configRecovery: (settings: Settings) => invoke<void>('config_recovery', { settings }),
   loadSettings: () => invoke<Settings>('load_settings'),
   saveSettings: (settings: Settings) => invoke<void>('save_settings', { settings }),
   loadSession: () => invoke<Session>('load_session'),

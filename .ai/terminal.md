@@ -6,7 +6,7 @@ scope:
   - src/components/TerminalPanel.tsx
   - src/components/TerminalPanel.test.tsx
   - src/lib/terminalLayout*.ts
-  - src/store/terminal.ts
+  - src/store/terminal*.ts
   - src/lib/keys.ts
   - src-tauri/src/commands/terminal.rs
   - src-tauri/src/state.rs
@@ -51,6 +51,18 @@ keywords:
   derive height from a window offset.
 - Maximize is window-memory state; restore keeps the saved normal height. Drag to the top maximizes and
   hidden/last-closed panels exit maximize. Resize/fit sends native PTY resize after layout changes.
+
+## Tab management
+
+- Blank strip double-click opens one terminal; controls/tabs do not forward this gesture. Ordinals start at 1
+  after all tabs close; existing titles remain stable when others close or reorder. IDs are independent UUIDs.
+- Context menus close current/others/left/right/all/exited. Close all is red and explicitly ends every PTY;
+  other bulk actions preserve pinned tabs. Exited means the shell has emitted `pty:exit` (idle shells stay).
+- Left/right pins partition the strip; drag reorders only inside a partition. Activation/pinning/reordering
+  preserve PTY identities and resident xterm views. Pointer listeners and selection locks release on teardown.
+- Dragged pills follow the grab point, clamped to their pin partition; measured widths and visual centers
+  drive insertion. Neighbor transforms animate; the strip scrolls at edges and reveals the active tab.
+  Escape/blur/cancel/removal also release the gesture without reinitializing terminals.
 
 ## Selection context
 

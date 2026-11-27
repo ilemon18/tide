@@ -348,12 +348,12 @@ export function revealInExplorer(
   root: string,
   rel: string,
   isDir: boolean,
-  options?: { center?: boolean },
+  options?: { center?: boolean; upper?: boolean },
 ): void {
   useUi.getState().setActivityView('explorer')
   if (!useSettings.getState().sidebarVisible) useSettings.getState().patch({ sidebarVisible: true })
   useWorkspace.getState().setActiveRoot(root)
-  useWorkspace.getState().requestTreeReveal({ root, rel, isDir, center: options?.center })
+  useWorkspace.getState().requestTreeReveal({ root, rel, isDir, center: options?.center, upper: options?.upper })
 }
 
 /** Drop files/folders into the window */

@@ -207,6 +207,20 @@ it('opens the card on click as well as hover', () => {
   expect(useCommitHover.getState().target).not.toBeNull()
 })
 
+it('anchors empty-line blame outside the text and lets Alt caret gestures pass through', () => {
+  const view = new EditorView({ state: EditorState.create({ doc: '\ncode', extensions: blameExtension }), parent: document.body })
+  views.push(view)
+  view.dispatch({ effects: setBlameEffect.of(blame()) })
+  const text = view.dom.querySelector('.cm-blame')!
+  expect(text.parentElement?.className).toBe('cm-blame-anchor')
+  expect(view.state.doc.line(1).length).toBe(0)
+  text.dispatchEvent(new MouseEvent('mouseenter', { altKey: true }))
+  const click = new MouseEvent('click', { altKey: true, bubbles: true, cancelable: true })
+  text.dispatchEvent(click)
+  expect(click.defaultPrevented).toBe(false)
+  expect(useCommitHover.getState().target).toBeNull()
+})
+
 it('opens an uncommitted card without a commit sha', async () => {
   const view = new EditorView({
     state: EditorState.create({

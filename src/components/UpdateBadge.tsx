@@ -57,7 +57,7 @@ export function UpdateBadge({ primary }: { primary: boolean }) {
       data-tip={tip}
       className={`relative flex h-6 shrink-0 items-center gap-2 whitespace-nowrap rounded-[var(--r-control)] px-2 transition-colors duration-fast ${
         busy
-          ? 'cursor-default text-muted'
+          ? 'cursor-wait text-muted'
           : action.tone === 'accent'
             ? 'text-accent hover:bg-hover'
             : action.tone === 'danger'

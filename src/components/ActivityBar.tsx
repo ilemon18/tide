@@ -1,4 +1,6 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { updateApi } from '../lib/update'
+import { formatVersion } from '../lib/version'
 import { useShortcutTip } from '../lib/useShortcut'
 import { Icon, type IconName } from './Icon'
 import { ContextMenu, type MenuItem } from './ContextMenu'
@@ -71,6 +73,12 @@ export function ActivityBar({
   onOpenSettings,
 }: Props) {
   const t = useT()
+  const [version, setVersion] = useState('')
+  useEffect(() => {
+    let alive = true
+    void updateApi.appVersion().then(value => { if (alive) setVersion(formatVersion(value)) }).catch(() => {})
+    return () => { alive = false }
+  }, [])
   const explorerTip = useShortcutTip('view.explorer', 'activity.explorerTip')
   const searchTip = useShortcutTip('view.search', 'activity.searchTip')
   const gitTip = useShortcutTip('view.git', 'activity.gitTip')
@@ -174,7 +182,7 @@ export function ActivityBar({
           />
         ) : null}
       </div>
-      <div className="flex flex-col items-center gap-1.5 pb-1">
+      <div className="flex w-full flex-col items-center gap-1.5">
         <Item
           icon="terminal-panel"
           label={terminalTip}
@@ -182,6 +190,7 @@ export function ActivityBar({
           onClick={toggleTerminal}
         />
         <Item icon="settings" label={settingsTip} onClick={onOpenSettings} />
+        <span className="w-full truncate px-0.5 text-center text-[9px] leading-3 text-muted/45" title={version}>{version}</span>
       </div>
       {menu ? (
         <ContextMenu

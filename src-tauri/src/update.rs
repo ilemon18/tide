@@ -112,6 +112,8 @@ pub struct UpdateInfo {
     pub name: String,
     pub page_url: String,
     pub published_at: String,
+    #[serde(default)]
+    pub notes: String,
     /// Installer file name to download; empty when this platform has none, or when the release
     /// is only known as a tag — the UI then links to the release page instead
     pub asset_name: String,
@@ -136,6 +138,7 @@ impl UpdateInfo {
             name: String::new(),
             page_url: String::new(),
             published_at: String::new(),
+            notes: String::new(),
             asset_name: String::new(),
             asset_size: 0,
             download_url: String::new(),
@@ -215,6 +218,8 @@ struct Manifest {
     published_at: String,
     #[serde(default)]
     assets: ManifestAssets,
+    #[serde(default)]
+    notes: String,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -764,6 +769,7 @@ fn info_from_manifest(manifest: Manifest, current: &str, platform: Platform) -> 
         name: manifest.tag,
         page_url: manifest.page_url,
         published_at: manifest.published_at,
+        notes: manifest.notes,
         asset_name,
         asset_size,
         download_url,
@@ -788,6 +794,7 @@ fn info_from_tag(tag: &str, page_url: &str, current: &str) -> UpdateInfo {
         name: tag.trim().to_string(),
         page_url: page_url.to_string(),
         published_at: String::new(),
+        notes: String::new(),
         asset_name: String::new(),
         asset_size: 0,
         download_url: String::new(),
@@ -1036,12 +1043,12 @@ pub fn update_open_page(url: String) -> AppResult<()> {
 }
 
 #[cfg(target_os = "macos")]
-fn open_in_browser(url: &str) -> std::io::Result<std::process::ExitStatus> {
+pub(crate) fn open_in_browser(url: &str) -> std::io::Result<std::process::ExitStatus> {
     crate::proc::command("open").arg(url).status()
 }
 
 #[cfg(windows)]
-fn open_in_browser(url: &str) -> std::io::Result<std::process::ExitStatus> {
+pub(crate) fn open_in_browser(url: &str) -> std::io::Result<std::process::ExitStatus> {
     // `start` is a cmd builtin; the empty string is the window title it would otherwise eat
     crate::proc::command("cmd")
         .args(["/C", "start", ""])
@@ -1050,7 +1057,7 @@ fn open_in_browser(url: &str) -> std::io::Result<std::process::ExitStatus> {
 }
 
 #[cfg(all(unix, not(target_os = "macos")))]
-fn open_in_browser(url: &str) -> std::io::Result<std::process::ExitStatus> {
+pub(crate) fn open_in_browser(url: &str) -> std::io::Result<std::process::ExitStatus> {
     crate::proc::command("xdg-open").arg(url).status()
 }
 
@@ -1692,6 +1699,7 @@ mod tests {
             tag: format!("v{version}"),
             page_url: String::new(),
             published_at: String::new(),
+            notes: "- New feature".into(),
             assets: ManifestAssets {
                 macos: Some(ManifestAsset {
                     name: "tide-macos-9.9.9.dmg".to_string(),
@@ -1712,6 +1720,7 @@ mod tests {
         assert!(info.available);
         assert_eq!(info.latest, "9.9.9");
         assert_eq!(info.checksum, "abc");
+        assert_eq!(info.notes, "- New feature");
 
         // No package for this platform = unavailable, but a release does exist
         let info = info_from_manifest(

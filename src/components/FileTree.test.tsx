@@ -47,7 +47,7 @@ beforeEach(() => {
   vi.stubGlobal('requestAnimationFrame', vi.fn(() => 1))
   vi.stubGlobal('cancelAnimationFrame', vi.fn())
 })
-afterEach(() => { cleanup(); vi.unstubAllGlobals() })
+afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
 it.each([false, true])('leaves a loaded tree blank without a placeholder (hidden entries=%s)', hidden => {
   if (hidden) workspace.roots[0].tree[''].entries = [{
@@ -117,4 +117,22 @@ it('reveals a paged file row and centers it vertically', async () => {
   const tree = container.querySelector<HTMLElement>('.tree-pane')!
   await waitFor(() => expect(tree.scrollTop).toBe(299 * ROW_H + ROW_H / 2))
   expect(workspace.clearTreeReveal).toHaveBeenCalledWith(1)
+})
+
+it('uses paged reveal for an upper-position file tab and preserves horizontal scroll', async () => {
+  const entries = Array.from({ length: 300 }, (_, i) => ({
+    name: `f${i}.ts`, path: `f${i}.ts`, isDir: false, isSymlink: false, ignored: false, size: 1, mtime: 1,
+  }))
+  workspace.roots[0].tree[''] = { entries, total: entries.length, hasMore: false, loading: false }
+  workspace.treeReveal = { root: '/repo', rel: 'f150.ts', isDir: false, nonce: 2, upper: true }
+  workspace.revealPath.mockResolvedValue({ found: true, fallbackRel: 'f150.ts' })
+  vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(240)
+  const { container } = render(<FileTree />)
+  const tree = container.querySelector<HTMLElement>('.tree-pane')!
+  tree.scrollLeft = 87
+  await act(async () => {})
+  expect(workspace.revealPath).toHaveBeenCalledWith('/repo', 'f150.ts', false)
+  await waitFor(() => expect(tree.scrollTop).toBe(150 * ROW_H - 240 / 4))
+  expect(tree.scrollLeft).toBe(87)
+  expect(workspace.clearTreeReveal).toHaveBeenCalledWith(2)
 })

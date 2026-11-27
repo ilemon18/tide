@@ -120,6 +120,26 @@ export const ROUTING_FIXTURES = Object.freeze([
     expected: ['i18n.md'],
   },
   {
+    name: 'Configuration transfer and backup',
+    paths: ['src/components/ConfigSettings.tsx', 'src/lib/configBackup.ts', 'src-tauri/src/commands/config.rs'],
+    expected: ['configuration.md'],
+  },
+  {
+    name: 'Breadcrumb sibling picker',
+    paths: ['src/components/BreadcrumbMenu.tsx', 'src/components/BreadcrumbMenu.test.tsx'],
+    expected: ['file-tree.md'],
+  },
+  {
+    name: 'Release history generation and delivery',
+    paths: ['scripts/release-history.mjs', 'changes/releases.json', 'src/components/ReleaseNotes.tsx'],
+    expected: ['checks.md', 'updates.md'],
+  },
+  {
+    name: 'Local HTML preview',
+    paths: ['src/components/GoLive.tsx', 'src/store/goLive.ts', 'src-tauri/src/live_preview.rs'],
+    expected: ['live-preview.md'],
+  },
+  {
     name: 'Guard and CI workflow',
     paths: ['scripts/check-ai-docs.mjs', '.github/workflows/ci.yml'],
     expected: ['checks.md'],

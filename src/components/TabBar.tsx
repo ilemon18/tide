@@ -9,6 +9,7 @@ import {
   useState,
 } from 'react'
 import { createPortal } from 'react-dom'
+import { useWorkspace } from '../store/workspace'
 import { groupTabs, useTabs, type Tab, type TabGroupId } from '../store/tabs'
 import { isSvgPath } from '../lib/media'
 import { basename } from '../lib/paths'
@@ -93,7 +94,7 @@ const TabItem = memo(function TabItem({
       data-away={away}
       data-pinned={tab.pinned}
       data-temporary={tab.temporary}
-      className={`tab-pill group absolute left-0 top-[3px] flex h-[28px] cursor-default items-center gap-1.5 overflow-hidden pl-2.5 pr-1.5 text-sm ${
+      className={`tab-pill group absolute left-0 top-[3px] flex h-[28px] cursor-pointer items-center gap-1.5 overflow-hidden pl-2.5 pr-1.5 text-sm ${
         active ? 'text-fg' : 'text-muted hover:bg-hover hover:text-fg/90'
       } ${dragging ? 'cursor-grabbing' : ''}`}
       style={{ transform: `translateX(${x}px)` }}
@@ -410,7 +411,12 @@ export function TabBar({
     if (event.button !== 0) return
     if ((event.target as HTMLElement).closest('button')) return
 
+    const tab = useTabs.getState().tabs.find(tab => tab.id === id)
+    const previous = useTabs.getState().groups.find(group => group.id === groupId)?.activeId
     activate(id, groupId)
+    if (previous !== id && tab?.root && tab.rel && !tab.external && (tab.kind === 'file' || tab.kind === 'diff')) {
+      useWorkspace.getState().requestTreeReveal({ root: tab.root, rel: tab.rel, isDir: false, upper: true })
+    }
     const track = trackRef.current
     const tabRect = event.currentTarget.getBoundingClientRect()
     const trackLeft = track?.getBoundingClientRect().left ?? 0

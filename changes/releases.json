@@ -1,0 +1,149 @@
+{
+  "schemaVersion": 1,
+  "releases": [
+    {
+      "version": "0.0.17",
+      "date": "2026-11-26T09:42:31Z",
+      "notes": "- 优化文件标签、更新操作、Git 右键菜单和 Agent 卡片交互。\n- 新增点击行号区域查看 blame，Agent 图标跟随主题。\n- 展示每轮 Agent 的文件改动，支持撤销最近一轮修改。\n- 修复发布前检查问题，收紧仓库文档约束。",
+      "publishedNotes": "**Full Changelog**: https://github.com/ilemon18/tide/compare/v0.0.16...v0.0.17",
+      "commits": [
+        {
+          "sha": "1212da42adaa57156513aa4883377c0ff94c2659",
+          "subject": "feat: refine tab, update, Git menu and Agent card UX"
+        },
+        {
+          "sha": "18b9d8fbd4a173ed623b9dd8ff0bd9551bc6f091",
+          "subject": "feat: add click-to-blame gutter and theme-aware agent icons"
+        },
+        {
+          "sha": "fb30435fb540c65bf8a16a8cbe5d131418f63a63",
+          "subject": "feat(agent): add turn change cards with undo for the latest turn"
+        },
+        {
+          "sha": "c3a1af28d39d6d5b1f4fb0c04c076925db8ea950",
+          "subject": "fix(release): repair preflight failures and tighten AI docs"
+        }
+      ]
+    },
+    {
+      "version": "0.0.16",
+      "date": "2026-11-26T06:48:17Z",
+      "notes": "- 新增 Git stash、stash pop 和重置操作。\n- 新增编辑器差异边栏标记和导入路径跳转。",
+      "publishedNotes": "**Full Changelog**: https://github.com/ilemon18/tide/compare/v0.0.15...v0.0.16",
+      "commits": [
+        {
+          "sha": "0c57867df7840c777a089893f35606f84607387e",
+          "subject": "feat: add git stash and reset, diff gutter marks and import jumps"
+        }
+      ]
+    },
+    {
+      "version": "0.0.15",
+      "date": "2026-11-26T02:56:48Z",
+      "notes": "- 统一任务与问题面板的显示开关，并简化卡片层级。",
+      "publishedNotes": "feat(ui): merge tasks visibility into tasksEnabled and flatten cards",
+      "commits": [
+        {
+          "sha": "514d7dabefa16937c317faaa8c03ee5c3818b3a0",
+          "subject": "feat(ui): merge tasks visibility into tasksEnabled and flatten cards"
+        }
+      ]
+    },
+    {
+      "version": "0.0.14",
+      "date": "2026-11-26T02:22:48Z",
+      "notes": "- 统一任务与问题面板的显示开关，并简化卡片层级。",
+      "publishedNotes": "feat(ui): merge tasks visibility into tasksEnabled and flatten cards",
+      "commits": [
+        {
+          "sha": "cc45f7247bbe277809f21444e30d0d136fb7bf87",
+          "subject": "feat(ui): merge tasks visibility into tasksEnabled and flatten cards"
+        }
+      ]
+    },
+    {
+      "version": "0.0.13",
+      "date": "2026-11-26T01:27:01Z",
+      "notes": "- 优化快捷键录制和项目会话恢复。\n- 简化聊天历史列表，支持按 Enter 确认删除。\n- 优化项目标题区域，支持打开工作区外的文件。\n- 新增活动栏显示开关，串行处理 Git 暂存区更新。\n- 完善跨平台回归用例和 Agent 文档。",
+      "publishedNotes": "test: harden platform-specific fixtures and tidy agent docs",
+      "commits": [
+        {
+          "sha": "79d646e49681d67ad6a503b09fe0e52ef580c848",
+          "subject": "feat: polish shortcut recording and project session restore"
+        },
+        {
+          "sha": "a81c66738ce025eba7adc44336d3f4c9b9f77e64",
+          "subject": "feat(agent): simplify chat history rows and confirm deletes with Enter"
+        },
+        {
+          "sha": "5a1e384f1f253b9c789eab43e4046937df0e3bb0",
+          "subject": "feat(explorer): restyle project header as a keyed masthead"
+        },
+        {
+          "sha": "39520e9c317cf103954f12abfcbe9bfc2268a66c",
+          "subject": "feat(editor): open files outside the workspace as external tabs"
+        },
+        {
+          "sha": "0bf9ca6bdf85a637ec49c4891f75a1d5da34f382",
+          "subject": "feat: add activity bar visibility and serialize git index updates"
+        },
+        {
+          "sha": "8957ab4045d0e0fd7a3626802f34cae7867cd40f",
+          "subject": "test: harden platform-specific fixtures and tidy agent docs"
+        }
+      ]
+    },
+    {
+      "version": "0.0.12",
+      "date": "2026-11-25T06:07:07Z",
+      "notes": "- 将聊天历史改为可调整宽度的侧边抽屉。",
+      "publishedNotes": "feat(agent): dock chat history as a resizable side drawer",
+      "commits": [
+        {
+          "sha": "8e993f84c326064648c445deb27f201a6235467c",
+          "subject": "feat(agent): dock chat history as a resizable side drawer"
+        }
+      ]
+    },
+    {
+      "version": "0.0.11",
+      "date": "2026-11-25T02:15:03Z",
+      "notes": "- 新增可搜索的项目聊天历史页面。\n- 修复 blame 悬浮提示和 Agent 聊天状态稳定性。\n- 优化提问卡片与计划卡片样式。",
+      "publishedNotes": "feat(agent): restyle question and plan cards",
+      "commits": [
+        {
+          "sha": "340e179a3d162d62b8c7a035eca594e6b37c89c5",
+          "subject": "feat(agent): add searchable project chat history page"
+        },
+        {
+          "sha": "b09c941adef74b582bf84bedfcf1b81adc9515e9",
+          "subject": "fix: stabilize blame hovers and agent chat state"
+        },
+        {
+          "sha": "c906783936e54200542e472d987a52134cafce7c",
+          "subject": "feat(agent): restyle question and plan cards"
+        }
+      ]
+    },
+    {
+      "version": "0.0.10",
+      "date": "2026-11-24T03:37:57Z",
+      "notes": "- 新增聊天历史删除，优化设置页面交互。\n- 改善 macOS DMG 安装体验。\n- 修复聊天自动跟随滚动，移除空文件夹占位提示。",
+      "publishedNotes": "fix: preserve chat scroll following and hide empty folder hints",
+      "commits": [
+        {
+          "sha": "72dc25452d46c4625132076afdfdb2b31f19719b",
+          "subject": "feat: add chat history deletion and refine settings interactions"
+        },
+        {
+          "sha": "51189b0fc44e9ac6fe0f39e5b23a187e89e2875e",
+          "subject": "feat: improve macOS DMG installation experience"
+        },
+        {
+          "sha": "c49c0c3bc0d0b1d4436d81bea11d57545bd8a00f",
+          "subject": "fix: preserve chat scroll following and hide empty folder hints"
+        }
+      ]
+    }
+  ]
+}

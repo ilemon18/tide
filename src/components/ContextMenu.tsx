@@ -83,7 +83,7 @@ export function ContextMenu({ x, y, items, onClose, maxHeight }: Props) {
             aria-pressed={item.checked}
             className={`mx-1 flex ${item.description ? 'min-h-6 max-w-[340px] py-1.5' : 'h-6'} w-[calc(100%_-_8px)] items-center justify-between gap-6 rounded-[var(--r-row)] px-2 text-left text-sm transition-colors duration-fast ${
               item.disabled
-                ? 'cursor-default text-muted/50'
+                ? 'cursor-not-allowed text-muted/50'
                 : `hover:bg-hover ${item.danger ? 'text-danger' : 'text-fg'}`
             }`}
           >

@@ -26,6 +26,19 @@ beforeEach(() => {
 afterEach(cleanup)
 const row = (container: HTMLElement, id: string) => within(container.querySelector<HTMLElement>('[data-command-id="' + id + '"]')!)
 
+it('finds Alt mouse gestures without offering keyboard rebinding or changing overrides', () => {
+  render(<ShortcutSettings />)
+  fireEvent.change(screen.getByRole('textbox', { name: t('shortcuts.search') }), { target: { value: 'Alt' } })
+  const gesture = screen.getByRole('region', { name: t('shortcuts.multicursor') })
+  expect(within(gesture).getByText(t('shortcuts.multicursorHint'))).toBeTruthy()
+  expect(within(gesture).queryByRole('button')).toBeNull()
+  expect(screen.queryByText(t('commands.noResults'))).toBeNull()
+  expect(useSettings.getState().shortcutOverrides).toEqual({})
+  fireEvent.change(screen.getByRole('textbox', { name: t('shortcuts.search') }), { target: { value: 'no such gesture or command' } })
+  expect(screen.queryByRole('region', { name: t('shortcuts.multicursor') })).toBeNull()
+  expect(screen.getByText(t('commands.noResults'))).toBeTruthy()
+})
+
 it('records, previews a conflict, and transfers ownership only when saved', () => {
   const { container } = render(<ShortcutSettings />)
   fireEvent.click(row(container, 'agent.ask').getByRole('button', { name: t('shortcuts.editBinding', { keys: '⌘ ⇧ A' }) }))

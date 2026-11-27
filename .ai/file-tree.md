@@ -3,6 +3,7 @@ summary: Workspace tree, folder chains and watchers
 scope:
   - .ai/file-tree.md
   - src/components/FileTree*.tsx
+  - src/components/BreadcrumbMenu*.tsx
   - src/store/workspace.ts
   - src/store/fileIndex.ts
   - src/lib/workspaceEntries*.ts
@@ -44,6 +45,13 @@ Permission failures stay distinct from absence.
   horizontally and forcing layout even when selected. Keep centring through late folder-chain compaction,
   then release on the settle timer or a user scroll/pointer/key gesture; plain reveals only scroll into view
   when needed. A missing target falls back to the deepest loaded ancestor and reports `io.notFound`.
+- Switched file-tab clicks request `TreeReveal.upper`: use the same paged reveal and settle lifecycle,
+  selecting at one quarter of the viewport height while preserving horizontal scroll.
+- TitleBar breadcrumbs browse siblings via `BreadcrumbMenu` and `readDirectoryEntries`; directory entries
+  expand lazily, files open in the active pane, and symlinks remain unavailable. Match Explorer's hidden-file
+  filter. Obsolete reads cannot update a closed picker; keyboard selection and Escape stay within it.
+- On macOS TitleBar measures `data-explorer-project-label` to align the badge/path with the project name,
+  accounting for UI scale. Resize observers release on teardown; hidden Explorer uses the 84px fallback.
 - `isSymlink` comes from link metadata and all symlinks are leaves, even directory links. Single click, ⌘↓
   and pane drop reject open/expand with `error.fs.symlinkUnsupported`; rename/delete/move operate on the link.
   Double-click remains the tree gesture and its second click must not repeat open/toggle or switch chats.

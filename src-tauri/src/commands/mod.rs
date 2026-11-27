@@ -7,3 +7,4 @@ pub mod search;
 pub mod terminal;
 pub mod tasks;
 pub mod theme;
+pub mod config;

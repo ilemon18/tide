@@ -54,6 +54,8 @@ policy. DiffView/diffScroll own positioning; `editor/conflicts` owns resolution 
   [file-tree.md](./file-tree.md).
 - Git rows single-click into their diff; double/context-click opens the file menu with lazy metadata.
   Respect `agentEnabled` and symlink rules; placeholders get no mutations.
+- Hover actions share centered 18px slots, with a 2px inset from the right edge. `Icon` owns optical glyph
+  alignment; disabled controls retain hints and use not-allowed rather than suppressing pointer events.
 
 ## Blame and discard
 

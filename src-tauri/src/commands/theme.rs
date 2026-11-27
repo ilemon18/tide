@@ -68,6 +68,11 @@ pub struct Settings {
     pub lightweight_mode: bool,
     /// Download application updates in the background, but always ask before installing
     pub auto_update: bool,
+    pub config_backup_enabled: bool,
+    pub config_backup_folder: String,
+    pub config_backup_interval: String,
+    pub config_backup_mode: String,
+    pub config_backup_last_at: u64,
     /// Built-in agent service: title-bar entry, explorer double-click entry, chat tabs
     pub agent_enabled: bool,
     /// Project task discovery, execution and Problems diagnostics
@@ -188,6 +193,11 @@ impl Default for Settings {
             terminal_webgl: false,
             lightweight_mode: false,
             auto_update: false,
+            config_backup_enabled: false,
+            config_backup_folder: String::new(),
+            config_backup_interval: "daily".into(),
+            config_backup_mode: "dated".into(),
+            config_backup_last_at: 0,
             agent_enabled: true,
             tasks_enabled: true,
             agent_history_enabled: true,

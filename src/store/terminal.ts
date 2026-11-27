@@ -8,6 +8,7 @@ export type TerminalTab = {
   id: string
   /** Creation ordinal: the title is built from the current language at render time, not stored */
   ordinal: number
+  pinned?: 'left' | 'right' | null
   ptyId: string | null
   exited: boolean
   /** +1 on every restart, forces TerminalView to rebuild the xterm instance */
@@ -29,6 +30,9 @@ type TerminalStore = {
   close: (id: string) => void
   /** End all terminal sessions and collapse the panel */
   closeAll: () => void
+  closeMatching: (id: string, mode: 'others' | 'left' | 'right' | 'exited') => void
+  pin: (id: string, side: 'left' | 'right' | null) => void
+  reorder: (id: string, targetId: string, after: boolean) => void
   activate: (id: string) => void
   setVisible: (visible: boolean) => void
   toggle: () => void
@@ -128,8 +132,9 @@ export const useTerminal = create<TerminalStore>((set, get) => ({
   open: (root, rel = '') => {
     // No root means "open in the current project"; only an explicit null means no project
     const targetRoot = root === undefined ? (activeRoot()?.id ?? null) : root
-    terminalCounter += 1
-    const id = `term-${Date.now()}-${terminalCounter}`
+    if (get().tabs.length === 0) terminalCounter = 0
+    terminalCounter = Math.max(terminalCounter, ...get().tabs.map(tab => tab.ordinal), 0) + 1
+    const id = crypto.randomUUID()
     const tab: TerminalTab = {
       id,
       ordinal: terminalCounter,
@@ -139,7 +144,10 @@ export const useTerminal = create<TerminalStore>((set, get) => ({
       root: targetRoot,
       rel,
     }
-    set({ tabs: [...get().tabs, tab], activeId: id, visible: true })
+    const tabs = [...get().tabs]
+    const right = tabs.findIndex(tab => tab.pinned === 'right')
+    tabs.splice(right < 0 ? tabs.length : right, 0, tab)
+    set({ tabs, activeId: id, visible: true })
     return id
   },
 
@@ -176,7 +184,43 @@ export const useTerminal = create<TerminalStore>((set, get) => ({
     set({ tabs: [], activeId: null, visible: false, maximized: false })
   },
 
-  activate: (id) => set({ activeId: id }),
+  closeMatching: (id, mode) => {
+    const tabs = get().tabs
+    const index = tabs.findIndex(tab => tab.id === id)
+    if (index < 0) return
+    const targets = tabs.filter((tab, i) => !tab.pinned && (
+      mode === 'others' ? tab.id !== id : mode === 'left' ? i < index :
+      mode === 'right' ? i > index : tab.exited
+    ))
+    for (const tab of targets) get().close(tab.id)
+  },
+
+  pin: (id, side) => {
+    const target = get().tabs.find(tab => tab.id === id)
+    if (!target) return
+    const tabs = get().tabs.filter(tab => tab.id !== id)
+    const updated = { ...target, pinned: side }
+    if (side === 'left') tabs.unshift(updated)
+    else if (side === 'right') tabs.push(updated)
+    else {
+      const right = tabs.findIndex(tab => tab.pinned === 'right')
+      tabs.splice(right < 0 ? tabs.length : right, 0, updated)
+    }
+    set({ tabs })
+  },
+
+  reorder: (id, targetId, after) => {
+    if (id === targetId) return
+    const source = get().tabs.find(tab => tab.id === id)
+    const target = get().tabs.find(tab => tab.id === targetId)
+    if (!source || !target || (source.pinned ?? null) !== (target.pinned ?? null)) return
+    const tabs = get().tabs.filter(tab => tab.id !== id)
+    const index = tabs.findIndex(tab => tab.id === targetId)
+    tabs.splice(index + (after ? 1 : 0), 0, source)
+    set({ tabs })
+  },
+
+  activate: (id) => { if (get().tabs.some(tab => tab.id === id)) set({ activeId: id }) },
 
   setVisible: (visible) => set({ visible, ...(visible ? {} : { maximized: false }) }),
 
@@ -227,7 +271,7 @@ export const useTerminal = create<TerminalStore>((set, get) => ({
   retarget: (root) => {
     const { tabs } = get()
     let changed = false
-    const next = tabs.map((tab, i) => {
+    const next = tabs.map((tab) => {
       if (tab.root === root && tab.rel === '') return tab
       changed = true
       if (tab.ptyId) {
@@ -241,7 +285,6 @@ export const useTerminal = create<TerminalStore>((set, get) => ({
       }
       return {
         ...tab,
-        ordinal: i + 1,
         ptyId: null,
         exited: false,
         // A new generation makes TerminalView rebuild and reopen the shell with the new root

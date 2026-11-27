@@ -69,6 +69,32 @@ jobs:
           echo "Preparing release v${version}"
           echo "value=${version}" >> "${GITHUB_OUTPUT}"
 
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Generate version history and release notes
+        env:
+          VERSION: ${{ steps.resolve.outputs.value }}
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          node scripts/release-history.mjs --version "${VERSION}" --notes-file release-notes.md
+          cp changes/unreleased.md release-fragment.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-notes
+          path: |
+            changes/releases.json
+            CHANGELOG.md
+            release-notes.md
+            release-fragment.md
+
   build:
     name: Build ${{ matrix.name }}
     needs: version
@@ -99,6 +125,11 @@ jobs:
             extension: exe
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-notes
+          path: .
 
       - uses: pnpm/action-setup@v4
         with:
@@ -370,7 +401,7 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          node scripts/make-latest-json.mjs --dist dist --version "${VERSION}" --repo "${REPO}"
+          node scripts/make-latest-json.mjs --dist dist --version "${VERSION}" --repo "${REPO}" --notes-file dist/release-notes.md
           cat dist/latest.json
 
       - name: Publish GitHub release
@@ -381,11 +412,21 @@ jobs:
           # With workflow_dispatch the tag is created on the dispatched commit;
           # when triggered by a tag push the tag already exists and this is ignored.
           target_commitish: ${{ github.sha }}
-          generate_release_notes: true
+          body_path: dist/release-notes.md
+          generate_release_notes: false
           prerelease: ${{ contains(needs.version.outputs.value, '-') }}
           fail_on_unmatched_files: true
           files: |
             dist/tide-macos-*.dmg
             dist/tide-win-*.exe
             dist/latest.json
+            dist/changes/releases.json
+            dist/CHANGELOG.md
             install.sh
+
+      - name: Archive release history in the repository
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const archive = require('./scripts/archive-release-history.cjs')
+            await archive({ github, context, core, version: '${{ needs.version.outputs.value }}' })

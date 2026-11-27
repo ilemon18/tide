@@ -20,6 +20,7 @@ export type UpdateInfo = {
   name: string
   pageUrl: string
   publishedAt: string
+  notes?: string
   assetName: string
   assetSize: number
   downloadUrl: string

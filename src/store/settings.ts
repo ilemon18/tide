@@ -22,7 +22,7 @@ import { DEFAULT_MONO_FONT } from '../lib/fonts'
 import { applyLocale, DEFAULT_LOCALE, isLocale } from '../i18n'
 import { applyMemoryProfileChange, setMemoryProfile } from '../lib/memoryBudget'
 
-export const SETTINGS_SCHEMA_VERSION = 16
+export const SETTINGS_SCHEMA_VERSION = 17
 export const AGENT_COMPOSER_MIN_HEIGHT = 90
 export const AGENT_COMPOSER_MAX_HEIGHT = 480
 
@@ -37,6 +37,7 @@ export const DEFAULT_SETTINGS: Settings = {
   fontSize: 13,
   terminalFontSize: 12,
   terminalScrollback: 2000,
+  terminalShell: '',
   tabSize: 2,
   autoSave: false,
   wordWrap: false,
@@ -52,6 +53,11 @@ export const DEFAULT_SETTINGS: Settings = {
   terminalWebgl: false,
   lightweightMode: false,
   autoUpdate: false,
+  configBackupEnabled: false,
+  configBackupFolder: '',
+  configBackupInterval: 'daily',
+  configBackupMode: 'dated',
+  configBackupLastAt: 0,
   agentEnabled: true,
   tasksEnabled: true,
   agentHistoryEnabled: true,
@@ -70,6 +76,9 @@ export const DEFAULT_SETTINGS: Settings = {
 }
 
 type SettingsStore = Settings & {
+  exportSettings: () => Settings
+  importSettings: (raw: Settings) => Promise<void>
+  flushAsync: () => Promise<void>
   loaded: boolean
   palette: Palette
   load: () => Promise<void>
@@ -87,6 +96,7 @@ type SettingsStore = Settings & {
  * window and stay out of sync, otherwise windows fight each other.
  */
 const SHARED_KEYS = [
+  'schemaVersion',
   'shortcutOverrides',
   'locale',
   'theme',
@@ -96,6 +106,7 @@ const SHARED_KEYS = [
   'fontSize',
   'terminalFontSize',
   'terminalScrollback',
+  'terminalShell',
   'tabSize',
   'autoSave',
   'wordWrap',
@@ -111,6 +122,11 @@ const SHARED_KEYS = [
   'terminalWebgl',
   'lightweightMode',
   'autoUpdate',
+  'configBackupEnabled',
+  'configBackupFolder',
+  'configBackupInterval',
+  'configBackupMode',
+  'configBackupLastAt',
   'agentEnabled',
   'tasksEnabled',
   'agentHistoryEnabled',
@@ -141,7 +157,7 @@ const RETIRED_KEYS = new Set(['breadcrumbs', 'activityBarTasksVisible'])
 /** Pick the keys this version does not know from the loaded config */
 function pickUnknownFields(raw: Settings): Record<string, unknown> {
   const known = new Set(Object.keys(DEFAULT_SETTINGS))
-  const extras: Record<string, unknown> = {}
+  const extras: Record<string, unknown> = Object.create(null)
   for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
     if (!known.has(key) && !RETIRED_KEYS.has(key)) extras[key] = value
   }
@@ -151,6 +167,7 @@ function pickUnknownFields(raw: Settings): Record<string, unknown> {
 let saveTimer: ReturnType<typeof setTimeout> | null = null
 /** Serial write queue: IPC commands run concurrently, two quick theme clicks can land out of order, chaining keeps it ordered */
 let saveChain: Promise<unknown> = Promise.resolve()
+let saveError: unknown = null
 
 /**
  * The settings:changed broadcast echoes back to us, and during fast edits (arrow-key preview, repeated clicks)
@@ -175,55 +192,13 @@ function isSelfEcho(next: Settings): boolean {
 function writeSettings(settings: Settings) {
   rememberWrite(settings)
   saveChain = saveChain
-    .then(() => api.saveSettings(settings))
-    .catch((e) => console.error('保存设置失败', errorText(e)))
+    .then(async () => { await api.saveSettings(settings); saveError = null })
+    .catch((e) => { saveError = e; console.error('保存设置失败', errorText(e)) })
 }
 
 function snapshot(s: SettingsStore): Settings {
-  return {
-    // Unknown fields first, then known ones: on conflict this version wins
-    ...unknownFields,
-    shortcutOverrides: s.shortcutOverrides,
-    schemaVersion: SETTINGS_SCHEMA_VERSION,
-    locale: s.locale,
-    theme: s.theme,
-    iconTheme: s.iconTheme,
-    fontFamily: s.fontFamily,
-    uiFontSize: s.uiFontSize,
-    fontSize: s.fontSize,
-    terminalFontSize: s.terminalFontSize,
-    terminalScrollback: s.terminalScrollback,
-    tabSize: s.tabSize,
-    autoSave: s.autoSave,
-    wordWrap: s.wordWrap,
-    trimTrailingWhitespace: s.trimTrailingWhitespace,
-    insertFinalNewline: s.insertFinalNewline,
-    indentGuides: s.indentGuides,
-    ligatures: s.ligatures,
-    formatMode: s.formatMode,
-    formatTool: s.formatTool,
-    showHidden: s.showHidden,
-    compactFolders: s.compactFolders,
-    inlineBlame: s.inlineBlame,
-    terminalWebgl: s.terminalWebgl,
-    lightweightMode: s.lightweightMode,
-    autoUpdate: s.autoUpdate,
-    agentEnabled: s.agentEnabled,
-    tasksEnabled: s.tasksEnabled,
-    agentHistoryEnabled: s.agentHistoryEnabled,
-    activityBarWelcomeVisible: s.activityBarWelcomeVisible,
-    activityBarGitVisible: s.activityBarGitVisible,
-    activityBarStructureVisible: s.activityBarStructureVisible,
-    agentDefaultProvider: s.agentDefaultProvider,
-    agentDefaultModel: s.agentDefaultModel,
-    agentDefaultEffort: s.agentDefaultEffort,
-    agentDefaultPermissionMode: s.agentDefaultPermissionMode,
-    agentComposerHeight: s.agentComposerHeight,
-    sidebarWidth: s.sidebarWidth,
-    panelHeight: s.panelHeight,
-    sidebarVisible: s.sidebarVisible,
-    panelVisible: s.panelVisible,
-  }
+  const values = Object.fromEntries(Object.keys(DEFAULT_SETTINGS).map(key => [key, s[key as keyof Settings]]))
+  return { ...unknownFields, ...values, schemaVersion: Math.max(SETTINGS_SCHEMA_VERSION, s.schemaVersion) } as Settings
 }
 
 /** Appearance and Agent defaults write at once so a new window can read the latest choices. */
@@ -241,10 +216,19 @@ function persist(get: () => SettingsStore, delay = 400) {
 }
 
 /** Migrate old configs */
-function migrate(raw: Settings): Settings {
-  const next = { ...DEFAULT_SETTINGS, ...raw }
+export function migrateSettings(raw: Settings): Settings {
+  const next = { ...DEFAULT_SETTINGS }
+  for (const key of Object.keys(DEFAULT_SETTINGS) as (keyof Settings)[]) {
+    const value = raw[key]
+    const fallback = DEFAULT_SETTINGS[key]
+    if (typeof value !== typeof fallback) continue
+    if (typeof value === 'number' && (!Number.isFinite(value) || value < 0 || (key !== 'configBackupLastAt' && value > 0xffffffff) || (!['schemaVersion', 'configBackupLastAt'].includes(key) && value === 0))) continue
+    // Date's calendar range is narrower than the native timestamp integer; reject unusable backups.
+    if (key === 'configBackupLastAt' && typeof value === 'number' && !Number.isFinite(new Date(value).getTime())) continue
+    ;(next as Record<string, unknown>)[key] = value
+  }
   for (const key of RETIRED_KEYS) delete (next as unknown as Record<string, unknown>)[key]
-  const version = raw.schemaVersion ?? 0
+  const version = typeof raw.schemaVersion === 'number' && Number.isFinite(raw.schemaVersion) ? raw.schemaVersion : 0
 
   // v1 → v2: the old default theme was 'system' (really light); unify onto the new default Dracula.
   // Only for v1, otherwise it would override "follow system" chosen by the user in v2.
@@ -273,10 +257,17 @@ function migrate(raw: Settings): Settings {
   // v8 -> v9 adds ligatures, v9 -> v10 adds agentComposerHeight, v10 -> v11 adds
   // agentDefaultPermissionMode, v11 -> v12 adds autoUpdate, v12 -> v13 adds agentHistoryEnabled,
   // v15 -> v16 adds the activity bar visibility switches. DEFAULT_SETTINGS covers
-  // missing values for each of these additions.
+  // v16 -> v17 adds configuration backup preferences; missing values use DEFAULT_SETTINGS.
   // Keep larger stored heights when the current window is short: the composer clamps them for display only.
   next.shortcutOverrides = normalizeOverrides(next.shortcutOverrides)
-  next.schemaVersion = SETTINGS_SCHEMA_VERSION
+  next.schemaVersion = Math.max(SETTINGS_SCHEMA_VERSION, next.schemaVersion)
+  if (!['daily', 'threeDays', 'weekly', 'monthly'].includes(next.configBackupInterval)) next.configBackupInterval = DEFAULT_SETTINGS.configBackupInterval
+  if (!['overwrite', 'dated'].includes(next.configBackupMode)) next.configBackupMode = DEFAULT_SETTINGS.configBackupMode
+  if (!next.configBackupFolder) next.configBackupEnabled = false
+  // Native integer settings must remain JSON integers after importing hand-edited files.
+  for (const key of Object.keys(DEFAULT_SETTINGS) as (keyof Settings)[]) {
+    if (typeof next[key] === 'number') (next as Record<string, unknown>)[key] = Math.round(next[key] as number)
+  }
 
   // Theme / icon set / font: only check the type, keep unknown-but-valid strings so an older version does not
   // erase values from a newer config; the render side already falls back (paletteFor → tide, FileIcon → material,
@@ -325,6 +316,15 @@ function migrate(raw: Settings): Settings {
 
 export const useSettings = create<SettingsStore>((set, get) => ({
   ...DEFAULT_SETTINGS,
+  exportSettings: () => snapshot(get()),
+  importSettings: async raw => {
+    const next = migrateSettings(raw)
+    await api.configRecovery(snapshot(get()))
+    unknownFields = pickUnknownFields(raw)
+    get().patch(next)
+    await get().flushAsync()
+  },
+  flushAsync: async () => { get().flush(); await saveChain; if (saveError) throw saveError },
   loaded: false,
   palette: palettes.tide,
 
@@ -337,7 +337,7 @@ export const useSettings = create<SettingsStore>((set, get) => ({
       const loaded = await api.loadSettings()
       // Keep fields this version does not know, to write them back unchanged
       unknownFields = pickUnknownFields(loaded)
-      settings = migrate(loaded)
+      settings = migrateSettings(loaded)
       migrated = !settingsEqual(settings, { ...DEFAULT_SETTINGS, ...loaded })
     } catch (e) {
       console.error('读取设置失败，使用默认值', errorText(e))
@@ -391,6 +391,9 @@ export const useSettings = create<SettingsStore>((set, get) => ({
       patch.fontFamily !== undefined ||
       patch.uiFontSize !== undefined ||
       patch.autoUpdate !== undefined ||
+      patch.configBackupEnabled !== undefined ||
+      patch.configBackupFolder !== undefined ||
+      patch.configBackupLastAt !== undefined ||
       patch.tasksEnabled !== undefined ||
       patch.agentHistoryEnabled !== undefined ||
       patch.agentDefaultProvider !== undefined ||
@@ -411,8 +414,10 @@ export const useSettings = create<SettingsStore>((set, get) => ({
 
   applyExternal: (next) => {
     // Our own write echoed back: local state is newer, ignore it
-    next = { ...next, shortcutOverrides: normalizeOverrides(next.shortcutOverrides) }
+    const extras = pickUnknownFields(next)
+    next = migrateSettings(next)
     if (isSelfEcho(next)) return
+    unknownFields = extras
     const current = get()
     // Follow all shared fields, else this window's stale value writes the other side's change back on next save
     const patch: Partial<SettingsStore> = {}

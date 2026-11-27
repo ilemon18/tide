@@ -233,8 +233,8 @@ const shapes: Record<IconName, ReactNode> = {
   ),
   undo: (
     <>
-      <path d="M8.5 6 4 10.5 8.5 15" />
-      <path d="M4 10.5h9.5a6 6 0 0 1 0 12H10" />
+      <path d="M8.5 4.5 4 9l4.5 4.5" />
+      <path d="M4 9h9.5a5.5 5.5 0 0 1 0 11H10" />
     </>
   ),
   trash: (
