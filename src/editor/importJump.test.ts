@@ -1,6 +1,6 @@
 import { Text } from '@codemirror/state'
 import { expect, it } from 'vitest'
-import { identifierAt, importTargetAt } from './importJump'
+import { identifierAt, importTargetAt, parseImports } from './importJump'
 
 function docOf(source: string): Text {
   return Text.of(source.split('\n'))
@@ -81,4 +81,40 @@ it('identifierAt returns the root of a member chain', () => {
   const ident = identifierAt(doc, source.indexOf('other'))
   expect(ident?.name).toBe('api')
   expect(doc.sliceString(ident!.from, ident!.to)).toBe('api')
+})
+
+it('parses default, named, aliased and multi-line imports', () => {
+  const source = [
+    "import Default, {",
+    '  plain,',
+    '  type Kind,',
+    '  original as local,',
+    "} from './mod'",
+  ].join('\n')
+  const [parsed] = parseImports(docOf(source))
+  expect(parsed.spec).toBe('./mod')
+  expect(parsed.defaultName?.name).toBe('Default')
+  expect(parsed.namespace).toBeUndefined()
+  expect(parsed.names.map((target) => [target.name, target.original])).toEqual([
+    ['plain', 'plain'],
+    ['Kind', 'Kind'],
+    ['local', 'original'],
+  ])
+})
+
+it('parses import type clauses', () => {
+  const [parsed] = parseImports(docOf("import type { Button } from './ui'"))
+  expect(parsed.spec).toBe('./ui')
+  expect(parsed.names.map((target) => [target.name, target.original])).toEqual([
+    ['Button', 'Button'],
+  ])
+})
+
+it('parses namespace and side-effect imports', () => {
+  const source = "import * as api from './api'\nimport './styles.css'"
+  const [namespace, sideEffect] = parseImports(docOf(source))
+  expect(namespace.spec).toBe('./api')
+  expect(namespace.namespace?.name).toBe('api')
+  expect(namespace.namespace?.original).toBe('*')
+  expect(sideEffect).toEqual({ spec: './styles.css', names: [] })
 })

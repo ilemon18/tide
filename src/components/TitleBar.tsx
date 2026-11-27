@@ -102,7 +102,7 @@ function WindowControls() {
 /**
  * Project badge: first two letters/digits of the name (for CJK, the first two chars),
  * uppercased into a solid accent square with a 2px radius. Clicking reveals the project root;
- * full name in a tooltip.
+ * full name in an aria-label.
  */
 function ProjectBadge({ name, root }: { name: string; root: string }) {
   const t = useT()
@@ -124,7 +124,6 @@ function ProjectBadge({ name, root }: { name: string; root: string }) {
     <button
       type="button"
       onClick={() => revealInExplorer(root, '', true)}
-      data-tip={t('titlebar.projectTip', { name })}
       aria-label={t('titlebar.projectAria', { name })}
       className="flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-[2px] bg-accent p-0 text-[10px] font-semibold uppercase leading-none tracking-[0.02em] text-accent-fg"
     >

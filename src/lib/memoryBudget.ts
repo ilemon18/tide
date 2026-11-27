@@ -68,6 +68,10 @@ export const budget = {
   previewFileBytes: () => (lightMemory() ? 2 * 1024 * 1024 : 5 * 1024 * 1024),
   /** Rows rendered by the side-by-side diff / full-file diff view; parsing stops at this cap too */
   diffRows: () => (lightMemory() ? 1500 : 3000),
+  /** Imported files parsed for member completion */
+  completionFiles: () => (lightMemory() ? 8 : 24),
+  /** Per-file source cap before smart completion skips imported members */
+  completionFileBytes: () => (lightMemory() ? 128 * 1024 : 256 * 1024),
 }
 
 /** Feature switches: what lightweight mode turns off outright (surfaced in the settings hint) */
@@ -76,6 +80,8 @@ export const feature = {
   inlineBlame: () => !lightMemory(),
   /** Import-path links: a viewport scan on every update */
   importLinks: () => !lightMemory(),
+  /** Smart symbol/import completion: document outlines plus bounded cross-file reads */
+  smartCompletion: () => !lightMemory(),
   /** Background quick-open index build on project open (still built on first ⌘P) */
   eagerFileIndex: () => !lightMemory(),
 }

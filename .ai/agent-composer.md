@@ -2,14 +2,11 @@
 summary: Input, mentions, questions and plans
 scope:
   - .ai/agent-composer.md
-  - src/store/agent.ts
-  - src/store/agent.test.ts
   - src/lib/agentCommand*.ts
   - src/lib/agentMentions*.ts
   - src/components/AgentComposer*.tsx
   - src/components/AgentPickers*.tsx
   - src/components/AgentTags*.tsx
-  - src/components/AgentChat*.tsx
   - src-tauri/src/agent/question.rs
   - src-tauri/src/agent/skills.rs
   - src-tauri/src/commands/agent.rs
@@ -35,6 +32,8 @@ keywords:
 ---
 # Agent input and planning
 
+共享状态与数据流见 [agent.md](./agent.md)，本文不重复。
+
 ## Ownership
 
 Composer/pickers own edits/selections; `agentCommand` builds guidance; the agent store owns cards, actions and
@@ -45,7 +44,8 @@ persistence follows [agent-storage.md](./agent-storage.md).
 
 - Enter/Ctrl+Enter/Cmd+Enter sends; Shift+Enter inserts a line. Candidate Enter commits first. Composition,
   `isComposing`, keyCode 229 and WebKit post-composition Enter precede completion/send/delete. Repeated Enter
-  never duplicates queue entries; preserve body whitespace.
+  never duplicates queue entries; preserve body whitespace. Esc stops the focused running chat, and the stop
+  control advertises that shortcut.
 - The composer starts at 90px and grows to min(480px, half-window); larger saved minima are preserved and
   smaller ones normalize up. Height owners: `settings.ts`/`theme.rs`.
 - The nearest `/`, `$` or `@` wins; slash/mention need a boundary and skills reject a preceding word or `$`.

@@ -39,8 +39,10 @@ it('orders context, stop and send and allows a standalone plan toggle', () => {
     running contextUsage={<button aria-label="context" />} onDraft={onChange} onMentions={onChange} onCommand={onChange}
     onSkills={onChange} onProvider={onChange} onModel={onChange} onEffort={onChange} onStop={onChange} onSend={onChange} />)
   const buttons = [...view.container.querySelectorAll('button')]
-  expect(buttons.indexOf(screen.getByLabelText('context'))).toBeLessThan(buttons.indexOf(screen.getByLabelText('agent.stop')))
-  expect(buttons.indexOf(screen.getByLabelText('agent.stop'))).toBeLessThan(buttons.indexOf(screen.getByLabelText('agent.queue.send')))
+  expect(buttons.indexOf(screen.getByLabelText('context'))).toBeLessThan(buttons.indexOf(screen.getByLabelText('agent.stopHint')))
+  expect(buttons.indexOf(screen.getByLabelText('agent.stopHint'))).toBeLessThan(buttons.indexOf(screen.getByLabelText('agent.queue.send')))
+  expect(screen.getByLabelText('agent.stopHint').getAttribute('data-tip')).toBe('agent.stopHint')
+  expect(en['agent.stopHint']).toContain('Esc')
   expect((screen.getByLabelText('agent.queue.send') as HTMLButtonElement).disabled).toBe(false)
   vi.unstubAllGlobals()
 })

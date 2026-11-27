@@ -47,6 +47,8 @@ CLIs own auth/models/tools; Rust owns processes; the agent store owns queues/UI.
 catalog in the background; empty/failed probes never clear the saved model. Input:
 [agent-composer.md](./agent-composer.md); history: [agent-storage.md](./agent-storage.md).
 
+store/agent.ts 同时承载 turns、history、composer 状态，改动前按小节判断。
+
 ## Turns and events
 
 - `agent_send` authorizes the root and launches with the prompt on stdin. Rust owns four-turn concurrency, one
@@ -88,10 +90,10 @@ catalog in the background; empty/failed probes never clear the saved model. Inpu
 
 - Write-capable turns snapshot before spawn and after reaping; `turnChanges` precedes `done`, so the summary
   joins the message and a queued turn cannot leak writes.
-- The card shows per-file status and numstat counts (200-row cap; truncation disables undo), opens the
-  unstaged diff and offers undo only on the latest message. Undo restores listed rows through the Git store,
-  never rewrites commits or touches unlisted paths; a pruned baseline fails with `git.turnSnapshotMissing`.
-  Mechanics: [git.md](./git.md).
+- The card shows per-file status, nonzero numstat counts and spaced rows (200-row cap; truncation disables
+  undo), opens the unstaged diff and offers undo only on the latest message. Undo restores listed rows through
+  the Git store, never rewrites commits or touches unlisted paths; a pruned baseline fails with
+  `git.turnSnapshotMissing`. Mechanics: [git.md](./git.md).
 
 ## Snapshot transport
 

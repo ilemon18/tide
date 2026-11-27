@@ -8,6 +8,15 @@ export type ImportTarget = {
   /** Exact range of that binding inside the import statement */
   from: number
   to: number
+  /** Name exported by the target module; defaults to `name` for default imports */
+  original?: string
+}
+
+export type ParsedImport = {
+  spec: string
+  defaultName?: ImportTarget
+  namespace?: ImportTarget
+  names: ImportTarget[]
 }
 
 /** Imports live at the top; bounding the scan keeps ⌘-click cheap in huge generated files. */
@@ -16,9 +25,11 @@ const MAX_SCAN_LINES = 2000
 
 const IDENT = /^[A-Za-z_$][\w$]*/
 
-/** `import ... from '…'`, including multi-line clauses; side-effect-only imports have no binding. */
-const IMPORT_RE = /(^|[\n;])\s*import\s+(?:type\s+)?([^;]*?)\s+from\s*(['"])([^'"\n]*)\3/g
+/** `import '…'` / `import … from '…'`, including multi-line clauses. */
+const IMPORT_RE =
+  /(^|[\n;])\s*import\s+(?:(['"])([^'"\n]*)\2|(?:type\s+)?([^;]*?)\s+from\s*(['"])([^'"\n]*)\5)/g
 
+const importsCache = new WeakMap<Text, ParsedImport[]>()
 const bindingsCache = new WeakMap<Text, Map<string, ImportTarget>>()
 
 function statementOffset(match: RegExpExecArray, clause: string): number {
@@ -27,23 +38,24 @@ function statementOffset(match: RegExpExecArray, clause: string): number {
   return match.index + Math.max(0, clauseAt)
 }
 
-function addBinding(
-  out: Map<string, ImportTarget>,
+function binding(
   doc: Text,
   clauseStart: number,
   offsetInClause: number,
   name: string,
-) {
-  if (!name || out.has(name)) return
+  original?: string,
+): ImportTarget | null {
+  if (!name) return null
   const abs = clauseStart + offsetInClause
   const line = doc.lineAt(abs)
   // Never let a malformed clause point past the line it was parsed from
   const from = Math.max(line.from, Math.min(abs, line.to - name.length))
-  out.set(name, { name, from, to: from + name.length })
+  return { name, from, to: from + name.length, ...(original ? { original } : {}) }
 }
 
-function parseImportBindings(doc: Text): Map<string, ImportTarget> {
-  const cached = bindingsCache.get(doc)
+/** Parse the import statements in one document. Results are cached by the immutable Text value. */
+export function parseImports(doc: Text): ParsedImport[] {
+  const cached = importsCache.get(doc)
   if (cached) return cached
 
   const end = Math.min(
@@ -52,42 +64,80 @@ function parseImportBindings(doc: Text): Map<string, ImportTarget> {
     doc.line(Math.min(doc.lines, MAX_SCAN_LINES)).to,
   )
   const text = doc.sliceString(0, end)
-  const out = new Map<string, ImportTarget>()
+  const out: ParsedImport[] = []
   IMPORT_RE.lastIndex = 0
   let match: RegExpExecArray | null
   while ((match = IMPORT_RE.exec(text))) {
-    const clause = match[2]
+    // Side-effect import: `import './style.css'`
+    if (match[3] !== undefined) {
+      out.push({ spec: match[3], names: [] })
+      continue
+    }
+
+    const clause = match[4]
+    const spec = match[6]
     const clauseStart = statementOffset(match, clause)
+    const parsed: ParsedImport = { spec, names: [] }
 
     // Default import: the first token, but not `{ … }` or `* as …`
     const def = /^\s*([A-Za-z_$][\w$]*)\s*(?:,|$)/.exec(clause)
     if (def) {
-      addBinding(out, doc, clauseStart, def.index + def[0].indexOf(def[1]), def[1])
+      const target = binding(
+        doc,
+        clauseStart,
+        def.index + def[0].indexOf(def[1]),
+        def[1],
+      )
+      if (target) parsed.defaultName = target
     }
 
     // Namespace import: `* as NS`
     const ns = /\*\s+as\s+([A-Za-z_$][\w$]*)/.exec(clause)
     if (ns) {
-      addBinding(out, doc, clauseStart, ns.index + ns[0].lastIndexOf(ns[1]), ns[1])
+      const target = binding(
+        doc,
+        clauseStart,
+        ns.index + ns[0].lastIndexOf(ns[1]),
+        ns[1],
+        '*',
+      )
+      if (target) parsed.namespace = target
     }
 
     // Named imports, with optional inline `type`, aliases, and multiple lines
     const block = /\{([\s\S]*?)\}/.exec(clause)
     if (block) {
       const blockStart = clauseStart + block.index + 1
-      const spec = /(?:^|,)\s*(?:type\s+)?([A-Za-z_$][\w$]*)(?:\s+as\s+([A-Za-z_$][\w$]*))?/g
+      const specifier = /(?:^|,)\s*(?:type\s+)?([A-Za-z_$][\w$]*)(?:\s+as\s+([A-Za-z_$][\w$]*))?/g
       let part: RegExpExecArray | null
-      while ((part = spec.exec(block[1]))) {
+      while ((part = specifier.exec(block[1]))) {
         const original = part[1]
         const local = part[2] ?? original
         const localAt = part[2]
           ? part.index + part[0].lastIndexOf(part[2])
           : part.index + part[0].indexOf(original)
-        addBinding(out, doc, blockStart, localAt, local)
+        const target = binding(doc, blockStart, localAt, local, original)
+        if (target) parsed.names.push(target)
       }
     }
+
+    out.push(parsed)
   }
 
+  importsCache.set(doc, out)
+  return out
+}
+
+function parseImportBindings(doc: Text): Map<string, ImportTarget> {
+  const cached = bindingsCache.get(doc)
+  if (cached) return cached
+
+  const out = new Map<string, ImportTarget>()
+  for (const parsed of parseImports(doc)) {
+    for (const target of [parsed.defaultName, parsed.namespace, ...parsed.names]) {
+      if (target && !out.has(target.name)) out.set(target.name, target)
+    }
+  }
   bindingsCache.set(doc, out)
   return out
 }

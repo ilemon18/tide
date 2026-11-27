@@ -67,10 +67,10 @@ policy. DiffView/diffScroll own positioning; `editor/conflicts` owns resolution 
   SHAs and all-zero uncommitted rows are parsed. `stateCache` applies results; editor scheduling:
   [editor.md](./editor.md).
 - `store/commitHover` owns hover intent and completed content: details cache by `root|sha`, file diffs by
-  `root|sha|path` (all hunks, selected client-side by line) under `memoryBudget.commitDetails`. Diff requests
-  use blame's commit path and never fall back to a nearby hunk; an uncommitted row uses its own working-tree
-  diff. Foreground reads immediately; background prefetch is serial with only the latest target; failures stay
-  silent. Clicking a change bar selects the line and opens the commit card, including uncommitted rows.
+  `root|sha|path` (all hunks; the card renders only the added target line) under `memoryBudget.commitDetails`.
+  Diff requests use blame's commit path and never fall back to a nearby hunk; an uncommitted row uses its own
+  working-tree diff. Foreground reads immediately; background prefetch is serial with only the latest target;
+  failures stay silent. Clicking a change bar selects the line and opens the commit card, including uncommitted rows.
 - `discardAllChanges` confirms, snapshots, hides changes optimistically, suppresses refresh and suspends
   saves. `git_discard_changes` validates every path, conflict, placeholder and Git category before mutation;
   drift rejects the snapshot. Tracked files restore from the index; untracked files are probed with
@@ -95,7 +95,8 @@ policy. DiffView/diffScroll own positioning; `editor/conflicts` owns resolution 
 
 - Compare against `/dev/null` only for untracked files; empty worktree=index or index=HEAD becomes a normal
   tab with scroll preserved. `memoryBudget.diffRows` and `git_diff_full` bound large diffs. Synchronize input per axis/frame and detect echoes from actual
-  offsets. Conflicts skip IPC without markers, then use loaded status unless stale.
+  offsets. Conflicts skip IPC without markers, then use loaded status unless stale. Block conflict actions
+  use `StateField` decorations, never a `ViewPlugin` decoration set.
 - Use `git -C root`, `GIT_TERMINAL_PROMPT=0`, `GIT_OPTIONAL_LOCKS=0`, disabled editors/pager, `LC_ALL=C` and
   closed stdin. Resolve `.git` roots without `rev-parse` when possible; probes use a short poll, network uses
   the longer timeout, and checkout never uses the short deadline. Shared path comparison preserves Windows

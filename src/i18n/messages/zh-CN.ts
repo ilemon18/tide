@@ -165,7 +165,6 @@ export const zhCN: Messages = {
   'activity.settingsTip': '设置',
   'activity.welcomeTip': '欢迎',
 
-  'titlebar.projectTip': '项目：{name}',
   'titlebar.projectAria': '项目 {name}',
   'titlebar.welcomeTip': '欢迎页',
   'titlebar.newWindowTip': '新建窗口',
@@ -251,6 +250,9 @@ export const zhCN: Messages = {
 
   'settings.memory.card': '内存',
   'settings.activityBar.card': '活动栏',
+  'settings.live.card': '实时预览',
+  'settings.live.enabled': 'Go Live',
+  'settings.live.enabledHint': '在状态栏显示 Go Live，并允许启动本地 HTML 预览。',
   'settings.memory.lightweight': '轻量模式',
   'settings.memory.lightweightHint': '暂停后台功能以释放内存；返回时可能重新加载打开的文件。',
   'settings.memory.lightweightOn': '轻量模式已开启：常驻文档更少，部分后台功能已暂停。',
@@ -876,6 +878,7 @@ export const zhCN: Messages = {
   'agent.you': '你',
   'agent.send': '发送',
   'agent.stop': '停止',
+  'agent.stopHint': '停止 (Esc)',
   'agent.changes.title': '已更改 {count} 个文件',
   'agent.changes.additions': '新增行数',
   'agent.changes.deletions': '删除行数',
@@ -1102,7 +1105,6 @@ export const zhCN: Messages = {
   "live.stop": "停止端口 {port}",
   "live.empty": "暂无运行中的预览",
   "live.startCurrent": "启动当前 HTML",
-  "live.localHint": "仅本机访问，端口独立。保存后刷新可见页面，关闭项目或窗口会停止对应服务。",
   "live.externalHint": "独立文件仅预览本身。打开所在文件夹后，可加载相关资源。",
   "error.live.notHtml": "请先打开已保存的 HTML 文件",
   "error.live.limit": "运行中的预览过多，请先停止不再使用的服务。",

@@ -73,7 +73,7 @@ export function Welcome() {
           </button>
           <button
             onClick={() => setOverlay('commands')}
-            className="col-span-2 flex items-center gap-2 rounded-[7px] border border-line bg-panel px-3 py-2 text-left text-sm hover:border-accent/60 hover:bg-hover"
+            className="flex items-center gap-2 rounded-[7px] border border-line bg-panel px-3 py-2 text-left text-sm hover:border-accent/60 hover:bg-hover"
           >
             <Icon name="command" size={16} className="text-accent" />
             <span className="flex-1">{t('welcome.commandPalette')}</span>

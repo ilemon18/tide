@@ -110,6 +110,36 @@ describe('Activity bar visibility preferences', () => {
   })
 })
 
+describe('Go Live preference', () => {
+  it('defaults on, normalizes malformed values, persists immediately and syncs off', async () => {
+    expect(DEFAULT_SETTINGS.goLiveEnabled).toBe(true)
+    const legacy = { ...DEFAULT_SETTINGS, schemaVersion: 17 } as Partial<Settings>
+    delete legacy.goLiveEnabled
+    vi.mocked(api.loadSettings).mockResolvedValue({ ...legacy, fontSize: 18 } as Settings)
+    await useSettings.getState().load()
+    expect(useSettings.getState()).toMatchObject({
+      goLiveEnabled: true,
+      schemaVersion: SETTINGS_SCHEMA_VERSION,
+      fontSize: 18,
+    })
+
+    vi.mocked(api.loadSettings).mockResolvedValue({
+      ...DEFAULT_SETTINGS,
+      goLiveEnabled: 'broken',
+    } as unknown as Settings)
+    await useSettings.getState().load()
+    expect(useSettings.getState().goLiveEnabled).toBe(true)
+
+    useSettings.getState().patch({ goLiveEnabled: false })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(api.saveSettings).toHaveBeenLastCalledWith(expect.objectContaining({ goLiveEnabled: false }))
+
+    useSettings.setState({ sidebarWidth: 345, goLiveEnabled: true })
+    useSettings.getState().applyExternal({ ...DEFAULT_SETTINGS, goLiveEnabled: false })
+    expect(useSettings.getState()).toMatchObject({ goLiveEnabled: false, sidebarWidth: 345 })
+  })
+})
+
 describe('Agent preference persistence', () => {
   it.each([
     { agentDefaultProvider: 'codex' },

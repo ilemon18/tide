@@ -52,7 +52,7 @@ definitions, live output, execution state and parsed Problems; `problemParser.ts
 
 `tasksEnabled` defaults to true, migrates in settings schema 15 and is shared across windows. Settings and
 the checklist write this one switch; there is no separate visibility setting. Disabling stops live runs.
-Keep Rust/frontend defaults and locales synchronized; shared settings: [runtime.md](./runtime.md).
+Keep Rust/frontend defaults and locales synchronized; shared settings: [settings.md](./settings.md).
 
 ## Change map
 

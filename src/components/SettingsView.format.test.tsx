@@ -22,7 +22,7 @@ vi.mock('../store/settings', async () => {
       formatTool: 'auto', inlineBlame: false, indentGuides: false, trimTrailingWhitespace: false,
       insertFinalNewline: true, iconTheme: 'default', showHidden: false, compactFolders: false,
       terminalFontSize: 13, terminalScrollback: 2000, terminalWebgl: false, agentEnabled: true,
-      tasksEnabled: true, agentDefaultProvider: '', agentDefaultModel: '', agentDefaultEffort: '',
+      tasksEnabled: true, goLiveEnabled: true, agentDefaultProvider: '', agentDefaultModel: '', agentDefaultEffort: '',
       agentDefaultPermissionMode: 'workspace-write', agentHistoryEnabled: true, autoUpdate: false,
       activityBarWelcomeVisible: true, activityBarGitVisible: true, activityBarStructureVisible: true,
       patch,

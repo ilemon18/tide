@@ -452,14 +452,15 @@ export function FileTree() {
   }, [applySettledChains, chains])
 
   // The list can shrink under a scrolled viewport (folder compaction merging rows, collapsing, a refresh
-  // replacing the tree). Keep the same logical row under the viewport, or stay at the bottom when the user
-  // was already there; then clamp before paint. Without the anchor a chain resolving after a fast scroll
-  // pulls the viewport back to an older part of the tree.
+  // replacing the tree). Keep the same logical row under the viewport; only a shrinking list stays pinned to
+  // the bottom. A growing list must extend downward from the current anchor, else opening a folder at the
+  // bottom pulls every row above it upward. Clamp before paint so a shrink cannot leave a blank gap.
   useLayoutEffect(() => {
     const el = containerRef.current
     if (!el) return
     const max = Math.max(0, rows.length * ROW_H - el.clientHeight)
     const previous = paintedRows.current
+    const grew = rows.length > previous.rows.length
     paintedRows.current = { rows, rootKey }
     let anchor = pendingScrollAnchor.current
     pendingScrollAnchor.current = null
@@ -475,7 +476,7 @@ export function FileTree() {
     }
     if (anchor && rows.length > 0) {
       pendingScrollAnchor.current = null
-      if (anchor.atBottom) {
+      if (anchor.atBottom && !grew) {
         scrollTreeTo(el, max)
         return
       }

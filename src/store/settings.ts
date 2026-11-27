@@ -22,7 +22,7 @@ import { DEFAULT_MONO_FONT } from '../lib/fonts'
 import { applyLocale, DEFAULT_LOCALE, isLocale } from '../i18n'
 import { applyMemoryProfileChange, setMemoryProfile } from '../lib/memoryBudget'
 
-export const SETTINGS_SCHEMA_VERSION = 17
+export const SETTINGS_SCHEMA_VERSION = 18
 export const AGENT_COMPOSER_MIN_HEIGHT = 90
 export const AGENT_COMPOSER_MAX_HEIGHT = 480
 
@@ -60,6 +60,7 @@ export const DEFAULT_SETTINGS: Settings = {
   configBackupLastAt: 0,
   agentEnabled: true,
   tasksEnabled: true,
+  goLiveEnabled: true,
   agentHistoryEnabled: true,
   activityBarWelcomeVisible: true,
   activityBarGitVisible: true,
@@ -129,6 +130,7 @@ const SHARED_KEYS = [
   'configBackupLastAt',
   'agentEnabled',
   'tasksEnabled',
+  'goLiveEnabled',
   'agentHistoryEnabled',
   'activityBarWelcomeVisible',
   'activityBarGitVisible',
@@ -257,7 +259,8 @@ export function migrateSettings(raw: Settings): Settings {
   // v8 -> v9 adds ligatures, v9 -> v10 adds agentComposerHeight, v10 -> v11 adds
   // agentDefaultPermissionMode, v11 -> v12 adds autoUpdate, v12 -> v13 adds agentHistoryEnabled,
   // v15 -> v16 adds the activity bar visibility switches. DEFAULT_SETTINGS covers
-  // v16 -> v17 adds configuration backup preferences; missing values use DEFAULT_SETTINGS.
+  // v16 -> v17 adds configuration backup preferences; v17 -> v18 adds Go Live visibility.
+  // Missing values use DEFAULT_SETTINGS.
   // Keep larger stored heights when the current window is short: the composer clamps them for display only.
   next.shortcutOverrides = normalizeOverrides(next.shortcutOverrides)
   next.schemaVersion = Math.max(SETTINGS_SCHEMA_VERSION, next.schemaVersion)
@@ -289,6 +292,7 @@ export function migrateSettings(raw: Settings): Settings {
   // the switch itself is normalized, so a corrupt value cannot hide the feature.
   if (typeof next.agentEnabled !== 'boolean') next.agentEnabled = true
   if (typeof next.tasksEnabled !== 'boolean') next.tasksEnabled = true
+  if (typeof next.goLiveEnabled !== 'boolean') next.goLiveEnabled = true
   if (typeof next.agentHistoryEnabled !== 'boolean') next.agentHistoryEnabled = true
   if (typeof next.activityBarWelcomeVisible !== 'boolean') next.activityBarWelcomeVisible = true
   if (typeof next.activityBarGitVisible !== 'boolean') next.activityBarGitVisible = true
@@ -395,6 +399,7 @@ export const useSettings = create<SettingsStore>((set, get) => ({
       patch.configBackupFolder !== undefined ||
       patch.configBackupLastAt !== undefined ||
       patch.tasksEnabled !== undefined ||
+      patch.goLiveEnabled !== undefined ||
       patch.agentHistoryEnabled !== undefined ||
       patch.agentDefaultProvider !== undefined ||
       patch.agentDefaultModel !== undefined ||

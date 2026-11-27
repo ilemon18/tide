@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { useGoLive, canGoLive } from '../store/goLive'
 import { useTabs } from '../store/tabs'
 import { useWorkspace } from '../store/workspace'
+import { useSettings } from '../store/settings'
 import { useT } from '../i18n'
 import { Icon } from './Icon'
 
@@ -13,18 +14,27 @@ export function GoLive() {
   const servers = useGoLive((state) => state.servers)
   const busy = useGoLive((state) => state.busy)
   const roots = useWorkspace((state) => state.roots)
+  const enabled = useSettings((state) => state.goLiveEnabled)
   const [menu, setMenu] = useState<{ right: number; bottom: number } | null>(null)
   const ref = useRef<HTMLDivElement>(null)
   const trigger = useRef<HTMLDivElement>(null)
+  const wasEnabled = useRef(enabled)
   const current = servers.find(
     (server) => server.root === active?.root && server.rel === active?.rel,
   )
   const available = canGoLive(active)
   useEffect(() => {
-    if (servers.length) void useGoLive.getState().refresh()
-  }, [roots])
+    if (enabled && servers.length) void useGoLive.getState().refresh()
+  }, [enabled, roots])
   useEffect(() => {
-    if (!menu) return
+    if (wasEnabled.current && !enabled) {
+      setMenu(null)
+      if (servers.length) void useGoLive.getState().stopAll()
+    }
+    wasEnabled.current = enabled
+  }, [enabled, servers.length])
+  useEffect(() => {
+    if (!enabled || !menu) return
     void useGoLive.getState().refresh()
     const outside = (event: MouseEvent) => {
       if (
@@ -46,7 +56,7 @@ export function GoLive() {
       document.removeEventListener('mousedown', outside)
       document.removeEventListener('keydown', escape, true)
     }
-  }, [menu])
+  }, [enabled, menu])
   const show = (element: HTMLElement) => {
     const rect = element.getBoundingClientRect()
     setMenu((previous) =>
@@ -59,10 +69,11 @@ export function GoLive() {
     )
   }
   const start = async () => {
-    if (!available) return
+    if (!enabled || !available) return
     const server = await useGoLive.getState().start(active)
     if (server) await useGoLive.getState().open(server.id)
   }
+  if (!enabled) return null
   return (
     <div ref={trigger} className="flex shrink-0 items-center">
       <button
@@ -164,9 +175,11 @@ export function GoLive() {
                   {t('live.startCurrent')}
                 </button>
               ) : null}
-              <p className="mt-2 px-1 text-2xs leading-relaxed text-muted">
-                {t(active?.external ? 'live.externalHint' : 'live.localHint')}
-              </p>
+              {active?.external ? (
+                <p className="mt-2 px-1 text-2xs leading-relaxed text-muted">
+                  {t('live.externalHint')}
+                </p>
+              ) : null}
             </div>,
             document.body,
           )

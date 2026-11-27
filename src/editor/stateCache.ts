@@ -1,7 +1,7 @@
 import { Compartment, EditorState, type Extension, type Text } from '@codemirror/state'
 import { EditorView } from '@codemirror/view'
 import { buildBaseExtensions } from './setup'
-import { loadLanguage } from './languages'
+import { loadLanguage, resolveLang } from './languages'
 import { buildEditorTheme } from '../theme/cmTheme'
 import { palettes, type Palette } from '../theme/palettes'
 import { signals } from './signals'
@@ -16,6 +16,7 @@ import { diffMarksGutter } from './diffGutter'
 import { conflictExtension, conflictRulerExtension, looksLikeConflict } from './conflicts'
 import { mirrorKey } from './stateKeys'
 import { publishMarkdownDoc } from './markdownDocs'
+import { smartCompletion, supportsSmartCompletion } from './smartComplete'
 
 import type { MonoFont } from '../lib/ipc'
 import { BUNDLED_MONO_FONT, SYSTEM_MONO_FONT, monoStack } from '../lib/fonts'
@@ -263,7 +264,10 @@ type CreateFileOpts = {
 }
 
 export async function createFileState(opts: CreateFileOpts): Promise<EditorState> {
+  const langInfo = resolveLang(opts.rel)
   const lang = opts.tier === 'preview' ? null : await loadLanguage(opts.rel)
+  const smart =
+    opts.tier === 'full' && feature.smartCompletion() && supportsSmartCompletion(langInfo?.key)
   // Project files get the change bar by default; external files pass importLinks: false and
   // untitled buffers opt out explicitly.
   const diffGutter = opts.diffGutter ?? (opts.importLinks !== false)
@@ -283,9 +287,18 @@ export async function createFileState(opts: CreateFileOpts): Promise<EditorState
         indentGuides: opts.indentGuides,
         tier: opts.tier,
         includeSearchState: true,
+        smartCompletion: smart,
       }),
       wrapCompartment.of(wrapExtension(opts.wordWrap && opts.tier === 'full')),
       lang ? [lang] : [],
+      smart
+        ? smartCompletion({
+            root: opts.root,
+            rel: () => slot.rel,
+            langKey: () => resolveLang(slot.rel)?.key ?? null,
+            project: opts.importLinks !== false,
+          })
+        : [],
       // Conflict view only when git confirms unmerged and markers really remain;
       // not in the read-only preview (buttons would dispatch edits into a read-only state)
       opts.conflicted && opts.tier !== 'preview' && looksLikeConflict(opts.content)

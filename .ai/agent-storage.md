@@ -2,10 +2,7 @@
 summary: History, paging and persistence
 scope:
   - .ai/agent-storage.md
-  - src/store/agent.ts
-  - src/store/agent.test.ts
   - src/lib/agentSession.ts
-  - src/components/AgentChat*.tsx
   - src/components/AgentHistoryPage*.tsx
   - src-tauri/src/agent/store.rs
   - src-tauri/src/commands/agent.rs
@@ -20,6 +17,8 @@ keywords:
   - 持久化
 ---
 # Agent history and persistence
+
+共享状态与数据流见 [agent.md](./agent.md)，本文不重复。
 
 ## Ownership
 

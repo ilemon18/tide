@@ -1,4 +1,4 @@
-import { StateField, type Range, type Text } from '@codemirror/state'
+import { StateField, type EditorState, type Range, type Text } from '@codemirror/state'
 import {
   Decoration,
   EditorView,
@@ -298,11 +298,11 @@ class ConflictLineActionWidget extends WidgetType {
   }
 }
 
-function build(view: EditorView): DecorationSet {
-  const blocks = view.state.field(conflictField, false)
+function build(state: EditorState): DecorationSet {
+  const blocks = state.field(conflictField, false)
   if (!blocks || blocks.length === 0) return Decoration.none
 
-  const doc = view.state.doc
+  const doc = state.doc
   const locale = currentLocale()
   const ranges: Range<Decoration>[] = []
   const seen = new Set<number>()
@@ -358,42 +358,46 @@ function build(view: EditorView): DecorationSet {
   return Decoration.set(ranges, true)
 }
 
-const conflictPlugin = ViewPlugin.fromClass(
+/**
+ * The action lens is a block widget, so it must come from a StateField: CodeMirror rejects block
+ * decorations provided by a ViewPlugin. Rebuild on document or locale changes; the decorations do not
+ * depend on the viewport.
+ */
+const conflictDecorations = StateField.define<DecorationSet>({
+  create: build,
+  update(value, tr) {
+    if (!tr.docChanged && !tr.effects.some((effect) => effect.is(localeEffect))) return value
+    return build(tr.state)
+  },
+  provide: (field) => EditorView.decorations.from(field),
+})
+
+/** Locale-dependent DOM labels are outside the document; one effect refreshes the field and ruler. */
+const conflictLocalePlugin = ViewPlugin.fromClass(
   class {
-    decorations: DecorationSet
     private unwatch: () => void
     constructor(view: EditorView) {
-      this.decorations = build(view)
-      // Locale switch: rebuild the button labels instead of waiting for the next doc change
       this.unwatch = watchLocale(view)
-    }
-    update(update: ViewUpdate) {
-      if (update.docChanged || update.viewportChanged || hasLocaleEffect(update)) {
-        this.decorations = build(update.view)
-      }
     }
     destroy() {
       this.unwatch()
     }
   },
-  { decorations: (v) => v.decorations },
 )
 
-export const conflictExtension = [conflictField, conflictPlugin]
+export const conflictExtension = [conflictField, conflictDecorations, conflictLocalePlugin]
 
 /** Conflict overview on the editor's right: one proportional region per conflict block; click to jump. */
 class ConflictRuler {
   dom: HTMLElement
   private view: EditorView
   private marks = new Map<number, HTMLElement>()
-  private unwatch: () => void
 
   constructor(view: EditorView) {
     this.view = view
     this.dom = document.createElement('div')
     this.dom.className = 'cm-conflict-ruler'
     view.dom.appendChild(this.dom)
-    this.unwatch = watchLocale(view)
     this.rebuild()
   }
 
@@ -455,7 +459,6 @@ class ConflictRuler {
   }
 
   destroy() {
-    this.unwatch()
     this.dom.remove()
     this.marks.clear()
   }

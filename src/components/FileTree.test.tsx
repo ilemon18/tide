@@ -136,3 +136,49 @@ it('uses paged reveal for an upper-position file tab and preserves horizontal sc
   expect(tree.scrollLeft).toBe(87)
   expect(workspace.clearTreeReveal).toHaveBeenCalledWith(2)
 })
+
+it('extends a folder expansion downward instead of pinning the new bottom', async () => {
+  vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(240)
+  // The virtual window follows the rounded scroll offset on the next frame; run it immediately.
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+    callback(0)
+    return 1
+  })
+  const file = (name: string) => ({
+    name, path: name, isDir: false, isSymlink: false, ignored: false, size: 1, mtime: 1,
+  })
+  const entries = Array.from({ length: 100 }, (_, i) => file(`f${i}.ts`))
+  entries.push({
+    name: 'dir', path: 'dir', isDir: true, isSymlink: false, ignored: false, size: 0, mtime: 0,
+  })
+  workspace.roots = [{
+    id: '/repo', name: 'Repo', isGitRepo: false, collapsed: false, expanded: {},
+    tree: { '': { entries, total: entries.length, hasMore: false, loading: false } },
+  }]
+
+  const { container, rerender } = render(<FileTree />)
+  await act(async () => {})
+  const tree = container.querySelector<HTMLElement>('.tree-pane')!
+  const oldMax = entries.length * ROW_H - 240
+  tree.scrollTop = oldMax
+  fireEvent.scroll(tree)
+
+  fireEvent.click(screen.getByText('dir'))
+  expect(workspace.toggleDir).toHaveBeenCalledWith('/repo', 'dir')
+
+  const root = workspace.roots[0]
+  workspace.roots = [{
+    ...root,
+    expanded: { dir: true },
+    tree: {
+      ...root.tree,
+      dir: { entries: [file('dir/child.ts')], total: 1, hasMore: false, loading: false },
+    },
+  }]
+  rerender(<FileTree />)
+  await act(async () => {})
+
+  // The rows above dir stay put; the child is allowed to appear below the old viewport.
+  expect(tree.scrollTop).toBe(oldMax)
+  expect(tree.scrollTop).toBeLessThan((entries.length + 1) * ROW_H - 240)
+})

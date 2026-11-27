@@ -42,6 +42,8 @@ export type BaseOptions = {
   tier: DocTier
   /** Include the search state field (the custom ⌘F bar relies on it) */
   includeSearchState?: boolean
+  /** Full-tier supported languages install smartComplete instead of the generic word source */
+  smartCompletion?: boolean
 }
 
 const SVG_NS = 'http://www.w3.org/2000/svg'
@@ -118,8 +120,9 @@ export function buildBaseExtensions(opts: BaseOptions): Extension[] {
   }
 
   // Word completion: no LSP here, but words from the document / grammar lexer are enough.
-  // Full tier only: scanning a big file for words means walking the whole doc.
-  if (heavy) {
+  // Full tier only: scanning a big file for words means walking the whole doc. Smart completion owns
+  // this fallback internally for supported languages, so registering both would duplicate options.
+  if (heavy && !opts.smartCompletion) {
     base.push(
       EditorState.languageData.of(() => [{ autocomplete: completeAnyWord }]),
       autocompletion({ activateOnTyping: true, activateOnTypingDelay: 120 }),

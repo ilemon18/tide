@@ -78,6 +78,9 @@ pub struct Settings {
     /// Project task discovery, execution and Problems diagnostics
     #[serde(deserialize_with = "deserialize_tasks_enabled")]
     pub tasks_enabled: bool,
+    /// Show Go Live in the status bar and allow local HTML previews
+    #[serde(default = "default_true", deserialize_with = "deserialize_visibility")]
+    pub go_live_enabled: bool,
     /// Show the lazily loaded project agent history list
     pub agent_history_enabled: bool,
     /// Activity bar icons that can be hidden; Explorer and Search always stay visible
@@ -200,6 +203,7 @@ impl Default for Settings {
             config_backup_last_at: 0,
             agent_enabled: true,
             tasks_enabled: true,
+            go_live_enabled: true,
             agent_history_enabled: true,
             activity_bar_welcome_visible: true,
             activity_bar_git_visible: true,
@@ -468,6 +472,7 @@ mod compat {
         assert_eq!(settings.agent_composer_height, 90);
         assert_eq!(settings.agent_default_permission_mode, "workspace-write");
         assert!(settings.agent_history_enabled);
+        assert!(settings.go_live_enabled);
         assert!(settings.activity_bar_welcome_visible);
         assert!(settings.activity_bar_git_visible);
         assert!(settings.activity_bar_structure_visible);
@@ -540,6 +545,23 @@ mod compat {
         assert!(!hidden.activity_bar_git_visible);
         let out = serde_json::to_value(hidden).unwrap();
         assert_eq!(out["activityBarGitVisible"], false);
+    }
+
+    #[test]
+    fn go_live_defaults_on_and_round_trips_off() {
+        let legacy: Settings = serde_json::from_str(r#"{"schemaVersion":17}"#).unwrap();
+        assert!(legacy.go_live_enabled);
+        for invalid in [serde_json::json!(null), serde_json::json!(7), serde_json::json!("broken")] {
+            let settings: Settings = serde_json::from_value(serde_json::json!({
+                "goLiveEnabled": invalid,
+                "fontSize": 19,
+            })).unwrap();
+            assert!(settings.go_live_enabled);
+            assert_eq!(settings.font_size, 19);
+        }
+        let disabled: Settings = serde_json::from_str(r#"{"goLiveEnabled":false}"#).unwrap();
+        let out = serde_json::to_value(disabled).unwrap();
+        assert_eq!(out["goLiveEnabled"], false);
     }
 
     #[test]

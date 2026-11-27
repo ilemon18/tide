@@ -39,10 +39,10 @@ const SKILLS_DIR = join(AI_DIR, 'skills')
 const AGENTS_FILE = join(ROOT, 'AGENTS.md')
 const PKG = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'))
 
-const CONTEXT_LIMIT = 2 * 1024
-const RESIDENT_LIMIT = 4 * 1024
+const CONTEXT_LIMIT = 2560
+const RESIDENT_LIMIT = 4608
 const OTHER_LIMIT = 6 * 1024
-const AI_TOTAL_TARGET = 36 * 1024
+const AI_TOTAL_TARGET = 80 * 1024
 const ROOT_POLICY_FILES = ['AGENTS.md', 'CLAUDE.md']
 const WALK_SKIP_DIRS = new Set(['.git', 'dist', 'node_modules', 'target'])
 

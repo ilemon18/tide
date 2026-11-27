@@ -11,24 +11,19 @@ import { currentLocale, t } from '../i18n'
 const CARD_WIDTH = 400
 const MARGIN = 8
 
-/** The hunk that contains the target line on the new side; no nearest-hunk guessing. */
-function hunkForLine(content: CommitHoverContent, target: CommitHoverTarget) {
+/** The added line at the target position on the new side; no nearest-line or whole-hunk fallback. */
+function targetLineFor(content: CommitHoverContent, target: CommitHoverTarget) {
   const source = target.uncommitted ? content.work : content.diff
   const line = target.uncommitted ? target.line : target.origLine
   const hunk = source?.hunks.find(
     (item) =>
       item.newCount > 0 && line >= item.newStart && line < item.newStart + item.newCount,
   )
-  return { source, line, hunk }
+  const changed = hunk?.lines.find((item) => item.kind === 'add' && item.newLine === line) ?? null
+  return { source, changed }
 }
 
-function diffClass(kind: string): string {
-  if (kind === 'add') return 'text-success'
-  if (kind === 'del') return 'text-danger'
-  return 'text-muted'
-}
-
-/** Inline blame hover card: commit metadata plus the exact hunk that touched the cursor line */
+/** Inline blame hover card: commit metadata plus the exact added line at the cursor line */
 export function CommitHoverCard() {
   const { target, content, cancelHide, hide } = useCommitHover()
 
@@ -99,10 +94,10 @@ export function CommitHoverCard() {
     (Boolean(target.currentUserEmail) &&
       commitEmail === target.currentUserEmail.toLowerCase())
   const authorTime = target.authorTime
-  const { source, line, hunk } = hunkForLine(content, target)
+  const { source, changed } = targetLineFor(content, target)
   const showNoHead = target.uncommitted && content.workLoaded && content.work === null
   const showNoChange =
-    Boolean(source) && !hunk && !source?.renamedFrom && !content.loadingDiff && !error
+    Boolean(source) && !changed && !source?.renamedFrom && !content.loadingDiff && !error
 
   return (
     <div
@@ -192,25 +187,10 @@ export function CommitHoverCard() {
         <div className="px-1 text-2xs text-muted">{t('commit.noHead')}</div>
       ) : null}
 
-      {hunk ? (
-        <div className="max-h-64 overflow-auto rounded border border-line bg-bg px-1.5 py-1 font-mono text-2xs leading-[1.55]">
-          <div className="min-w-max">
-            <div className="whitespace-pre text-accent">{hunk.header}</div>
-            {hunk.lines.map((item, index) => {
-              const marker = item.kind === 'add' ? '+' : item.kind === 'del' ? '-' : ' '
-              const isTarget = item.kind !== 'del' && item.newLine === line
-              return (
-                <div
-                  key={index}
-                  className={`whitespace-pre ${diffClass(item.kind)} ${
-                    isTarget ? 'rounded-sm bg-accent/15' : ''
-                  }`}
-                >
-                  {`${marker}${item.text || ' '}`}
-                </div>
-              )
-            })}
-            {source?.truncated ? <div className="whitespace-pre text-muted">…</div> : null}
+      {changed ? (
+        <div className="rounded border border-line bg-bg px-1.5 py-1 font-mono text-2xs leading-[1.55]">
+          <div className="whitespace-pre rounded-sm bg-accent/15 text-success">
+            {`+${changed.text || ' '}`}
           </div>
         </div>
       ) : null}

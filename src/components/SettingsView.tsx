@@ -225,6 +225,16 @@ export function SettingsView() {
           ))}
         </Card>
 
+        <Card title={t('settings.live.card')}>
+          <Row label={t('settings.live.enabled')} hint={t('settings.live.enabledHint')}>
+            <Toggle
+              value={settings.goLiveEnabled}
+              onChange={(value) => set('goLiveEnabled', value)}
+              ariaLabel={t('settings.live.enabled')}
+            />
+          </Row>
+        </Card>
+
         <Card title={t('settings.language.card')}>
         <div className="grid grid-cols-2 gap-1.5 px-4 py-3">
           {LOCALES.map((locale) => {

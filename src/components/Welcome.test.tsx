@@ -40,6 +40,7 @@ it('puts Open file before Open folder and opens the native picker', () => {
   const buttons = screen.getAllByRole('button')
   expect(buttons[0].textContent).toContain('welcome.openFile')
   expect(buttons[1].textContent).toContain('welcome.openFolder')
+  expect(screen.getByText('welcome.commandPalette').closest('button')?.className).not.toContain('col-span-2')
   fireEvent.click(buttons[0])
   expect(openFileDialog).toHaveBeenCalledTimes(1)
 })

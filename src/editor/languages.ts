@@ -1,4 +1,5 @@
 import type { Extension } from '@codemirror/state'
+import type { CompletionContext, CompletionSource } from '@codemirror/autocomplete'
 import { StreamLanguage } from '@codemirror/language'
 import { basename, extname } from '../lib/paths'
 import { t } from '../i18n'
@@ -194,6 +195,32 @@ const byName: Record<string, string> = {
 }
 
 const cached = new Map<string, Extension | null>()
+
+export type JSCompletion = {
+  local: CompletionSource
+  path: (context: CompletionContext) => { path: readonly string[]; name: string } | null
+}
+
+let jsCompletion: Promise<JSCompletion | null> | null = null
+
+/**
+ * JavaScript's local-variable and member-path helpers only load with the language pack.
+ * Keeping the dynamic import inside this module preserves the core/micro-frontend chunk split.
+ */
+export function loadJSCompletion(): Promise<JSCompletion | null> {
+  if (!jsCompletion) {
+    jsCompletion = import('@codemirror/lang-javascript')
+      .then((mod) => ({
+        local: mod.localCompletionSource,
+        path: mod.completionPath,
+      }))
+      .catch(() => {
+        jsCompletion = null
+        return null
+      })
+  }
+  return jsCompletion
+}
 
 export function resolveLang(rel: string): LangInfo | null {
   if (!rel) return null

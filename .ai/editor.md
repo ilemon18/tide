@@ -1,5 +1,5 @@
 ---
-summary: Tabs, files, Markdown and CodeMirror
+summary: Tabs, files, CodeMirror and formatting
 scope:
   - .ai/editor.md
   - src/store/tabs.ts
@@ -11,12 +11,10 @@ scope:
   - src/components/TabBar.tsx
   - src/components/TabBar.test.tsx
   - src/components/SearchBar*
-  - src/components/MarkdownPreview.tsx
-  - src/components/MarkdownRenderer.tsx
-  - src/editor/**
+  - src/editor/[!m]*
+  - src/editor/m[!a]*
   - src/lib/editorSession.ts
   - src/lib/fileDragState.ts
-  - src/lib/markdown.ts
   - src/lib/untitledDrafts.ts
   - src/lib/externalTabs.ts
   - src/lib/externalTabs.test.ts
@@ -32,33 +30,34 @@ scope:
 keywords:
   - editor
   - tab
-  - markdown
-  - preview
   - codemirror
+  - formatting
+  - save
   - 编辑器
   - 标签
-  - 预览
+  - 保存
+  - 格式化
 ---
-# Editor, tabs and Markdown
+# Editor, tabs and CodeMirror
 
 ## Ownership
 
-Tabs own open/save/restore; CodeMirror views belong to panes, `stateCache` to tabs. EditorHost selects
-tab kinds; Markdown helpers contain links/images.
+Tabs own open/save/restore; CodeMirror views belong to panes, `stateCache` to tabs. EditorHost selects tab
+kinds. Markdown: [markdown.md](./markdown.md); `src/editor/markdownDocs.ts` belongs there, so the editor scope
+excludes it.
 
 ## Open, save and restore
 
 - Open: FileTree → `useTabs.openFile(root, rel)` → `api.readTextFile` → `openState` (size/lazy language) →
   `view.setState` → `scrollMemory`. Failed reads keep the tab.
-- File commands reject final-component symlinks with `fs.symlinkUnsupported`, including Quick Open, Agent
-  mentions and Markdown images; containment runs first so escapes report `path.outsideWorkspace`.
-- Save atomically restores `tab.eol` (CodeMirror uses LF), clearing dirty only on success. Per-file indent/
-  newline falls back to `settings.tabSize`. Untitled Save As uses project tabs inside roots, external outside.
-- External tabs use `external: true`, normalized absolute `root`, empty `rel`; `grant_file` grants the file
-  only. Skip tree/root switching/blame/conflicts/import links/project search; keep editing/auto-save/format/
-  images. `lib/externalTabs.ts` owns cursors; project switches close them.
-- Hydrate project/root/chain/tabs behind the startup frame; restore file/cursor state only within the same
-  project. Virtual/chat tabs never persist layout.
+- File commands reject final-component symlinks (`fs.symlinkUnsupported`) for Quick Open, Agent mentions and
+  Markdown images; containment runs first (`path.outsideWorkspace`).
+- Save atomically restores `tab.eol` and clears dirty only on success; indent/newline fallback is project
+  `tabSize`. Untitled Save As uses project roots, external files outside.
+- External tabs (`external`, absolute root, empty rel, file-only grant) skip tree/root switching, blame,
+  conflicts, import links and search but keep editing/auto-save/format/images; project switches close them.
+- Hydrate behind the startup frame and restore cursors only within the same project; virtual/chat tabs never
+  persist layout.
 
 ## Tabs and panes
 
@@ -71,23 +70,27 @@ tab kinds; Markdown helpers contain links/images.
   Restore can replace a blank Agent tab through `tabs.replaceChatTab`, preserving pane, order and pinning.
   Chats persist: [agent](./agent.md).
 
-## Markdown and CodeMirror
+## CodeMirror
 
-- Per-pane/tab `markdownPreview` keeps source ratios on moves; close/rename away/replacement/merge clear it.
-  Keep source views mounted for dirty text; reject HTML, navigation and remote/absolute/escaping/SVG images.
-- One EditorView per pane; `stateCache` swaps states through `view.setState` and `editor/mirror.ts` forwards
-  split ChangeSets. Never store views/states in zustand or share a state between views.
-- Gutter/DiffRuler share disk marks: `store/diffMarks` caches patches per root+rel; `editor/diffGutter` draws
-  clickable changed-line bars ([git.md](./git.md)). EditorHost reapplies after state swaps; gutter blame uses
-  the current buffer, never disk for dirty rows.
-- `editor/blame` draws one current-line widget, no gutter/list. Doc changes hide it; queries debounce ~450ms,
-  versioned results reject stale rows, and relative time refreshes every 60s. Hover/click opens the card.
-  EditorHost wires project files only and reapplies after state swaps; dirty states inherit no rows.
-  Zero-width anchors exclude annotations from caret geometry; Alt events pass through.
-- ⌘/Ctrl-click resolves an import path then an identifier chain to its import line with a sticky highlight;
-  the scan is cached and bounded to 2000 lines / 256KB. Theme/font/blame/wrap use Compartments; rebuilding
-  state discards undo. Blame/hover: [git.md](./git.md).
-- ⌘F never seeds from the selection; confirmed jumps center the match.
+- One EditorView per pane; `stateCache` swaps via `view.setState`, `editor/mirror.ts` forwards split ChangeSets.
+  Never store views/states in zustand or share a state.
+- `store/diffMarks` caches disk patches per root+rel; `editor/diffGutter` draws clickable changed-line bars
+  ([git.md](./git.md)) and EditorHost reapplies after swaps. Dirty gutter blame reads the buffer, not disk.
+- `editor/blame` draws one current-line widget. Edits hide it; queries debounce ~450ms, versioned results
+  reject stale rows and time refreshes every 60s. Hover/click opens the card; project files only, dirty rows
+  inherit none. Zero-width anchors keep caret geometry; Alt events pass through.
+- ⌘/Ctrl-click resolves import paths/identifier chains to the import line with sticky highlight; the scan is
+  cached and bounded to 2000 lines/256KB. Theme/font/blame/wrap use Compartments; rebuilding discards undo.
+- ⌘F never seeds from selection; confirmed jumps center the match.
+
+## Completion
+
+- Full-tier JS/TS/TSX, Python, Rust, Go, Java and C/C++ use `smartComplete` unless lightweight; other
+  full-tier/lightweight use words; large/preview omit it.
+- Heuristic only (no type checking/definition/rename); nested owners/Python imports are limited; comments,
+  strings/JSX text are ignored.
+- Imports use `resolveSpecifier` and `completionFiles`/`completionFileBytes` caps, 60s TTL/reclaim;
+  external files stay local.
 
 ## Formatting
 
@@ -95,6 +98,8 @@ tab kinds; Markdown helpers contain links/images.
   badge, ⇧⌥F, or context menu.
 - Prettier uses a runnable project copy or bundled; system tools label version/source via `toolpath.rs`.
 - Settings installs rustfmt/Black only, never runtimes. gofmt follows Go; Prettier follows Tide/project manager.
+- Missing runtimes get manual guidance; version probes run before install and formatting adds no persisted key
+  beyond `formatMode`/`formatTool`.
 - stdin -> stdout; empty output errors. Apply results only when the document still matches the snapshot;
   right-click opens `EditorContextMenu`; double-click stays word selection.
 
@@ -112,5 +117,5 @@ tab kinds; Markdown helpers contain links/images.
 - `selectionRegistry` snapshots by group reject hidden/stale views. Capture ordered nonempty ranges with
   one-based, end-exclusive UTF-16 positions. `EditorContextActions` keeps selection on toolbar focus and
   includes dirty text for add/explain/refactor. Unregister on view teardown.
-- Coordinate kind changes across openState, persistence and TabBar; Markdown crosses Rust containment.
-  Gate: [checks.md](./checks.md).
+- Coordinate kind changes across openState, persistence and TabBar; Markdown contracts live in
+  [markdown.md](./markdown.md). Gate: [checks.md](./checks.md).

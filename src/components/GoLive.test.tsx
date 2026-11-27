@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, afterEach, expect, it, vi } from 'vitest'
 import type { Tab } from '../store/tabs'
 import type { LiveInfo } from '../lib/ipc'
@@ -17,9 +17,14 @@ vi.mock('../store/workspace', async () => {
   const { create } = await import('zustand')
   return { useWorkspace: create(() => ({ roots: [] })) }
 })
+vi.mock('../store/settings', async () => {
+  const { create } = await import('zustand')
+  return { useSettings: create(() => ({ goLiveEnabled: true })) }
+})
 vi.mock('./Icon', () => ({ Icon: () => null }))
 import { GoLive } from './GoLive'
 import { useGoLive } from '../store/goLive'
+import { useSettings } from '../store/settings'
 import { useTabs } from '../store/tabs'
 import { applyLocale, t } from '../i18n'
 const file = { id: 'html', kind: 'file', root: '/repo', rel: 'index.html', name: 'index.html' } as Tab
@@ -28,6 +33,7 @@ beforeEach(() => {
   applyLocale('en'); vi.clearAllMocks()
   useTabs.setState({ activeId: 'html', tabs: [file] })
   useGoLive.setState({ servers: [], busy: false })
+  useSettings.setState({ goLiveEnabled: true })
   actions.start.mockResolvedValue(server); actions.open.mockResolvedValue(undefined)
 })
 afterEach(cleanup)
@@ -43,10 +49,27 @@ it('opens and closes the running list without starting another server, with sepa
   render(<GoLive />)
   fireEvent.click(screen.getByRole('button', { name: t('live.running') }))
   expect(screen.getByRole('dialog')).toBeTruthy()
+  expect(screen.queryByText(/Local only/)).toBeNull()
   fireEvent.click(screen.getByRole('button', { name: t('live.stop', { port: 5500 }) }))
   expect(actions.stop).toHaveBeenCalledWith('one')
   fireEvent.click(screen.getByRole('button', { name: t('live.running') }))
   expect(screen.queryByRole('dialog')).toBeNull()
+  expect(actions.start).not.toHaveBeenCalled()
+})
+
+it('hides the entry and stops running previews when disabled', () => {
+  useGoLive.setState({ servers: [server] })
+  render(<GoLive />)
+  act(() => useSettings.setState({ goLiveEnabled: false }))
+  expect(screen.queryByRole('button', { name: t('live.button') })).toBeNull()
+  expect(screen.queryByRole('button', { name: t('live.running') })).toBeNull()
+  expect(actions.stopAll).toHaveBeenCalledTimes(1)
+})
+
+it('does not mount controls or start services when disabled from the start', () => {
+  useSettings.setState({ goLiveEnabled: false })
+  render(<GoLive />)
+  expect(screen.queryByRole('button')).toBeNull()
   expect(actions.start).not.toHaveBeenCalled()
 })
 it('keeps the empty running list available for a non-HTML tab without launching services', () => {

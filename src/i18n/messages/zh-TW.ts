@@ -165,7 +165,6 @@ export const zhTW: Messages = {
   'activity.settingsTip': '設定',
   'activity.welcomeTip': '歡迎',
 
-  'titlebar.projectTip': '專案：{name}',
   'titlebar.projectAria': '專案 {name}',
   'titlebar.welcomeTip': '歡迎頁',
   'titlebar.newWindowTip': '新增視窗',
@@ -251,6 +250,9 @@ export const zhTW: Messages = {
 
   'settings.memory.card': '記憶體',
   'settings.activityBar.card': '活動列',
+  'settings.live.card': '即時預覽',
+  'settings.live.enabled': 'Go Live',
+  'settings.live.enabledHint': '在狀態列顯示 Go Live，並允許啟動本機 HTML 預覽。',
   'settings.memory.lightweight': '輕量模式',
   'settings.memory.lightweightHint': '暫停背景功能以釋放記憶體；返回時可能重新載入開啟的檔案。',
   'settings.memory.lightweightOn': '輕量模式已開啟：常駐文件更少，部分背景功能已暫停。',
@@ -873,6 +875,7 @@ export const zhTW: Messages = {
   'agent.you': '你',
   'agent.send': '傳送',
   'agent.stop': '停止',
+  'agent.stopHint': '停止 (Esc)',
   'agent.changes.title': '已變更 {count} 個檔案',
   'agent.changes.additions': '新增行數',
   'agent.changes.deletions': '刪除行數',
@@ -1097,7 +1100,6 @@ export const zhTW: Messages = {
   "live.stop": "停止連接埠 {port}",
   "live.empty": "目前沒有執行中的預覽",
   "live.startCurrent": "啟動目前 HTML",
-  "live.localHint": "僅本機存取，連接埠獨立。儲存後重新整理可見頁面，關閉專案或視窗會停止對應服務。",
   "live.externalHint": "獨立檔案僅預覽本身。開啟所在資料夾後，可載入相關資源。",
   "error.live.notHtml": "請先開啟已儲存的 HTML 檔案",
   "error.live.limit": "執行中的預覽過多，請先停止不再使用的服務。",

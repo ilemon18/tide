@@ -57,7 +57,7 @@ export const ROUTING_FIXTURES = Object.freeze([
       'src/store/settings.ts',
       'src-tauri/src/commands/theme.rs',
     ],
-    expected: ['agent-composer.md', 'runtime.md'],
+    expected: ['agent-composer.md', 'settings.md'],
   },
   {
     name: 'Agent history',
@@ -75,9 +75,33 @@ export const ROUTING_FIXTURES = Object.freeze([
     expected: ['runtime.md'],
   },
   {
+    name: 'Agent chat transcript',
+    paths: ['src/components/AgentChat.tsx'],
+    expected: ['agent.md'],
+  },
+  {
     name: 'Shared agent state',
     paths: ['src/store/agent.ts'],
-    expected: ['agent-composer.md', 'agent-storage.md', 'agent.md'],
+    expected: ['agent.md'],
+  },
+  {
+    name: 'Settings view surfaces',
+    paths: ['src/components/SettingsView.tsx'],
+    expected: ['settings.md', 'updates.md'],
+  },
+  {
+    name: 'Settings page structure',
+    paths: [
+      'src/components/SettingsControls.tsx',
+      'src/lib/settingsSections.ts',
+      'src/store/settings.ts',
+    ],
+    expected: ['settings.md'],
+  },
+  {
+    name: 'Themes and fonts',
+    paths: ['src/components/ThemeMenu.tsx', 'src/lib/fonts.ts', 'src/theme/palettes.ts'],
+    expected: ['themes.md'],
   },
   {
     name: 'Configurable shortcuts',
@@ -87,7 +111,7 @@ export const ROUTING_FIXTURES = Object.freeze([
   {
     name: 'Settings migration',
     paths: ['src/store/settings.ts', 'src-tauri/src/commands/theme.rs'],
-    expected: ['runtime.md'],
+    expected: ['settings.md'],
   },
   {
     name: 'Project tasks and diagnostics',
@@ -103,6 +127,16 @@ export const ROUTING_FIXTURES = Object.freeze([
     name: 'Editor',
     paths: ['src/components/EditorArea.tsx', 'src/store/tabs.test.ts'],
     expected: ['editor.md'],
+  },
+  {
+    name: 'Markdown preview',
+    paths: [
+      'src/components/MarkdownPreview.tsx',
+      'src/components/MarkdownRenderer.tsx',
+      'src/lib/markdown.ts',
+      'src/editor/markdownDocs.ts',
+    ],
+    expected: ['markdown.md'],
   },
   {
     name: 'Git and watcher',
@@ -132,7 +166,16 @@ export const ROUTING_FIXTURES = Object.freeze([
   {
     name: 'Release history generation and delivery',
     paths: ['scripts/release-history.mjs', 'changes/releases.json', 'src/components/ReleaseNotes.tsx'],
-    expected: ['checks.md', 'updates.md'],
+    expected: ['release.md', 'updates.md'],
+  },
+  {
+    name: 'Release archival and workflow',
+    paths: [
+      'scripts/archive-release-history.cjs',
+      '.github/workflows/release.yml',
+      'changes/unreleased.md',
+    ],
+    expected: ['release.md'],
   },
   {
     name: 'Local HTML preview',
@@ -152,7 +195,7 @@ export const QUERY_FIXTURES = Object.freeze([
   { query: 'Agent 历史恢复', expected: ['agent-storage.md', 'agent.md'] },
   { query: '历史分页', expected: ['agent-storage.md'] },
   { query: ' COMPOSER ', expected: ['agent-composer.md'] },
-  { query: 'settings', expected: ['runtime.md'] },
+  { query: 'settings', expected: ['settings.md'] },
   { query: '诊断', expected: ['tasks.md'] },
   { query: 'Git watcher', expected: ['git.md', 'file-tree.md'] },
   { query: 'quantumzebra', expected: [] },

@@ -99,20 +99,24 @@ export const AgentTurnChanges = memo(function AgentTurnChanges({
         <span className="shrink-0 text-fg/80">
           {t('agent.changes.title', { count: changes.files.length })}
         </span>
-        <span
-          className="shrink-0 font-mono text-success"
-          data-tip={t('agent.changes.additions')}
-          data-changes-additions={changes.additions}
-        >
-          +{changes.additions}
-        </span>
-        <span
-          className="shrink-0 font-mono text-danger"
-          data-tip={t('agent.changes.deletions')}
-          data-changes-deletions={changes.deletions}
-        >
-          −{changes.deletions}
-        </span>
+        {changes.additions > 0 ? (
+          <span
+            className="shrink-0 font-mono text-success"
+            data-tip={t('agent.changes.additions')}
+            data-changes-additions={changes.additions}
+          >
+            +{changes.additions}
+          </span>
+        ) : null}
+        {changes.deletions > 0 ? (
+          <span
+            className="shrink-0 font-mono text-danger"
+            data-tip={t('agent.changes.deletions')}
+            data-changes-deletions={changes.deletions}
+          >
+            −{changes.deletions}
+          </span>
+        ) : null}
         <span className="ml-auto flex shrink-0 items-center gap-1">
           {changes.revertedAt ? (
             <span className="flex items-center gap-1 text-muted">
@@ -135,14 +139,14 @@ export const AgentTurnChanges = memo(function AgentTurnChanges({
         </span>
       </div>
 
-      <div className="flex flex-col">
+      <div className="flex flex-col gap-0.5">
         {files.map((file) => (
           <button
             key={`${file.oldPath ?? ''}:${file.path}`}
             type="button"
             title={fileLabel(file)}
             onClick={() => void useTabs.getState().openDiff(root, file.path, false)}
-            className="group flex min-w-0 items-center gap-1.5 rounded-[3px] px-1 py-[2px] text-left transition-colors duration-fast hover:bg-hover"
+            className="group flex min-w-0 items-center gap-1.5 rounded-[3px] px-1 py-1 text-left transition-colors duration-fast hover:bg-hover"
           >
             <FileIcon name={basename(file.path)} size={12} className="shrink-0" />
             <span className={`w-[10px] shrink-0 font-mono ${statusTone(file.status)}`}>
@@ -153,10 +157,14 @@ export const AgentTurnChanges = memo(function AgentTurnChanges({
             </span>
             {file.binary ? (
               <span className="shrink-0 text-muted">{t('agent.changes.binary')}</span>
-            ) : (
+            ) : file.additions === 0 && file.deletions === 0 ? null : (
               <span className="shrink-0 whitespace-nowrap font-mono">
-                <span className="text-success">+{file.additions}</span>
-                <span className="ml-1 text-danger">−{file.deletions}</span>
+                {file.additions > 0 ? <span className="text-success">+{file.additions}</span> : null}
+                {file.deletions > 0 ? (
+                  <span className={`text-danger ${file.additions > 0 ? 'ml-1' : ''}`}>
+                    −{file.deletions}
+                  </span>
+                ) : null}
               </span>
             )}
           </button>

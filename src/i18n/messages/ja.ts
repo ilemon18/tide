@@ -165,7 +165,6 @@ export const ja: Messages = {
   'activity.settingsTip': '設定',
   'activity.welcomeTip': 'ウェルカム',
 
-  'titlebar.projectTip': 'プロジェクト: {name}',
   'titlebar.projectAria': 'プロジェクト {name}',
   'titlebar.welcomeTip': 'ようこそ',
   'titlebar.newWindowTip': '新しいウィンドウ',
@@ -252,6 +251,9 @@ export const ja: Messages = {
 
   'settings.memory.card': 'メモリ',
   'settings.activityBar.card': 'アクティビティバー',
+  'settings.live.card': 'ライブプレビュー',
+  'settings.live.enabled': 'Go Live',
+  'settings.live.enabledHint': 'ステータスバーに Go Live を表示し、ローカル HTML プレビューを有効にします。',
   'settings.memory.lightweight': '軽量モード',
   'settings.memory.lightweightHint': 'バックグラウンド機能を停止してメモリを解放。開いているファイルは戻ると再読み込みされる場合があります。',
   'settings.memory.lightweightOn':
@@ -897,6 +899,7 @@ export const ja: Messages = {
   'agent.you': 'あなた',
   'agent.send': '送信',
   'agent.stop': '停止',
+  'agent.stopHint': '停止 (Esc)',
   'agent.changes.title': '{count} 個のファイルを変更',
   'agent.changes.additions': '追加行数',
   'agent.changes.deletions': '削除行数',
@@ -1123,7 +1126,6 @@ export const ja: Messages = {
   "live.stop": "ポート {port} を停止",
   "live.empty": "実行中のプレビューはありません",
   "live.startCurrent": "現在の HTML を開始",
-  "live.localHint": "ローカルのみ。ポートは独立しています。保存後に表示中のページを更新し、プロジェクトやウィンドウを閉じると停止します。",
   "live.externalHint": "単独ファイルは自身のみ表示します。関連リソースには親フォルダーを開いてください。",
   "error.live.notHtml": "保存済み HTML ファイルを開いてください",
   "error.live.limit": "プレビューが多すぎます。不要なサービスを停止してください。",

@@ -98,7 +98,7 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-it('renders no partial card while cold, then subject, body, stats and the exact hunk', async () => {
+it('renders no partial card while cold, then subject, body, stats and only the exact changed line', async () => {
   const pending = deferred<CommitDetail>()
   gitCommitDetail.mockReturnValueOnce(pending.promise)
   const { container } = render(<StrictMode><CommitHoverCard /></StrictMode>)
@@ -111,11 +111,58 @@ it('renders no partial card while cold, then subject, body, stats and the exact 
   expect(screen.getByText('A longer explanation of the change.')).toBeTruthy()
   expect(screen.getByText('commit.stats')).toBeTruthy()
   expect(screen.getByText('a.ts')).toBeTruthy()
-  expect(screen.getByText('@@ -4 +4 @@')).toBeTruthy()
+  expect(screen.queryByText('@@ -4 +4 @@')).toBeNull()
   const added = screen.getByText('+const value = 1')
   expect(added.className).toContain('bg-accent/15')
-  const deleted = screen.getByText('-const value = 0')
-  expect(deleted.className).not.toContain('bg-accent/15')
+  expect(screen.queryByText('-const value = 0')).toBeNull()
+})
+
+it('hides context and other changed lines from the hunk', async () => {
+  gitCommitFileDiff.mockResolvedValueOnce({
+    ...diff,
+    hunks: [{
+      oldStart: 3,
+      oldCount: 5,
+      newStart: 3,
+      newCount: 5,
+      header: '@@ -3,5 +3,5 @@',
+      lines: [
+        { kind: 'context', oldLine: 3, newLine: 3, text: 'before' },
+        { kind: 'del', oldLine: 4, newLine: null, text: 'const value = 0' },
+        { kind: 'add', oldLine: null, newLine: 4, text: 'const value = 1' },
+        { kind: 'context', oldLine: 5, newLine: 5, text: 'after' },
+        { kind: 'add', oldLine: null, newLine: 6, text: 'unrelated' },
+      ],
+    }],
+  })
+  render(<CommitHoverCard />)
+  await act(async () => useCommitHover.getState().show(target))
+  expect(screen.getByText('+const value = 1')).toBeTruthy()
+  expect(screen.queryByText('before')).toBeNull()
+  expect(screen.queryByText('after')).toBeNull()
+  expect(screen.queryByText('+unrelated')).toBeNull()
+  expect(screen.queryByText('-const value = 0')).toBeNull()
+})
+
+it('shows no-change when the hunk contains the line only as context', async () => {
+  gitCommitFileDiff.mockResolvedValueOnce({
+    ...diff,
+    hunks: [{
+      oldStart: 4,
+      oldCount: 2,
+      newStart: 4,
+      newCount: 2,
+      header: '@@ -4,2 +4,2 @@',
+      lines: [
+        { kind: 'context', oldLine: 4, newLine: 4, text: 'const value = 1' },
+        { kind: 'add', oldLine: null, newLine: 5, text: 'const next = 2' },
+      ],
+    }],
+  })
+  render(<CommitHoverCard />)
+  await act(async () => useCommitHover.getState().show(target))
+  expect(screen.getByText('commit.noChangeOnLine')).toBeTruthy()
+  expect(screen.queryByText('+const next = 2')).toBeNull()
 })
 
 it('positions the measured card above the blame text and stays hidden until measured', async () => {

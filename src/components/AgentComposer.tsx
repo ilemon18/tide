@@ -627,8 +627,8 @@ export function AgentComposer({
             <button
               type="button"
               onClick={onStop}
-              data-tip={t('agent.stop')}
-              aria-label={t('agent.stop')}
+              data-tip={t('agent.stopHint')}
+              aria-label={t('agent.stopHint')}
               className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[var(--r-control)] border border-line-soft text-muted transition-colors duration-fast hover:border-line hover:bg-hover hover:text-fg"
             >
               <Icon name="stop" size={14} className="text-danger" />

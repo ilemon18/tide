@@ -61,8 +61,23 @@ it('lists totals and per-file line counts and opens the diff of a clicked row', 
   expect(total('additions')).toBe('5')
   expect(total('deletions')).toBe('1')
   expect(screen.getByText('+3')).toBeTruthy()
+  expect(screen.queryByText('−0')).toBeNull()
+  const rows = container.querySelector('[data-agent-changes] > div:nth-of-type(2)')
+  expect(rows?.className).toContain('gap-0.5')
   fireEvent.click(screen.getByText('src/a.ts'))
   expect(tabs.openDiff).toHaveBeenCalledExactlyOnceWith('/repo', 'src/a.ts', false)
+})
+
+it('omits zero totals and zero per-file counts', () => {
+  const { container } = render(view(changes({
+    files: [{ path: 'src/a.ts', status: 'M', additions: 0, deletions: 0, binary: false }],
+    additions: 0,
+    deletions: 0,
+  })))
+  expect(container.querySelector('[data-changes-additions]')).toBeNull()
+  expect(container.querySelector('[data-changes-deletions]')).toBeNull()
+  expect(screen.queryByText('+0')).toBeNull()
+  expect(screen.queryByText('−0')).toBeNull()
 })
 
 it('offers undo only on the latest reply', () => {

@@ -1,0 +1,7 @@
+interface:
+  display_name: "Polish UI Copy"
+  short_description: "Remove redundant UI copy while keeping essential guidance"
+  default_prompt: "Use $polish-ui-copy to trim redundant copy from this feature and keep only guidance users need."
+
+policy:
+  allow_implicit_invocation: false

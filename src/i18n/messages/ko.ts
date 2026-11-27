@@ -165,7 +165,6 @@ export const ko: Messages = {
   'activity.settingsTip': '설정',
   'activity.welcomeTip': '환영합니다',
 
-  'titlebar.projectTip': '프로젝트: {name}',
   'titlebar.projectAria': '프로젝트 {name}',
   'titlebar.welcomeTip': '환영 페이지',
   'titlebar.newWindowTip': '새 창',
@@ -252,6 +251,9 @@ export const ko: Messages = {
 
   'settings.memory.card': '메모리',
   'settings.activityBar.card': '활동 표시줄',
+  'settings.live.card': '라이브 미리보기',
+  'settings.live.enabled': 'Go Live',
+  'settings.live.enabledHint': '상태 표시줄에 Go Live를 표시하고 로컬 HTML 미리보기를 허용합니다.',
   'settings.memory.lightweight': '라이트 모드',
   'settings.memory.lightweightHint': '백그라운드 기능을 중지해 메모리를 확보합니다. 돌아오면 열린 파일을 다시 불러올 수 있습니다.',
   'settings.memory.lightweightOn':
@@ -897,6 +899,7 @@ export const ko: Messages = {
   'agent.you': '나',
   'agent.send': '보내기',
   'agent.stop': '중지',
+  'agent.stopHint': '중지 (Esc)',
   'agent.changes.title': '파일 {count}개 변경됨',
   'agent.changes.additions': '추가된 줄',
   'agent.changes.deletions': '삭제된 줄',
@@ -1121,7 +1124,6 @@ export const ko: Messages = {
   "live.stop": "포트 {port} 중지",
   "live.empty": "실행 중인 미리보기 없음",
   "live.startCurrent": "현재 HTML 시작",
-  "live.localHint": "로컬에서만 접근하며 포트는 독립적입니다. 저장 후 표시 중인 페이지가 새로고침되고 프로젝트나 창을 닫으면 중지됩니다.",
   "live.externalHint": "단독 파일은 자체 내용만 미리 봅니다. 관련 리소스를 사용하려면 상위 폴더를 여세요.",
   "error.live.notHtml": "저장된 HTML 파일을 먼저 여세요",
   "error.live.limit": "미리보기가 너무 많습니다. 사용하지 않는 서비스를 중지하세요.",

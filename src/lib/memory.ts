@@ -2,6 +2,7 @@ import { listen } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { trimEditorStates } from '../editor/stateCache'
 import { clearImportCache } from '../editor/importLinks'
+import { clearCompletionCache } from '../editor/smartComplete'
 import { dropBlameCache, useBlame } from '../store/blame'
 import { clearCommitDetails } from '../store/commitHover'
 import { useFileIndex } from '../store/fileIndex'
@@ -36,6 +37,7 @@ export function reclaimMemory(level: 'idle' | 'hidden' = 'idle') {
   dropBlameCache()
   useBlame.getState().dropOtherTabs(activeId)
   clearImportCache()
+  clearCompletionCache()
   clearCommitDetails()
   useWorkspace.getState().pruneCaches()
 }

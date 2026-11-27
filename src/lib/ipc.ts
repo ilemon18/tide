@@ -175,6 +175,8 @@ export type Settings = {
   agentEnabled: boolean
   /** Project task discovery, execution and Problems diagnostics */
   tasksEnabled: boolean
+  /** Show Go Live in the status bar and allow local HTML previews */
+  goLiveEnabled: boolean
   /** Show the lazily loaded history list for this project */
   agentHistoryEnabled: boolean
   /** Activity bar icons that can be hidden; Explorer and Search always stay visible */

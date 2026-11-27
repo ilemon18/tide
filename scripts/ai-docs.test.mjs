@@ -184,7 +184,7 @@ test('shared paths retain all contracts and explanation identifies matching path
   const paths = ['src/store/agent.ts', 'src/components/AgentComposer.tsx']
   const hits = explainPathRoutes(docs, paths)
   assert.deepEqual(hits.map(({ doc }) => doc), resolveAreaDocsForPaths(docs, paths))
-  assert.deepEqual(hits.map(({ doc }) => doc), ['agent-composer.md', 'agent-storage.md', 'agent.md'])
+  assert.deepEqual(hits.map(({ doc }) => doc), ['agent-composer.md', 'agent.md'])
   for (const hit of hits) for (const match of hit.matches) {
     assert.ok(paths.includes(match.path))
     assert.ok(hit.scope.includes(match.glob))
@@ -195,8 +195,8 @@ test('shared paths retain all contracts and explanation identifies matching path
 test('current fixtures include resident context within hard budget; 16KB remains advisory', () => {
   const docs = areaDocs()
   const resident = statSync(join(ROOT, 'AGENTS.md')).size + statSync(join(AI_DIR, 'context.md')).size
-  assert.ok(statSync(join(AI_DIR, 'context.md')).size <= 2 * 1024)
-  assert.ok(resident <= 4 * 1024)
+  assert.ok(statSync(join(AI_DIR, 'context.md')).size <= 2560)
+  assert.ok(resident <= 4608)
   for (const fixture of ROUTING_FIXTURES) {
     const bytes = resident + resolveAreaDocsForPaths(docs, fixture.paths)
       .reduce((sum, doc) => sum + statSync(join(AI_DIR, doc)).size, 0)

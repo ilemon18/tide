@@ -56,7 +56,8 @@ Permission failures stay distinct from absence.
   and pane drop reject open/expand with `error.fs.symlinkUnsupported`; rename/delete/move operate on the link.
   Double-click remains the tree gesture and its second click must not repeat open/toggle or switch chats.
 - Preserve the settled chain during scrollbar motion and resolve visible chains at idle. Anchor by stable
-  root+start row identity or stay at the bottom; clamp after row shrink to avoid blanks.
+  root+start row identity. Only a shrinking list stays pinned to the bottom; a growing list keeps the anchor
+  so expansion extends downward, then clamp after row shrink to avoid blanks.
 
 ## Refresh contracts
 

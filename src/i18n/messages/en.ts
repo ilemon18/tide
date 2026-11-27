@@ -173,7 +173,6 @@ export const en = {
   'activity.welcomeTip': 'Welcome',
 
   // ---------------------------------------------------------------- Title bar
-  'titlebar.projectTip': 'Project: {name}',
   'titlebar.projectAria': 'Project {name}',
   'titlebar.welcomeTip': 'Welcome',
   'titlebar.newWindowTip': 'New window',
@@ -268,6 +267,9 @@ export const en = {
   // ---------------------------------------------------------------- Settings: memory
   'settings.memory.card': 'Memory',
   'settings.activityBar.card': 'Activity bar',
+  'settings.live.card': 'Live preview',
+  'settings.live.enabled': 'Go Live',
+  'settings.live.enabledHint': 'Show Go Live in the status bar and allow local HTML previews.',
   'settings.memory.lightweight': 'Lightweight mode',
   'settings.memory.lightweightHint':
     'Frees memory by pausing background features. Open files may reload when you return.',
@@ -948,6 +950,7 @@ export const en = {
   'agent.you': 'You',
   'agent.send': 'Send',
   'agent.stop': 'Stop',
+  'agent.stopHint': 'Stop (Esc)',
   'agent.changes.title': '{count} file changed | {count} files changed',
   'agent.changes.additions': 'Lines added',
   'agent.changes.deletions': 'Lines deleted',
@@ -1174,7 +1177,6 @@ export const en = {
   "live.stop": "Stop port {port}",
   "live.empty": "No previews running",
   "live.startCurrent": "Start current HTML",
-  "live.localHint": "Local only. Ports are isolated; saved changes reload visible pages. Closing the project or window stops its services.",
   "live.externalHint": "A standalone file previews itself only. Open its containing folder to serve related assets.",
   "error.live.notHtml": "Open a saved HTML file to start a preview",
   "error.live.limit": "Too many previews are running. Stop an unused service first.",

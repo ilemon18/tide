@@ -19,7 +19,7 @@ keywords:
 
 `configBackup.ts` owns document envelopes and scheduling; `commands/config.rs` owns dialogs, bounded
 reads and atomic export/recovery writes. Settings defaults, migration and cross-window keys:
-[runtime.md](./runtime.md). `ConfigSettings` reuses `SettingsControls` cards, rows and toggles.
+[settings.md](./settings.md). `ConfigSettings` reuses `SettingsControls` cards, rows and toggles.
 
 ## Compatibility and writes
 

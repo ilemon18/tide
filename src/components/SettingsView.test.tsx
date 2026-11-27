@@ -12,6 +12,7 @@ vi.mock('../store/settings', async () => {
     formatTool: 'auto', inlineBlame: false, indentGuides: false, trimTrailingWhitespace: false,
     insertFinalNewline: true, iconTheme: 'default', showHidden: false, compactFolders: false,
     terminalFontSize: 13, terminalScrollback: 2000, terminalWebgl: false, agentEnabled: true, tasksEnabled: true,
+    goLiveEnabled: true,
     agentDefaultProvider: '', agentDefaultModel: '', agentDefaultEffort: '',
     agentDefaultPermissionMode: 'workspace-write', agentHistoryEnabled: true, autoUpdate: false,
     configBackupEnabled: false, configBackupFolder: '', configBackupInterval: 'daily', configBackupMode: 'dated', configBackupLastAt: 0,
@@ -93,6 +94,15 @@ it('exposes activity bar visibility toggles under General', () => {
   }
   fireEvent.click(within(card).getByRole('button', { name: t('activity.welcomeTip') }))
   expect(useSettings.getState().patch).toHaveBeenCalledExactlyOnceWith({ activityBarWelcomeVisible: false })
+})
+
+it('exposes the Go Live switch under General', () => {
+  render(<SettingsView />)
+  const card = screen.getByRole('heading', { name: t('settings.live.card') }).closest('section')!
+  const toggle = within(card).getByRole('button', { name: t('settings.live.enabled') })
+  expect(toggle.getAttribute('aria-pressed')).toBe('true')
+  fireEvent.click(toggle)
+  expect(useSettings.getState().patch).toHaveBeenCalledExactlyOnceWith({ goLiveEnabled: false })
 })
 
 it('places the history preference under Agent and patches it when toggled', () => {

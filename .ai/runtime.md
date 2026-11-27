@@ -1,5 +1,5 @@
 ---
-summary: Windows, settings, themes and memory
+summary: Window shell, lifecycle and memory budget
 scope:
   - .ai/runtime.md
   - src/App.tsx
@@ -9,13 +9,8 @@ scope:
   - src/main.tsx
   - src/lib/contextMenu*.ts
   - src/components/TitleBar.tsx
-  - src/styles/index.css
   - src-tauri/src/window_cursor.rs
   - src-tauri/Cargo.toml
-  - src/components/SettingsView.tsx
-  - src/components/SettingsControls.tsx
-  - src/components/SettingsView.test.tsx
-  - src/components/ThemeMenu.tsx
   - src/lib/memoryBudget.ts
   - src/lib/displayScale.ts
   - src/lib/commandRegistry.ts
@@ -30,37 +25,29 @@ scope:
   - src/components/StatusBar.tsx
   - src/lib/memory.ts
   - src/components/Welcome*.tsx
-  - src/lib/settingsSections.ts
-  - src/lib/fonts.ts
-  - src/lib/iconTheme.ts
-  - src/store/settings.ts
-  - src/store/settings.test.ts
-  - src/theme/**
   - src-tauri/src/main.rs
   - src-tauri/src/state.rs
-  - src-tauri/src/commands/theme.rs
   - src-tauri/src/toolpath.rs
   - src-tauri/capabilities/**
   - vite.config.ts
   - src-tauri/tauri.conf.json
-  - public/theme-boot.js
 keywords:
   - runtime
-  - settings
   - window
-  - theme
+  - lifecycle
   - memory
-  - 设置
+  - shortcut
   - 窗口
-  - 主题
+  - 生命周期
   - 内存
+  - 快捷键
 ---
-# Runtime, windows and settings
+# Runtime, windows and lifecycle
 
 ## Ownership
 
-App owns hydration/windows; settings and Rust theme commands own defaults/migration; `memoryBudget.ts`
-owns memory limits. Updates: [updates.md](./updates.md).
+App owns hydration/windows; `memoryBudget.ts` owns memory limits. Settings: [settings.md](./settings.md);
+themes: [themes.md](./themes.md); updates: [updates.md](./updates.md).
 
 ## Windows and startup
 
@@ -93,26 +80,15 @@ owns memory limits. Updates: [updates.md](./updates.md).
   without resetting other settings, keep unknown ids but never execute them, and share across windows.
 - `ShortcutSettings`: searchable, read-only Alt gesture help in six locales.
 
-## Settings and memory
+## Memory budget
 
-- Read `memoryBudget` limits/features at use time, including lightweight profiles; never copy ceilings.
-  Evict inactive editor states, preserve active/dirty ones, and release editor/search/quick-open caches on
-  `app:hidden`.
-- `DEFAULT_SETTINGS` (`store/settings.ts`) and `Settings::default` (`commands/theme.rs`) stay identical.
-  Fresh installs migrate/write back Rust schema-0 defaults; then `settings.json` wins. Migrations append
-  and preserve unknown fields.
-- Add settings in types/defaults, migration, UI and `SHARED_KEYS`; retirement removes both defaults and adds
-  `RETIRED_KEYS`. Runtime choices write immediately and sync windows.
-- Formatting settings query tool availability/version and may install rustfmt (rustup) or Black (pipx/pip)
-  after confirmation. Missing Go/Rust/Python environments get manual guidance; gofmt/Prettier have no auto
-  updater. Choosing a tool while formatting is off enables manual mode; no extra persisted key is introduced.
-- `settings.json`/`session.json` use `app_config_dir` and the Rust theme lock; chat storage follows
-  [agent-storage.md](./agent-storage.md). `public/theme-boot.js` paints before React. Sidebar/drawer widths
-  are window-local, not synced.
+- Query `memoryBudget` at use time; never copy ceilings. Evict inactive states (keep active/dirty) and
+  release editor/search/quick-open caches on `app:hidden`. Lightweight disables `smartCompletion`; reclaim
+  clears its completion cache via `clearCompletionCache`.
 
 ## Native cursors and configuration
 
-- Configuration export precedes About; schema 17 sync defaults off. Transfer/recovery and the primary-window
+- Configuration export precedes About; schema 18 sync defaults off. Transfer/recovery and the primary-window
   scheduler are owned by [configuration.md](./configuration.md).
 - `index.css`: actions=pointer, text=text, unavailable=not-allowed with hints, busy=wait, drag=grabbing.
   `window_cursor.rs` registers native cursor rectangles via ivar-free subclasses, preserving actions/layout
@@ -121,8 +97,5 @@ owns memory limits. Updates: [updates.md](./updates.md).
 
 ## Change map
 
-Synchronize setting types/defaults, migrations, shared keys and UI. Theme changes coordinate UI/CodeMirror/
-xterm palettes through tokens; generated assets keep their generators. Built-ins follow VS Code's bundled
-theme JSON, third-party themes their official VS Code extension, and `tide`/`eyecare` remain custom. Keep
-activity/title/tab/status surface tokens explicit; `src/theme/palettes.test.ts` pins upstream projections.
+Synchronize window lifecycle, hydration and memory limits; settings and themes have their own change maps.
 Gate: [checks.md](./checks.md).

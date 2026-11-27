@@ -165,7 +165,6 @@ export const es: Messages = {
   'activity.settingsTip': 'Ajustes',
   'activity.welcomeTip': 'Bienvenido',
 
-  'titlebar.projectTip': 'Proyecto: {name}',
   'titlebar.projectAria': 'Proyecto {name}',
   'titlebar.welcomeTip': 'Bienvenida',
   'titlebar.newWindowTip': 'Nueva ventana',
@@ -253,6 +252,9 @@ export const es: Messages = {
 
   'settings.memory.card': 'Memoria',
   'settings.activityBar.card': 'Barra de actividades',
+  'settings.live.card': 'Vista previa',
+  'settings.live.enabled': 'Go Live',
+  'settings.live.enabledHint': 'Muestra Go Live en la barra de estado y permite vistas previas HTML locales.',
   'settings.memory.lightweight': 'Modo ligero',
   'settings.memory.lightweightHint':
     'Libera memoria pausando funciones en segundo plano. Los archivos abiertos pueden recargarse al volver.',
@@ -916,6 +918,7 @@ export const es: Messages = {
   'agent.you': 'Tú',
   'agent.send': 'Enviar',
   'agent.stop': 'Detener',
+  'agent.stopHint': 'Detener (Esc)',
   'agent.changes.title': '{count} archivo modificado | {count} archivos modificados',
   'agent.changes.additions': 'Líneas añadidas',
   'agent.changes.deletions': 'Líneas eliminadas',
@@ -1142,7 +1145,6 @@ export const es: Messages = {
   "live.stop": "Detener puerto {port}",
   "live.empty": "No hay vistas en ejecución",
   "live.startCurrent": "Iniciar HTML actual",
-  "live.localHint": "Solo acceso local y puertos independientes. Guardar recarga las páginas visibles; cerrar el proyecto o la ventana detiene sus servicios.",
   "live.externalHint": "Un archivo suelto solo se muestra a sí mismo. Abre su carpeta para cargar recursos relacionados.",
   "error.live.notHtml": "Abre primero un archivo HTML guardado",
   "error.live.limit": "Hay demasiadas vistas. Detén un servicio que no uses.",
