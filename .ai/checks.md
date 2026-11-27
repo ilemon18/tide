@@ -80,6 +80,7 @@ are in `src/editor/altSelection.test.ts`; blame geometry and terminal drag teard
 `window_cursor.rs` tests native subclass reuse/instance-size safety without creating GUI windows.
 `ShortcutSettings.test.tsx` covers searchable mouse-gesture help without modifying key bindings.
 `FileTree.test.tsx` keeps upper-position tab reveals compatible with paged/settled centered reveals.
+`Welcome.test.tsx` covers recent-project order/limit, switching delegation and context actions.
 Configuration compatibility/scheduling contracts: [configuration.md](./configuration.md).
 `pnpm tauri dev` uses `run-tauri.mjs` to stamp the highest reachable semantic tag via `set-version.mjs`,
 falling back to package metadata. UI version comes from native `app_version`; release builds retain tag stamps.

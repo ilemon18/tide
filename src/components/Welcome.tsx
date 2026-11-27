@@ -1,11 +1,16 @@
+import { useState } from 'react'
 import { useShortcut } from '../lib/useShortcut'
 import { useWorkspace } from '../store/workspace'
 import { newWindow, openFileDialog, openFolderDialog, openWorkspace } from '../lib/actions'
 import { Icon } from './Icon'
 import { FileIcon } from './FileIcon'
 import { TideMark } from './TideMark'
+import { ContextMenu } from './ContextMenu'
 import { useUi } from '../store/ui'
 import { useT } from '../i18n'
+
+/** Keep the bottom quick-switch row readable at the welcome page's 620px content width. */
+const RECENT_PROJECT_LIMIT = 6
 
 /** Welcome page: the empty state with all tabs closed, also a normal tab opened from the home icon (closes via its ×). */
 export function Welcome() {
@@ -17,9 +22,11 @@ export function Welcome() {
   const commandKeys = useShortcut('view.commands')
   const roots = useWorkspace((s) => s.roots)
   const recent = useWorkspace((s) => s.recent)
+  const [menu, setMenu] = useState<{ path: string; x: number; y: number } | null>(null)
   // Projects already open in this window are listed separately as "current projects" and kept out of recents:
   // a project only occupies one window, so "open in new window" makes no sense here
   const recentOnly = recent.filter((item) => !roots.some((root) => root.id === item.path))
+    .slice(0, RECENT_PROJECT_LIMIT)
   const setOverlay = useUi((s) => s.setOverlay)
   const openQuickOpen = useUi((s) => s.openQuickOpen)
   return (
@@ -101,46 +108,39 @@ export function Welcome() {
         ) : null}
 
         {recentOnly.length > 0 ? (
-          <div className="mt-4">
-            <div className="mb-1.5 text-2xs font-medium text-muted">{t('welcome.recent')}</div>
-            {recentOnly.slice(0, 5).map((item) => (
-              <div
-                key={item.path}
-                className="group flex w-full items-center rounded text-sm text-muted hover:bg-hover hover:text-fg"
-              >
+          <section aria-label={t('welcome.recent')} className="mt-4 border-t border-line/60 pt-4">
+            <div className="mb-2 text-2xs font-medium text-muted">{t('welcome.recent')}</div>
+            <div className="flex gap-1.5 overflow-x-auto pb-1">
+              {recentOnly.map((item) => (
                 <button
+                  key={item.path}
+                  type="button"
                   onClick={() => void openWorkspace(item.path)}
-                  className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1 text-left"
+                  onContextMenu={(event) => {
+                    event.preventDefault()
+                    setMenu({ path: item.path, x: event.clientX, y: event.clientY })
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return
+                    event.preventDefault()
+                    const rect = event.currentTarget.getBoundingClientRect()
+                    setMenu({ path: item.path, x: rect.left, y: rect.bottom + 4 })
+                  }}
+                  className="flex h-8 min-w-[90px] flex-1 cursor-pointer items-center gap-1.5 rounded-[7px] border border-line bg-panel px-2 text-left text-xs text-muted transition-colors duration-fast hover:border-accent/60 hover:bg-hover hover:text-fg"
                   title={item.path}
                 >
-                  <FileIcon name={item.name} isDir isOpen={false} size={13} />
-                  <span className="truncate">{item.name}</span>
+                  <FileIcon name={item.name} isDir isOpen={false} size={13} className="shrink-0" />
+                  <span className="min-w-0 truncate">{item.name}</span>
                 </button>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    void newWindow(item.path)
-                  }}
-                  data-tip={t('projects.openInNewWindowTip')}
-                  className="flex h-5 w-5 shrink-0 items-center justify-center rounded opacity-0 hover:bg-hover-strong hover:text-fg group-hover:opacity-100 group-focus-within:opacity-100"
-                >
-                  <Icon name="window" size={12} />
-                </button>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    useWorkspace.getState().removeRecent(item.path)
-                  }}
-                  data-tip={t('projects.removeRecentTip')}
-                  className="mr-1 flex h-5 w-5 shrink-0 items-center justify-center rounded opacity-0 hover:bg-hover-strong hover:text-danger group-hover:opacity-100 group-focus-within:opacity-100"
-                >
-                  <Icon name="close" size={11} />
-                </button>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          </section>
         ) : null}
       </div>
+      {menu ? <ContextMenu x={menu.x} y={menu.y} onClose={() => setMenu(null)} items={[
+        { label: t('projects.openInNewWindowTip'), onClick: () => void newWindow(menu.path) },
+        { label: t('projects.removeRecentTip'), onClick: () => useWorkspace.getState().removeRecent(menu.path) },
+      ]} /> : null}
     </div>
   )
 }

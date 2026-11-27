@@ -29,7 +29,7 @@ scope:
   - src/lib/activityBar.ts
   - src/components/StatusBar.tsx
   - src/lib/memory.ts
-  - src/components/Welcome.tsx
+  - src/components/Welcome*.tsx
   - src/lib/settingsSections.ts
   - src/lib/fonts.ts
   - src/lib/iconTheme.ts
@@ -64,9 +64,11 @@ owns memory limits. Updates: [updates.md](./updates.md).
 
 ## Windows and startup
 
-- Welcome lists Open file before Open folder; external files use exact grants released on Destroyed.
-  Explorer and Search always show; other views hide cosmetically (commands still open them, and turning one
-  off falls back to Explorer once). `tasksEnabled` is the only Tasks switch.
+- Welcome orders Open file/folder; exact grants release on Destroyed. Recents exclude open roots;
+  `RECENT_PROJECT_LIMIT` (Welcome.tsx) caps six scrollable cards. `openWorkspace` owns dirty consent/
+  other-window focus; menus: new-window/remove.
+- Explorer/Search always show; hidden views retain commands. Disabling the current view falls back to Explorer;
+  `tasksEnabled` alone controls Tasks.
 - Mod+Shift+A opens Agent from any surface; Mod+A stays native and dialogs/overlays block app shortcuts.
 - `useUi.page` switches workspace and standalone history; the workspace stays mounted but inert. While
   history is visible, workspace edit/tab/terminal/context commands are unavailable, Find targets history
@@ -112,9 +114,9 @@ owns memory limits. Updates: [updates.md](./updates.md).
 
 - Configuration export precedes About; schema 17 sync defaults off. Transfer/recovery and the primary-window
   scheduler are owned by [configuration.md](./configuration.md).
-- `index.css` owns semantic cursors: actions=pointer, text=text, unavailable=not-allowed (keep hints), busy=wait,
-  drag=grabbing. `window_cursor.rs` registers cursor rectangles on native resets via ivar-free subclasses,
-  preserving AppKit actions/layout without retained windows/timers. Tests guard instance size/reuse.
+- `index.css`: actions=pointer, text=text, unavailable=not-allowed with hints, busy=wait, drag=grabbing.
+  `window_cursor.rs` registers native cursor rectangles via ivar-free subclasses, preserving actions/layout
+  without retained windows/timers. Tests guard instance size/reuse.
   Caption inset: original Y, X shifted left 4px; no native layout overrides.
 
 ## Change map
