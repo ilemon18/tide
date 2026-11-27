@@ -2,7 +2,7 @@
 
 Generated from release tags and commit ranges. Missing version tags are not invented.
 
-## Unreleased
+## v0.0.20 — 2026-11-27
 
 - 首页合并“最近打开”标题与当前项目状态，当前项目在标题行右侧突出显示；最近项目最多 12 个，宽屏每行最多 4 个，窄屏自适应 2 或 3 列，保留路径提示与右键操作。
 - 代码字体新增本机 Consolas 和内置得意黑，保留内置 Fira Code；提供本地字体缺失时的回退说明和多语言字体预览。
@@ -29,6 +29,10 @@ Generated from release tags and commit ranges. Missing version tags are not inve
 - 分支名称悬停显示完整内容，点击打开本地分支下拉；远程仓库入口移至源代码管理标题前的小眼睛按钮，并与下方图标左侧对齐。
 - Git 设置复用设置页控件，非英文界面为配置添加小字英文名称；写入只影响更改过的项目偏好，保留其他 Git 配置。
 - 开发规范补充节省内存、可配置选项、UI 文案检查和提交/发版前补齐更新日志；增加暂存开关、提交历史、配置兼容、终端字体与 Git 操作回归测试。
+
+- feat(editor): add symbol-aware completion and UI refinements (e4facbe)
+- docs(ai): make UI copy necessity check always active (8a3d71f)
+- feat: expand Git workflows and polish editor customization (78e7aeb)
 
 ## v0.0.19 — 2026-11-27
 
