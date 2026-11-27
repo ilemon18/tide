@@ -59,9 +59,10 @@ it('centers a confirmed match while the find box stays focused', () => {
 
   expect(view.state.sliceDoc(view.state.selection.main.from, view.state.selection.main.to)).toBe('second')
   expect(
-    dispatch.mock.calls.some(([tr]) =>
-      tr.effects.some((effect) => (effect.value as { y?: string } | undefined)?.y === 'center'),
-    ),
+    dispatch.mock.calls.some(([tr]) => {
+      const effects = tr.effects == null ? [] : Array.isArray(tr.effects) ? tr.effects : [tr.effects]
+      return effects.some((effect) => (effect.value as { y?: string } | undefined)?.y === 'center')
+    }),
   ).toBe(true)
   expect(document.activeElement).toBe(input)
 })

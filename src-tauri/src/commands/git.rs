@@ -2723,8 +2723,16 @@ mod tests {
         }
 
         fn commit(&self) {
+            self.commit_with("baseline");
+        }
+
+        fn commit_with(&self, message: &str) {
             self.git(&["add", "--all"]);
-            self.git(&["-c", "commit.gpgsign=false", "commit", "-qm", "baseline"]);
+            self.git(&["-c", "commit.gpgsign=false", "commit", "-qm", message]);
+        }
+
+        fn path(&self) -> &str {
+            self.root.to_str().unwrap()
         }
 
         fn discard(&self, paths: &[&str], from_index: bool) -> crate::error::AppResult<()> {
@@ -3335,7 +3343,7 @@ index 111..222 100644\n\
 --- a/a.ts\n\
 +++ b/a.ts\n\
 @@ -1,2 +1,3 @@\n\
- old\n\
+\x20old\n\
 -gone\n\
 +new\n\
 +added\n\\ No newline at end of file\n";
@@ -3397,13 +3405,13 @@ rename to new.ts\n";
     fn diffs_a_merge_commit_against_its_first_parent() {
         let repo = TestRepo::new();
         repo.write("base.txt", "base\n");
-        repo.commit("base");
+        repo.commit_with("base");
         repo.git(&["checkout", "-q", "-b", "side"]);
         repo.write("side.txt", "side change\n");
-        repo.commit("side");
+        repo.commit_with("side");
         repo.git(&["checkout", "-q", "-"]);
         repo.write("main.txt", "main change\n");
-        repo.commit("main");
+        repo.commit_with("main");
         repo.git(&["merge", "--no-ff", "-q", "-m", "merge", "side"]);
 
         let sha = repo.git(&["rev-parse", "HEAD"]).trim().to_string();
