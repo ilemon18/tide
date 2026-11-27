@@ -197,6 +197,24 @@ export type FormatToolStatus = {
   available: boolean
   /** project | bundled | system */
   source: string
+  /** Installed tool version; bundled Prettier fills this from the frontend constant */
+  version: string | null
+}
+
+/** Settings-page formatter detection and install/update state */
+export type FormatToolInfo = {
+  id: string
+  label: string
+  installed: boolean
+  /** project | bundled | system */
+  source: 'project' | 'bundled' | 'system'
+  version: string | null
+  language: 'node' | 'rust' | 'go' | 'python' | null
+  languageInstalled: boolean
+  languageVersion: string | null
+  canInstall: boolean
+  canUpdate: boolean
+  installKind: 'rustup' | 'pip' | 'pipx' | 'manual' | 'bundled'
 }
 
 export type FormatResult = {
@@ -740,6 +758,13 @@ export const api = {
   /** Whether the selected tool handles the current file and which copy it uses (status bar) */
   formatToolStatus: (root: string, rel: string, tool: string) =>
     invoke<FormatToolStatus>('format_tool_status', { root, rel, tool }),
+  /** Settings-page tool checks; root is optional when no workspace is open */
+  formatToolInfo: (tool: string, root: string | null = null, rel: string | null = null) =>
+    invoke<FormatToolInfo>('format_tool_info', { tool, root, rel }),
+  formatToolInstall: (tool: string) =>
+    invoke<FormatToolInfo>('format_tool_install', { tool }),
+  formatToolUpdate: (tool: string) =>
+    invoke<FormatToolInfo>('format_tool_update', { tool }),
   /** Format: text in, formatted text out (no disk writes); fallback = use bundled Prettier */
   formatText: (root: string, rel: string, tool: string, text: string) =>
     invoke<FormatResult>('format_text', { root, rel, tool, text }),

@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 
 use parking_lot::Mutex;
 
-use crate::proc;
+use crate::toolpath;
 
 pub struct ProviderSpec {
     pub id: &'static str,
@@ -74,83 +74,6 @@ static CATALOGS: Mutex<Option<HashMap<String, (Instant, AgentCatalog)>>> = Mutex
 const CATALOG_TTL: Duration = Duration::from_secs(300);
 const MAX_CATALOG_BYTES: usize = 8 * 1024 * 1024;
 
-fn home_dir() -> Option<PathBuf> {
-    let key = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
-    std::env::var_os(key)
-        .filter(|v| !v.is_empty())
-        .map(PathBuf::from)
-}
-
-fn search_dirs() -> Vec<PathBuf> {
-    let mut dirs: Vec<PathBuf> = Vec::new();
-    if let Some(path) = std::env::var_os("PATH") {
-        dirs.extend(std::env::split_paths(&path));
-    }
-    if let Some(home) = home_dir() {
-        for rel in [
-            ".volta/bin",
-            ".local/bin",
-            ".bun/bin",
-            ".npm-global/bin",
-            ".cargo/bin",
-            ".deno/bin",
-            ".asdf/shims",
-        ] {
-            dirs.push(home.join(rel));
-        }
-    }
-    for dir in ["/opt/homebrew/bin", "/usr/local/bin"] {
-        dirs.push(PathBuf::from(dir));
-    }
-    #[cfg(windows)]
-    if let Some(appdata) = std::env::var_os("APPDATA") {
-        dirs.push(PathBuf::from(appdata).join("npm"));
-    }
-    dirs
-}
-
-fn executable(path: &Path) -> bool {
-    let Ok(meta) = std::fs::metadata(path) else {
-        return false;
-    };
-    if !meta.is_file() {
-        return false;
-    }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        meta.permissions().mode() & 0o111 != 0
-    }
-    #[cfg(not(unix))]
-    {
-        true
-    }
-}
-
-fn find_in_dirs(binaries: &[&str], dirs: &[PathBuf]) -> Option<PathBuf> {
-    for name in binaries {
-        for dir in dirs {
-            #[cfg(windows)]
-            {
-                for suffix in [".exe", ".cmd", ".bat", ""] {
-                    let candidate = dir.join(format!("{name}{suffix}"));
-                    if executable(&candidate) {
-                        return Some(candidate);
-                    }
-                }
-            }
-            #[cfg(not(windows))]
-            {
-                let candidate = dir.join(name);
-                if executable(&candidate) {
-                    return Some(candidate);
-                }
-            }
-        }
-    }
-    None
-}
-
 /// Run a program, read its stdout concurrently (a large catalog must not fill the pipe and
 /// deadlock `try_wait`), and give up after `timeout`.
 pub fn run_capture(program: &Path, args: &[String], timeout: Duration) -> Option<String> {
@@ -206,35 +129,8 @@ pub fn run_capture(program: &Path, args: &[String], timeout: Duration) -> Option
     String::from_utf8(bytes).ok()
 }
 
-#[cfg(windows)]
 pub fn build_command(program: &Path, args: &[String]) -> Command {
-    let ext = program
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or_default()
-        .to_ascii_lowercase();
-    if ext == "cmd" || ext == "bat" {
-        let mut cmd = proc::command("cmd.exe");
-        cmd.arg("/C").arg(program);
-        for arg in args {
-            cmd.arg(arg);
-        }
-        return cmd;
-    }
-    let mut cmd = proc::command(program);
-    for arg in args {
-        cmd.arg(arg);
-    }
-    cmd
-}
-
-#[cfg(not(windows))]
-pub fn build_command(program: &Path, args: &[String]) -> Command {
-    let mut cmd = proc::command(program);
-    for arg in args {
-        cmd.arg(arg);
-    }
-    cmd
+    toolpath::build_command(program, args)
 }
 
 /// One login-shell lookup for a supported provider whose binary the plain scan missed.
@@ -281,14 +177,9 @@ fn probe_version(program: &Path) -> Option<String> {
 /// PATH for the agent child: the GUI app inherits a minimal PATH on macOS, so an agent's
 /// own Bash tool would not find pnpm/node/git installed under volta or Homebrew.
 pub fn augmented_path() -> Option<std::ffi::OsString> {
-    let mut dirs: Vec<PathBuf> = Vec::new();
-    for dir in search_dirs() {
-        if !dirs.contains(&dir) {
-            dirs.push(dir);
-        }
-    }
-    std::env::join_paths(dirs).ok()
+    toolpath::augmented_path()
 }
+
 
 pub fn scan(force: bool) -> Vec<AgentProviderInfo> {
     let mut cache = SCAN.lock();
@@ -297,10 +188,10 @@ pub fn scan(force: bool) -> Vec<AgentProviderInfo> {
             return known.clone();
         }
     }
-    let dirs = search_dirs();
+    let dirs = toolpath::search_dirs();
     let mut out = Vec::with_capacity(PROVIDERS.len());
     for spec in PROVIDERS {
-        let mut found = find_in_dirs(spec.binaries, &dirs);
+        let mut found = toolpath::find_in_dirs(spec.binaries, &dirs);
         if found.is_none() && spec.supported {
             found = shell_lookup(spec.binaries[0]);
         }

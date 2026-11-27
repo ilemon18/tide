@@ -407,7 +407,7 @@ type TabsStore = {
   saveAll: () => Promise<void>
   saveActive: () => Promise<void>
   /** Format the current file manually (⇧⌥F / status bar badge): edits the buffer (undoable), marks dirty for auto-save. */
-  formatActive: () => Promise<boolean>
+  formatActive: (tabId?: string) => Promise<boolean>
   reset: () => void
   onRenamed: (root: string, from: string, to: string) => void
   onDeleted: (root: string, rel: string) => void
@@ -2407,7 +2407,12 @@ export const useTabs = create<TabsStore>((set, get) => ({
         const result = await formatWithSelectedTool(tab.root, tabFileRel(tab), state.doc.toString())
         if (saveCancelled()) return false
         if (result.error && !opts?.quiet) useUi.getState().toast(result.error, 'error')
-        if (result.changed && result.text) replaceDocText(id, result.text)
+        // If typing continued while the formatter ran, save the live text unformatted rather
+        // than replacing it with a result computed from an older document.
+        const live = getEditorState(id)
+        if (result.changed && result.text !== null && live?.doc === state.doc) {
+          replaceDocText(id, result.text)
+        }
       } catch {
         /* Formatting is a bonus: any error must not block the save */
       }
@@ -2468,24 +2473,27 @@ export const useTabs = create<TabsStore>((set, get) => ({
     }
   },
 
-  formatActive: async () => {
+  formatActive: async (tabId) => {
     // Already formatting / just formatted (second half of a double click): ignore
     if (get().formatting || Date.now() - lastManualFormat < 400) return false
     const snapshot = get()
-    const tab = snapshot.tabs.find((t) => t.id === snapshot.activeId)
+    const targetId = tabId ?? snapshot.activeId
+    const tab = snapshot.tabs.find((t) => t.id === targetId)
     if (!tab || tab.kind !== 'file' || tab.readOnly) return false
     const state = getEditorState(tab.id)
     if (!state) return false
+    const sourceDoc = state.doc
+    const rel = tabFileRel(tab)
 
     const ui = useUi.getState()
     set({ formatting: true })
     try {
-      const result = await formatWithSelectedTool(tab.root, tabFileRel(tab), state.doc.toString())
+      const result = await formatWithSelectedTool(tab.root, rel, sourceDoc.toString())
       if (result.source === 'none') {
         ui.toast(t('toast.formatDisabled'), 'info')
         return false
       }
-      const ext = tab.rel.slice(tab.rel.lastIndexOf('.') + 1)
+      const ext = rel.slice(rel.lastIndexOf('.') + 1)
       if (result.source === 'unsupported') {
         ui.toast(t('toast.formatNoTool', { ext }), 'info')
         return false
@@ -2494,15 +2502,22 @@ export const useTabs = create<TabsStore>((set, get) => ({
         ui.toast(result.error, 'error')
         return false
       }
-      if (!result.text) return false
+      if (result.text === null) return false
+      // Formatting may take a moment. Never overwrite text typed while waiting for the tool.
+      const live = getEditorState(tab.id)
+      if (!live || live.doc !== sourceDoc) {
+        ui.toast(t('toast.formatChanged'), 'info')
+        return false
+      }
       if (!result.changed) {
+        ui.toast(t('toast.formatUnchanged'), 'info')
         return false
       }
       replaceDocText(tab.id, result.text)
       lastManualFormat = Date.now()
       // Formatting edits the buffer: mark dirty and let auto-save / ⌘S write it
       get().markDirty(tab.id)
-      const tool = resolveTool(tab.rel, useSettings.getState().formatTool)
+      const tool = resolveTool(rel, useSettings.getState().formatTool)
       ui.toast(
         t('toast.formatted', {
           tool: tool?.label ?? t('settings.editor.formatTool'),

@@ -7,6 +7,7 @@ mod i18n;
 mod paths;
 mod proc;
 mod state;
+mod toolpath;
 // In-app update (check / download / install / startup report), see the module header
 mod update;
 mod watcher;
@@ -327,6 +328,9 @@ fn main() {
             // format
             commands::format::format_text,
             commands::format::format_tool_status,
+            commands::format::format_tool_info,
+            commands::format::format_tool_install,
+            commands::format::format_tool_update,
             commands::format::prettier_config,
             // search
             commands::search::search_files,

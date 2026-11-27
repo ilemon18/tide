@@ -37,6 +37,7 @@ import {
 } from '../editor/scrollMemory'
 import { onLayoutDragging } from '../lib/layoutBus'
 import { Icon } from './Icon'
+import { EditorContextMenu } from './EditorContextMenu'
 import { ImageView } from './ImageView'
 import { DiffView } from './DiffView'
 import { Welcome } from './Welcome'
@@ -200,6 +201,12 @@ export function EditorHost({ groupId }: { groupId: TabGroupId }) {
   /** Delay the "restoring" hint: it usually finishes instantly, so showing it at once just flashes; only
    * show it when it is really slow (large file / first language-pack load). */
   const [slowRestore, setSlowRestore] = useState(false)
+  const [editorMenu, setEditorMenu] = useState<{ x: number; y: number } | null>(null)
+  const formatting = useTabs((s) => s.formatting)
+
+  useEffect(() => {
+    setEditorMenu(null)
+  }, [activeId])
 
   useEffect(() => {
     if (!restoring) {
@@ -247,10 +254,22 @@ export function EditorHost({ groupId }: { groupId: TabGroupId }) {
     }
     view.scrollDOM.addEventListener('scroll', onScroll, { passive: true })
 
+    const onContextMenu = (event: MouseEvent) => {
+      const state = useTabs.getState()
+      const id = state.groups.find((g) => g.id === groupId)?.activeId
+      const tab = state.tabs.find((candidate) => candidate.id === id)
+      if (!id || !tab || tab.kind !== 'file' || tab.preview) return
+      event.preventDefault()
+      state.setActiveGroup(groupId)
+      setEditorMenu({ x: event.clientX, y: event.clientY })
+    }
+    view.contentDOM.addEventListener('contextmenu', onContextMenu)
+
     return () => {
       unsubscribeContext()
       unregisterContext()
       view.scrollDOM.removeEventListener('scroll', onScroll)
+      view.contentDOM.removeEventListener('contextmenu', onContextMenu)
       if (frame) cancelAnimationFrame(frame)
       unlinkView(view)
       setEditorView(groupId, null)
@@ -597,6 +616,19 @@ export function EditorHost({ groupId }: { groupId: TabGroupId }) {
           <ImageView tab={activeTab} svgText={svgText} />
         ) : null}
         {activeTab?.kind === 'diff' ? <DiffView tab={activeTab} /> : null}
+        {editorMenu && activeTab?.kind === 'file' && !activeTab.preview ? (
+          <EditorContextMenu
+            x={editorMenu.x}
+            y={editorMenu.y}
+            tab={activeTab}
+            formatting={formatting}
+            onClose={() => setEditorMenu(null)}
+            onFormat={() => {
+              setEditorMenu(null)
+              void useTabs.getState().formatActive(activeTab.id)
+            }}
+          />
+        ) : null}
         {restoring && slowRestore ? (
           <div className="pointer-events-none absolute left-1/2 top-2 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-line bg-panel px-2.5 py-1 text-2xs text-muted shadow-popup">
             <Icon name="refresh" size={11} />

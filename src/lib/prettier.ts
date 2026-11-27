@@ -9,6 +9,9 @@ import { t } from '../i18n'
 
 type PluginName = 'estree' | 'babel' | 'typescript' | 'postcss' | 'html' | 'markdown' | 'yaml'
 
+/** Keep in sync with src/vendor/prettier/standalone.mjs; the formatter settings page shows it. */
+export const BUNDLED_PRETTIER_VERSION = '3.9.10'
+
 type ParserSpec = { parser: string; plugins: PluginName[] }
 
 const BABEL: ParserSpec = { parser: 'babel', plugins: ['estree', 'babel'] }

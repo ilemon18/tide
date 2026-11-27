@@ -25,10 +25,11 @@ vi.mock('../editor/scrollMemory', () => ({
 }))
 vi.mock('../editor/conflicts', () => ({ conflictField: {}, looksLikeConflict: () => false }))
 vi.mock('../lib/formatting', () => ({ formatWithSelectedTool: vi.fn() }))
-vi.mock('./settings', () => ({ useSettings: { getState: () => ({ autoSave: false }) } }))
-const { useWorkspaceCalls, confirm, onTabClosed, isChatRunning } = vi.hoisted(() => ({
+vi.mock('./settings', () => ({ useSettings: { getState: () => ({ autoSave: false, formatTool: 'auto', formatMode: 'manual' }) } }))
+const { useWorkspaceCalls, confirm, toast, onTabClosed, isChatRunning } = vi.hoisted(() => ({
   useWorkspaceCalls: { setActiveRoot: vi.fn(), requestTreeReveal: vi.fn() },
   confirm: vi.fn(),
+  toast: vi.fn(),
   onTabClosed: vi.fn(),
   isChatRunning: vi.fn<(id: string) => boolean>(() => false),
 }))
@@ -46,12 +47,13 @@ vi.mock('./workspace', () => ({
 vi.mock('./git', () => ({ useGit: { getState: () => ({}) } }))
 vi.mock('./blame', () => ({ useBlame: { getState: () => ({ invalidate: vi.fn() }) } }))
 vi.mock('./fileIndex', () => ({ useFileIndex: { getState: () => ({}) } }))
-vi.mock('./ui', () => ({ useUi: { getState: () => ({ confirm, toast: vi.fn() }) } }))
+vi.mock('./ui', () => ({ useUi: { getState: () => ({ confirm, toast }) } }))
 vi.mock('../lib/agentBridge', () => ({ agentBridge: { onTabClosed, isChatRunning } }))
 
 import { save as saveDialog } from '@tauri-apps/plugin-dialog'
-import { dropEditorState } from '../editor/stateCache'
+import { dropEditorState, getEditorState } from '../editor/stateCache'
 import { api } from '../lib/ipc'
+import { formatWithSelectedTool } from '../lib/formatting'
 import { useTabs } from './tabs'
 
 const tab = (id: string, kind: Tab['kind'] = 'file'): Tab => ({
@@ -274,5 +276,54 @@ describe('external files', () => {
     expect(api.grantFile).toHaveBeenCalledWith('/tmp/tide-untitled.txt')
     expect(api.writeFile).toHaveBeenCalledWith('/tmp/tide-untitled.txt', '', '')
     expect(useTabs.getState().tabs.some((item) => item.external && item.root === '/tmp/tide-untitled.txt')).toBe(true)
+  })
+})
+
+
+describe('manual formatting', () => {
+  const stateWith = (text: string) => ({ doc: { toString: () => text, length: text.length }, update: () => ({ state: null }) }) as never
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2030-01-01T00:00:00Z'))
+  })
+
+  it('shows an unchanged toast instead of rewriting identical output', async () => {
+    useTabs.setState({ activeId: file.id, formatting: false })
+    const state = stateWith('const x = 1')
+    vi.mocked(getEditorState).mockReturnValue(state)
+    vi.mocked(formatWithSelectedTool).mockResolvedValue({
+      text: 'const x = 1', changed: false, error: null, source: 'system',
+    })
+    await expect(useTabs.getState().formatActive()).resolves.toBe(false)
+    expect(toast).toHaveBeenCalledWith('toast.formatUnchanged', 'info')
+  })
+
+  it('does not replace text typed while the formatter was running', async () => {
+    useTabs.setState({ activeId: file.id, formatting: false })
+    vi.mocked(getEditorState)
+      .mockReturnValueOnce(stateWith('const x=1'))
+      .mockReturnValueOnce(stateWith('const x=1 // typed'))
+    vi.mocked(formatWithSelectedTool).mockResolvedValue({
+      text: 'const x = 1', changed: true, error: null, source: 'system',
+    })
+    await expect(useTabs.getState().formatActive()).resolves.toBe(false)
+    expect(toast).toHaveBeenCalledWith('toast.formatChanged', 'info')
+    expect(api.writeFile).not.toHaveBeenCalled()
+  })
+
+  it('formats the tab named by the editor context menu, not whichever tab is globally active', async () => {
+    const other = tab('other')
+    useTabs.setState({
+      tabs: [file, other],
+      groups: [{ id: 'primary', order: [file.id, other.id], activeId: other.id }],
+      activeId: other.id,
+      formatting: false,
+    })
+    vi.mocked(getEditorState).mockReturnValue(stateWith('const x=1'))
+    vi.mocked(formatWithSelectedTool).mockResolvedValue({
+      text: 'const x = 1', changed: true, error: null, source: 'system',
+    })
+    await expect(useTabs.getState().formatActive(file.id)).resolves.toBe(true)
+    expect(formatWithSelectedTool).toHaveBeenCalledWith('/repo', 'file.ts', 'const x=1')
   })
 })

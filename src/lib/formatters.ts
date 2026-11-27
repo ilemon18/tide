@@ -12,6 +12,8 @@ export type FormatMode = 'off' | 'manual' | 'onSave'
 
 export type FormatToolId = 'auto' | 'prettier' | 'rustfmt' | 'gofmt' | 'black'
 
+export type FormatToolLanguage = 'node' | 'rust' | 'go' | 'python'
+
 export type FormatTool = {
   id: Exclude<FormatToolId, 'auto'>
   /** Tool names are proper nouns, do not translate */
@@ -19,6 +21,7 @@ export type FormatTool = {
   hintKey: MessageKey
   /** Bundled (no system install needed) */
   bundled: boolean
+  language: FormatToolLanguage
   extensions: string[]
 }
 
@@ -29,6 +32,7 @@ export const FORMAT_TOOLS: FormatTool[] = [
     label: 'Prettier',
     hintKey: 'format.tool.prettierHint',
     bundled: true,
+    language: 'node',
     extensions: [
       'js',
       'jsx',
@@ -56,6 +60,7 @@ export const FORMAT_TOOLS: FormatTool[] = [
     label: 'rustfmt',
     hintKey: 'format.tool.rustfmtHint',
     bundled: false,
+    language: 'rust',
     extensions: ['rs'],
   },
   {
@@ -63,6 +68,7 @@ export const FORMAT_TOOLS: FormatTool[] = [
     label: 'gofmt',
     hintKey: 'format.tool.gofmtHint',
     bundled: false,
+    language: 'go',
     extensions: ['go'],
   },
   {
@@ -70,6 +76,7 @@ export const FORMAT_TOOLS: FormatTool[] = [
     label: 'Black',
     hintKey: 'format.tool.blackHint',
     bundled: false,
+    language: 'python',
     extensions: ['py'],
   },
 ]
@@ -122,5 +129,23 @@ export function sourceLabel(source: string): string {
       return t('format.source.system')
     default:
       return ''
+  }
+}
+/** Display label for the settings chips and status bar. Tool names stay proper nouns. */
+export function toolVersionLabel(label: string, version: string | null | undefined): string {
+  return version ? `${label} ${version}` : label
+}
+
+/** Human-readable language names used in environment-missing dialogs. */
+export function languageLabel(language: FormatToolLanguage): string {
+  switch (language) {
+    case 'rust':
+      return 'Rust'
+    case 'go':
+      return 'Go'
+    case 'python':
+      return 'Python'
+    case 'node':
+      return 'Node.js'
   }
 }

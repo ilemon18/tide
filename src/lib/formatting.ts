@@ -15,6 +15,11 @@ export type FormatOutcome = {
   source: 'none' | 'unsupported' | 'project' | 'bundled' | 'system'
 }
 
+/** Backend FormatResult.error is a code, not already-localized text. */
+function translatedError(code: string | null | undefined): string | null {
+  return code ? errorText({ code, params: {} }) : null
+}
+
 /** Format with the tool chosen in settings: prefer the project's copy, fall back to the bundled one */
 export async function formatWithSelectedTool(
   root: string,
@@ -41,7 +46,7 @@ export async function formatWithSelectedTool(
       return { text: null, changed: false, error: errorText(e), source: 'project' }
     }
     if (result.error) {
-      return { text: null, changed: false, error: result.error, source: 'project' }
+      return { text: null, changed: false, error: translatedError(result.error), source: 'project' }
     }
     if (!result.fallback) {
       return { text: result.text, changed: result.changed, error: null, source: 'project' }
@@ -59,7 +64,7 @@ export async function formatWithSelectedTool(
 
   try {
     const result = await api.formatText(root, rel, toolId, text)
-    return { text: result.text, changed: result.changed, error: result.error, source: 'system' }
+    return { text: result.text, changed: result.changed, error: translatedError(result.error), source: 'system' }
   } catch (e) {
     return { text: null, changed: false, error: errorText(e), source: 'system' }
   }

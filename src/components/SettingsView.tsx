@@ -5,11 +5,21 @@ import { useSettings } from '../store/settings'
 import { useUpdate } from '../store/update'
 import { updateAction, updateDetail, runUpdateAction, type UpdateView } from '../lib/updateView'
 import { updateApi } from '../lib/update'
-import { errorText, type Settings } from '../lib/ipc'
+import { api, errorText, type Settings } from '../lib/ipc'
 import { THEME_GROUPS, palettes, themeLabel } from '../theme/palettes'
 import { FORMAT_MODES, FORMAT_TOOLS } from '../lib/formatters'
+import {
+  displayToolVersion,
+  loadFormatToolInfos,
+  selectAutoFormat,
+  selectFormatTool,
+  updateFormatTool,
+  type FormatToolIdValue,
+  type FormatToolInfos,
+} from '../lib/formatterActions'
 import { ICON_THEME_OPTIONS } from '../lib/iconTheme'
 import { useAgent } from '../store/agent'
+import { useWorkspace } from '../store/workspace'
 import { Picker, effortLabel } from './AgentPickers'
 import { AgentProviderIcon } from './AgentProviderIcon'
 import { MONO_FONT_OPTIONS, monoStack } from '../lib/fonts'
@@ -131,11 +141,48 @@ export function SettingsView() {
   const patch = useSettings((s) => s.patch)
   const contentRef = useRef<HTMLDivElement>(null)
   const [showAllAgents, setShowAllAgents] = useState(false)
+  const roots = useWorkspace((s) => s.roots)
+  const activeRootId = useWorkspace((s) => s.activeRootId)
+  const activeRoot = roots.find((root) => root.id === activeRootId)?.id ?? roots[0]?.id ?? null
+  const [toolInfos, setToolInfos] = useState<FormatToolInfos>({})
+  const [toolBusy, setToolBusy] = useState<FormatToolIdValue | null>(null)
 
   // Jump back to the top on section change so the previous page's scroll offset isn't reused
   useEffect(() => {
     contentRef.current?.scrollTo({ top: 0 })
   }, [section])
+
+  useEffect(() => {
+    if (section !== 'editor') return
+    let alive = true
+    void loadFormatToolInfos(activeRoot)
+      .then((infos) => {
+        if (alive) setToolInfos(infos)
+      })
+      .catch((e) => {
+        if (alive) useUi.getState().toast(errorText(e), 'error')
+      })
+    return () => {
+      alive = false
+    }
+  }, [section, activeRoot])
+
+  const chooseTool = async (id: FormatToolIdValue) => {
+    if (toolBusy) return
+    setToolBusy(id)
+    try {
+      const current = toolInfos[id] ?? (await api.formatToolInfo(id, activeRoot))
+      const info =
+        settings.formatTool === id && current.installed
+          ? await updateFormatTool(id, current)
+          : await selectFormatTool(id, activeRoot)
+      setToolInfos((previous) => ({ ...previous, [id]: info }))
+    } catch (e) {
+      useUi.getState().toast(errorText(e), 'error')
+    } finally {
+      setToolBusy(null)
+    }
+  }
 
   const set = <K extends keyof Settings>(key: K, value: Settings[K]) =>
     patch({ [key]: value } as Partial<Settings>)
@@ -368,35 +415,54 @@ export function SettingsView() {
             </div>
           </Row>
           <Row label={t('settings.editor.formatTool')}>
-            <div
-              className={`flex max-w-[340px] flex-wrap justify-end gap-1 ${
-                settings.formatMode === 'off' ? 'opacity-50' : ''
-              }`}
-            >
+            <div className="flex max-w-[340px] flex-wrap justify-end gap-1">
               <button
-                onClick={() => set('formatTool', 'auto')}
+                onClick={selectAutoFormat}
                 data-tip={t('settings.editor.formatToolAutoHint')}
                 className={`flex items-center gap-1 ${pill(settings.formatTool === 'auto')}`}
               >
                 {settings.formatTool === 'auto' ? <Icon name="check" size={10} /> : null}
                 {t('settings.editor.formatAuto')}
               </button>
-              {FORMAT_TOOLS.map((tool) => (
-                <button
-                  key={tool.id}
-                  onClick={() => set('formatTool', tool.id)}
-                  className={`flex items-center gap-1 ${pill(settings.formatTool === tool.id)}`}
-                  data-tip={t(tool.hintKey)}
-                >
-                  {settings.formatTool === tool.id ? <Icon name="check" size={10} /> : null}
-                  {tool.label}
-                  {tool.bundled ? null : (
-                    <span className="text-2xs text-muted/70">
-                      {t('settings.editor.formatSystemBadge')}
-                    </span>
-                  )}
-                </button>
-              ))}
+              {FORMAT_TOOLS.map((tool) => {
+                const info = toolInfos[tool.id]
+                const busy = toolBusy === tool.id
+                const selected = settings.formatTool === tool.id
+                const version = info?.installed ? displayToolVersion(info) : null
+                const status = busy
+                  ? t('format.tool.checking')
+                  : !info
+                    ? t('format.tool.checking')
+                    : info.installed
+                      ? version
+                      : t('format.tool.notInstalled')
+                return (
+                  <button
+                    key={tool.id}
+                    onClick={() => void chooseTool(tool.id)}
+                    disabled={busy}
+                    className={`flex items-center gap-1 ${pill(selected)} disabled:opacity-60`}
+                    data-tip={`${t(tool.hintKey)}${status ? ` · ${status}` : ''}`}
+                  >
+                    {busy ? (
+                      <Icon name="spinner" size={10} className="animate-spin" />
+                    ) : selected ? (
+                      <Icon name="check" size={10} />
+                    ) : null}
+                    {tool.label}
+                    {!tool.bundled ? (
+                      <span className="text-2xs text-muted/70">
+                        {t('settings.editor.formatSystemBadge')}
+                      </span>
+                    ) : null}
+                    {status ? (
+                      <span className={`text-2xs ${info?.installed ? 'text-muted/70' : 'text-warning'}`}>
+                        {status}
+                      </span>
+                    ) : null}
+                  </button>
+                )
+              })}
             </div>
           </Row>
         </Card>

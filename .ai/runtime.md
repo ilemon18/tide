@@ -35,6 +35,7 @@ scope:
   - src-tauri/src/main.rs
   - src-tauri/src/state.rs
   - src-tauri/src/commands/theme.rs
+  - src-tauri/src/toolpath.rs
   - src-tauri/capabilities/**
   - vite.config.ts
   - src-tauri/tauri.conf.json
@@ -95,6 +96,9 @@ App owns hydration/window coordination; the settings store and Rust theme comman
   migration/writeback; afterwards `settings.json` wins. Migrations only append and preserve unknown fields.
 - Add settings in types/defaults, migration, UI and `SHARED_KEYS`; retirement removes both defaults and adds
   `RETIRED_KEYS`. Runtime choices write immediately and sync windows.
+- Formatting settings query tool availability/version and may install rustfmt (rustup) or Black (pipx/pip)
+  after confirmation. Missing Go/Rust/Python environments get manual guidance; gofmt/Prettier have no auto
+  updater. Choosing a tool while formatting is off enables manual mode; no extra persisted key is introduced.
 - `settings.json`/`session.json` use `app_config_dir` and the Rust theme lock; chat storage follows
   [agent-storage.md](./agent-storage.md). `public/theme-boot.js` paints before React. Sidebar/drawer widths
   are window-local, not synced.

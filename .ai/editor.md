@@ -22,6 +22,11 @@ scope:
   - src/lib/diffMarks.ts
   - src/lib/diffMarks.test.ts
   - src/components/EditorContextActions*.tsx
+  - src/components/EditorContextMenu*.tsx
+  - src/lib/formatters.ts
+  - src/lib/formatting.ts
+  - src/lib/formatterActions.ts
+  - src-tauri/src/commands/format.rs
 keywords:
   - editor
   - tab
@@ -86,6 +91,15 @@ states. EditorHost selects tab kinds; markdown helpers own contained links and i
 - ⌘/Ctrl-click resolves an import path, then an identifier chain to its import line with a sticky highlight;
   the scan is bounded to 2000 lines / 256KB and cached. Reconfigure theme/font/blame/wrap through
   Compartments; rebuilding state discards undo. Blame/hover: [git.md](./git.md).
+
+## Formatting
+
+- Settings owns `formatMode`/`formatTool`; choosing a tool while Off switches to Manual. Manual format is the
+  badge, ⇧⌥F, or context menu.
+- Prettier uses a runnable project copy or bundled; system tools label version/source via `toolpath.rs`.
+- Settings installs rustfmt/Black only, never runtimes. gofmt follows Go; Prettier follows Tide/project manager.
+- stdin -> stdout; empty output errors. Apply results only when the document still matches the snapshot;
+  right-click opens `EditorContextMenu`; double-click stays word selection.
 
 ## Selection and change map
 

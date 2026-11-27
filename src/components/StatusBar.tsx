@@ -2,7 +2,8 @@ import { useShortcutTip } from '../lib/useShortcut'
 import { useEffect, useState } from 'react'
 import { useTabs } from '../store/tabs'
 import { api, type FormatToolStatus } from '../lib/ipc'
-import { resolveTool, sourceLabel } from '../lib/formatters'
+import { resolveTool, sourceLabel, toolVersionLabel } from '../lib/formatters'
+import { BUNDLED_PRETTIER_VERSION } from '../lib/prettier'
 import { useGit } from '../store/git'
 import { useSettings } from '../store/settings'
 import { useUi } from '../store/ui'
@@ -55,6 +56,13 @@ export function StatusBar() {
   // The "auto" mode resolves a concrete tool by extension first, then asks the backend if it is usable
   const resolvedTool = formatterRel ? resolveTool(formatterRel, settings.formatTool) : null
   const formatMode = settings.formatMode
+  const toolStatusText = toolStatus
+    ? toolVersionLabel(
+        toolStatus.label,
+        toolStatus.version ??
+          (toolStatus.source === 'bundled' ? BUNDLED_PRETTIER_VERSION : null),
+      )
+    : ''
   useEffect(() => {
     if (formatMode === 'off' || !formatterRoot || !formatterRel || !resolvedTool) {
       setToolStatus(null)
@@ -155,8 +163,11 @@ export function StatusBar() {
       ) : null}
       {toolStatus?.rule ? (
         <button
-          onClick={() => void formatActive()}
-          disabled={formatting || !toolStatus.available}
+          onClick={() => {
+            if (toolStatus.available) void formatActive()
+            else openSettings('editor')
+          }}
+          disabled={formatting}
           className={`flex items-center gap-1 rounded-[var(--r-row)] px-1.5 py-0.5 transition-colors duration-fast hover:bg-hover hover:text-fg disabled:hover:bg-transparent ${
             toolStatus.available && formatMode === 'onSave' ? 'text-fg/75' : 'text-muted/60'
           }`}
@@ -166,13 +177,13 @@ export function StatusBar() {
                   formatMode === 'onSave' ? 'status.formatTipOnSave' : 'status.formatTip',
                   {
                     rule: toolStatus.rule,
-                    tool: toolStatus.label,
+                    tool: toolStatusText,
                     source: sourceLabel(toolStatus.source),
                   },
                 )
               : t('status.formatUnavailableTip', {
                   rule: toolStatus.rule,
-                  tool: toolStatus.label,
+                  tool: toolStatusText,
                 })
           }
         >
@@ -183,7 +194,7 @@ export function StatusBar() {
           />
           <span className="tabular-nums">{toolStatus.rule}</span>
           <span className="text-muted/50">·</span>
-          <span>{toolStatus.label}</span>
+          <span>{toolStatusText}</span>
           {toolStatus.available ? null : (
             <span className="text-warning">{t('status.formatUnavailable')}</span>
           )}
