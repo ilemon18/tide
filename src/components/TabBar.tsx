@@ -575,7 +575,7 @@ export function TabBar({
     return (
       <>
         <div
-          className={`flex h-[36px] shrink-0 select-none items-center border-b border-line bg-panel px-2 ${
+          className={`flex h-[36px] shrink-0 select-none items-center border-b border-line bg-tab-bar px-2 ${
             groupFocused ? '' : 'opacity-95'
           }`}
           onPointerDown={() => setActiveGroup(groupId)}
@@ -611,7 +611,7 @@ export function TabBar({
   return (
     <>
       <div
-        className={`flex h-[36px] shrink-0 select-none items-center border-b border-line bg-panel px-2 ${
+        className={`flex h-[36px] shrink-0 select-none items-center border-b border-line bg-tab-bar px-2 ${
           groupFocused ? '' : 'opacity-95'
         }`}
         onPointerDown={() => setActiveGroup(groupId)}

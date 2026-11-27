@@ -26,10 +26,12 @@ export const SYNTAX_RULES: SyntaxRule[] = [
   {
     cls: 'keyword',
     color: 'keyword',
-    tags: [t.keyword, t.moduleKeyword, t.controlKeyword, t.operatorKeyword],
+    tags: [t.keyword, t.moduleKeyword, t.operatorKeyword],
   },
+  { cls: 'keywordControl', color: 'keywordControl', tags: [t.controlKeyword] },
   { cls: 'string', color: 'string', tags: [t.string, t.special(t.string), t.regexp] },
-  { cls: 'number', color: 'number', tags: [t.number, t.bool, t.null, t.atom] },
+  { cls: 'number', color: 'number', tags: [t.number] },
+  { cls: 'constant', color: 'constant', tags: [t.bool, t.null, t.atom] },
   {
     cls: 'comment',
     color: 'comment',

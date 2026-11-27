@@ -82,8 +82,11 @@
   --color-bg: var(--c-bg);
   --color-panel: var(--c-panel);
   --color-panel-alt: var(--c-panel-alt);
-  /* Leftmost activity bar: one step darker than the sidebar */
+  /* Leftmost activity bar: upstream surface, falling back to the sidebar */
   --color-activity-bar: var(--c-activity-bar);
+  --color-title-bar: var(--c-title-bar);
+  --color-tab-bar: var(--c-tab-bar);
+  --color-status-bar: var(--c-status-bar);
   --color-line: var(--c-border);
   --color-fg: var(--c-fg);
   --color-muted: var(--c-muted);
@@ -103,7 +106,7 @@
   --color-hover-strong: var(--c-hover-strong);
   --color-hover-solid: var(--c-hover);
 
-  /* Derived semantic colors: computed from the current palette, so all 19 themes inherit without per-theme tuning */
+  /* Derived semantic colors: computed from the current palette, so all 21 themes inherit without per-theme tuning */
   --color-row-selected: var(--c-row-selected);
   --color-row-selected-inactive: var(--c-row-selected-inactive);
   --color-tab-edge: var(--c-tab-active-border);
@@ -165,9 +168,12 @@
   --c-danger: #c4374b;
   --c-tab: #ffffff;
   --c-shadow: rgba(15, 15, 30, 0.12);
-  --c-activity-bar: var(--c-panel-alt);
+  --c-activity-bar: var(--c-panel);
+  --c-title-bar: var(--c-panel);
+  --c-tab-bar: var(--c-panel);
+  --c-status-bar: var(--c-panel);
 
-  /* ---- Metric tokens (Islands style): palette-independent, shared by all 19 themes ---- */
+  /* ---- Metric tokens (Islands style): palette-independent, shared by all 21 themes ---- */
   --r-row: 4px; /* rows, menu items */
   --r-sel: 5px; /* list selection block */
   --r-control: 4px; /* buttons, inputs, segmented controls */

@@ -170,7 +170,7 @@ export function TitleBar() {
   return (
     <div
       data-tauri-drag-region
-      className={`flex h-[35px] shrink-0 select-none items-center gap-2 border-b border-line bg-panel ${
+      className={`flex h-[35px] shrink-0 select-none items-center gap-2 border-b border-line bg-title-bar ${
         mac ? 'pl-[92px] pr-2' : 'pl-2 pr-0'
       }`}
     >

@@ -102,4 +102,7 @@ App owns hydration/window coordination; the settings store and Rust theme comman
 ## Change map
 
 Synchronize setting types/defaults, migrations, shared keys and UI. Theme changes coordinate UI/CodeMirror/
-xterm palettes through tokens; generated assets keep their generators. Gate: [checks.md](./checks.md).
+xterm palettes through tokens; generated assets keep their generators. Built-ins follow VS Code's bundled
+theme JSON, third-party themes their official VS Code extension, and `tide`/`eyecare` remain custom. Keep
+activity/title/tab/status surface tokens explicit; `src/theme/palettes.test.ts` pins upstream projections.
+Gate: [checks.md](./checks.md).

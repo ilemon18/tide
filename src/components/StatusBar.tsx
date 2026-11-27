@@ -77,7 +77,7 @@ export function StatusBar() {
   const activeRoot = roots.find((r) => r.id === activeRootId) ?? roots[0] ?? null
   const status = activeRoot ? statuses[activeRoot.id] : undefined
   return (
-    <div className="flex h-[28px] shrink-0 items-center gap-3 border-t border-line-soft bg-panel px-2 text-xs text-muted">
+    <div className="flex h-[28px] shrink-0 items-center gap-3 border-t border-line-soft bg-status-bar px-2 text-xs text-muted">
       {roots.length > 0 ? (
         <button
           onClick={() => setOverlay('projects')}
