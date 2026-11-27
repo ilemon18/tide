@@ -14,6 +14,7 @@ vi.mock('./folderChain', () => ({ useFolderChain: { getState: () => ({ forget, i
 vi.mock('../lib/memoryBudget', () => ({ feature: { eagerFileIndex: () => false } }))
 vi.mock('../i18n', () => ({ t: (key: string) => key }))
 import { useWorkspace, emptyRoot, type DirState } from './workspace'
+import { api } from '../lib/ipc'
 
 const root = '/repo'
 const entry = (path: string, isDir = false): DirEntryInfo => ({
@@ -36,6 +37,14 @@ function seed(tree: Record<string, DirState>) {
 }
 beforeEach(() => { readDir.mockReset(); toast.mockClear(); forget.mockClear() })
 afterEach(async () => { await useWorkspace.getState().closeWorkspace() })
+
+it('does not rewrite the layout session when the active root is unchanged', () => {
+  seed({ '': dir([entry('a')]) })
+  const saveSession = vi.mocked(api.saveSession)
+  saveSession.mockClear()
+  useWorkspace.getState().setActiveRoot(root)
+  expect(saveSession).not.toHaveBeenCalled()
+})
 
 it('keeps old directories until the batch is ready, then commits once', async () => {
   seed({ '': dir([entry('a', true)]), a: dir([entry('a/old')]) })

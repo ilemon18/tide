@@ -168,6 +168,20 @@ it('keeps chat Escape available while the history drawer is open and focus is ou
   expect(actions.stop).toHaveBeenCalledExactlyOnceWith('chat')
 })
 
+it('pauses follow observers, focus and Escape while hidden and resumes them on reveal', () => {
+  const { rerender } = render(<AgentChat chatId="chat" visible={false} />)
+  expect(observers).toHaveLength(0)
+  expect(actions.markChatFocused).not.toHaveBeenCalled()
+  fireEvent.keyDown(window, { key: 'Escape' })
+  expect(actions.stop).not.toHaveBeenCalled()
+
+  rerender(<AgentChat chatId="chat" visible />)
+  expect(observers.length).toBeGreaterThan(0)
+  expect(actions.markChatFocused).toHaveBeenCalledWith('chat')
+  fireEvent.keyDown(window, { key: 'Escape' })
+  expect(actions.stop).toHaveBeenCalledExactlyOnceWith('chat')
+})
+
 it('leaves Escape to the history drawer when its search field has focus', () => {
   render(<AgentChat chatId="chat" />)
   const drawer = document.createElement('div')

@@ -42,7 +42,7 @@ import { ImageView } from './ImageView'
 import { DiffView } from './DiffView'
 import { Welcome } from './Welcome'
 import { SettingsView } from './SettingsView'
-import { AgentChat } from './AgentChat'
+import { ChatPaneHost } from './ChatPaneHost'
 import { DiffRuler } from './DiffRuler'
 import { MarkdownPreview } from './MarkdownPreview'
 import { Splitter } from './Splitter'
@@ -152,6 +152,10 @@ export function EditorHost({ groupId }: { groupId: TabGroupId }) {
   const blameSource = useBlame((s) => (activeId ? s.source[activeId] : undefined))
   const activeTab = tabs.find((t) => t.id === activeId) ?? null
   const hidden = isEditorHidden(activeTab)
+  const chatTabIds = useMemo(
+    () => group?.order.filter(id => tabs.some(tab => tab.id === id && tab.kind === 'chat')) ?? [],
+    [group?.order, tabs],
+  )
   /** Plain files inside a Git repo get the right-edge ruler and the matching line-number gutter. */
   const isGitRepo = useWorkspace(
     (s) => s.roots.find((root) => root.id === activeTab?.root)?.isGitRepo ?? false,
@@ -608,9 +612,7 @@ export function EditorHost({ groupId }: { groupId: TabGroupId }) {
         ) : null}
         {activeTab?.kind === 'welcome' ? <Welcome /> : null}
         {activeTab?.kind === 'settings' ? <SettingsView /> : null}
-        {activeTab?.kind === 'chat' ? (
-          <AgentChat key={activeTab.id} chatId={activeTab.id.slice('chat:'.length)} />
-        ) : null}
+        <ChatPaneHost activeTabId={activeId} openChatTabIds={chatTabIds} />
         {activeTab?.kind === 'image' ? <ImageView tab={activeTab} /> : null}
         {activeTab?.kind === 'file' && activeTab.preview ? (
           <ImageView tab={activeTab} svgText={svgText} />

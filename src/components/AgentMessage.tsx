@@ -1,7 +1,7 @@
 import { AgentAttachments } from './AgentAttachments'
 import { AgentProviderIcon } from './AgentProviderIcon'
 import { serializeAttachments } from '../lib/agentContext'
-import { memo, useLayoutEffect, useRef, useState } from 'react'
+import { memo, useRef, useState } from 'react'
 import type { AgentItem, AgentMessage as Message } from '../store/agent'
 import type { AgentMention, AgentPlanAction } from '../lib/ipc'
 import { useTabs } from '../store/tabs'
@@ -17,6 +17,7 @@ import { CommandChip, SkillChip } from './AgentTags'
 import { CopyButton } from './CopyButton'
 import { FileIcon } from './FileIcon'
 import { Icon } from './Icon'
+import { useOverflowMeasure } from './useOverflowMeasure'
 
 function openMention(root: string, mention: AgentMention) {
   // '.' is how the explorer's project row is mentioned; the reveal target is the root itself
@@ -137,24 +138,17 @@ function ToolCard({ item, separateOutput = false }: { item: AgentItem; separateO
   const [expanded, setExpanded] = useState(false)
   const commandRef = useRef<HTMLPreElement>(null)
   const outputRef = useRef<HTMLPreElement>(null)
-  const [wrapped, setWrapped] = useState({ input: false, output: false })
-  useLayoutEffect(() => {
-    if (expanded) return
-    const measure = () => setWrapped({
-      input: Boolean(commandRef.current && commandRef.current.scrollHeight > commandRef.current.clientHeight + 1),
-      output: Boolean(outputRef.current && outputRef.current.scrollHeight > outputRef.current.clientHeight + 1),
-    })
-    measure()
-    if (typeof ResizeObserver === 'undefined') return
-    const observer = new ResizeObserver(measure)
-    if (commandRef.current) observer.observe(commandRef.current)
-    if (outputRef.current) observer.observe(outputRef.current)
-    return () => observer.disconnect()
-  }, [item.detail, item.title, item.output, expanded])
   const command = toolCommand(item) || t('agent.tool')
   const input = toolPreview(command, 2)
   const output = toolPreview(separateOutput ? '' : item.output ?? '', 3)
-  const canExpand = input.clipped || output.clipped || wrapped.input || wrapped.output || Boolean(item.detail && item.detail !== command)
+  const inputWrapped = useOverflowMeasure(
+    commandRef,
+    !expanded,
+    `${item.title ?? ''}\u0000${item.detail ?? ''}`,
+  )
+  const outputWrapped = useOverflowMeasure(outputRef, !expanded && !separateOutput, item.output ?? '')
+  const canExpand = input.clipped || output.clipped || inputWrapped || outputWrapped ||
+    Boolean(item.detail && item.detail !== command)
   return <div className="group/item min-w-0 border-l border-line pl-2.5 text-xs">
     <div className="flex items-start gap-2">
       <ToolStatus status={item.status} />
@@ -163,11 +157,11 @@ function ToolCard({ item, separateOutput = false }: { item: AgentItem; separateO
       <CopyButton text={[command, item.detail, item.output].filter(Boolean).join('\n\n')}
         label={t('agent.copy.toolInput')} tip={t('agent.copy.toolInput')} iconOnly className={itemControlClass} />
     </div>
-    {!expanded && (input.clipped || wrapped.input) ? <div className="text-muted">…</div> : null}
+    {!expanded && (input.clipped || inputWrapped) ? <div className="text-muted">…</div> : null}
     {expanded && item.detail && item.detail !== command ? <pre className="mt-1 whitespace-pre-wrap break-words font-mono text-[11px] text-muted">{item.detail}</pre> : null}
     {!separateOutput && item.output ? <pre ref={outputRef} className="mt-1 whitespace-pre-wrap break-words font-mono text-[11px] text-muted"
       style={expanded ? undefined : { display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{expanded ? item.output : output.text.replace(/\n…$/, '')}</pre> : null}
-    {!expanded && (output.clipped || wrapped.output) ? <div className="text-muted">…</div> : null}
+    {!expanded && (output.clipped || outputWrapped) ? <div className="text-muted">…</div> : null}
     {canExpand ? <button type="button" aria-expanded={expanded} onClick={() => setExpanded(value => !value)}
       className="mt-1 cursor-pointer rounded-[var(--r-row)] px-1 text-2xs text-accent transition-colors duration-fast hover:bg-hover hover:text-fg">{t(expanded ? 'agent.output.collapse' : 'agent.output.expand')}</button> : null}
   </div>
@@ -177,17 +171,8 @@ function ToolOutputCard({ item, fullOutput }: { item: AgentItem; fullOutput?: st
   const t = useT()
   const [expanded, setExpanded] = useState(false)
   const ref = useRef<HTMLPreElement>(null)
-  const [wrapped, setWrapped] = useState(false)
   const preview = toolPreview(item.text, 3)
-  useLayoutEffect(() => {
-    if (expanded) return
-    const measure = () => setWrapped(Boolean(ref.current && ref.current.scrollHeight > ref.current.clientHeight + 1))
-    measure()
-    if (typeof ResizeObserver === 'undefined') return
-    const observer = new ResizeObserver(measure)
-    if (ref.current) observer.observe(ref.current)
-    return () => observer.disconnect()
-  }, [item.text, expanded])
+  const wrapped = useOverflowMeasure(ref, !expanded, item.text)
   if (!item.text) return null
   return <div className="group/item min-w-0 border-l border-line pl-2.5 text-xs text-muted">
     <div className="flex items-start gap-2">

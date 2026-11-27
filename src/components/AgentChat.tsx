@@ -33,7 +33,7 @@ function serializeQueuedMessage(item: AgentDraft): string {
 }
 
 /** A chat tab: transcript, per-chat options and the composer. */
-export function AgentChat({ chatId }: { chatId: string }) {
+export function AgentChat({ chatId, visible = true }: { chatId: string; visible?: boolean }) {
   const t = useT()
   const chat = useAgent((s) => s.chats[chatId])
   const page = useAgent(s => s.pages[chatId])
@@ -48,7 +48,7 @@ export function AgentChat({ chatId }: { chatId: string }) {
   const historyEnabled = useSettings((s) => s.agentHistoryEnabled)
   const enabled = useSettings((s) => s.agentEnabled)
   const active = useTabs((s) => s.activeId === chatTabId(chatId))
-  const focused = active
+  const focused = active && visible
   useEffect(() => {
     if (focused) useAgent.getState().markChatFocused(chatId)
   }, [focused, chatId])
@@ -105,6 +105,7 @@ export function AgentChat({ chatId }: { chatId: string }) {
     captureAnchor()
   }
   useLayoutEffect(() => {
+    if (!visible) return
     const el = scrollRef.current
     const saved = anchor.current
     if (!el || !saved || following.current) return
@@ -112,7 +113,7 @@ export function AgentChat({ chatId }: { chatId: string }) {
     if (row) el.scrollTop += row.getBoundingClientRect().top - el.getBoundingClientRect().top - saved.offset
     lastScrollTop.current = el.scrollTop
     captureAnchor()
-  }, [chat?.messages, atBottom])
+  }, [chat?.messages, atBottom, visible])
   const navigate = (direction: 'earlier' | 'later' | 'pending') => {
     pauseFollowing()
     void useAgent.getState().loadPage(chatId, direction)
@@ -177,6 +178,7 @@ export function AgentChat({ chatId }: { chatId: string }) {
   const last = chat && chat.messages.length > 0 ? chat.messages[chat.messages.length - 1] : undefined
   // Switching chat tabs reuses this component instance: start the new transcript at its end
   useLayoutEffect(() => {
+    if (!visible) return
     displayedChat.current = chatId
     resumeFollowing()
     return () => {
@@ -184,7 +186,7 @@ export function AgentChat({ chatId }: { chatId: string }) {
       if (scrollFrame.current !== null) cancelAnimationFrame(scrollFrame.current)
       scrollFrame.current = null
     }
-  }, [chatId, resumeFollowing])
+  }, [chatId, visible, resumeFollowing])
 
   // Completion can change the final reply layout after reading paused following.
   useLayoutEffect(() => {
@@ -192,22 +194,23 @@ export function AgentChat({ chatId }: { chatId: string }) {
     const status = chat?.status
     const completed = previous.chatId === chatId && previous.status === 'running' && status !== 'running'
     completionState.current = { chatId, status }
-    if (!completed) return
+    if (!visible || !completed) return
     following.current = true
     anchor.current = null
     setAtBottom(true)
     scrollToEnd()
     scheduleScroll()
-  }, [chatId, chat?.status, scheduleScroll, scrollToEnd])
+  }, [chatId, chat?.status, visible, scheduleScroll, scrollToEnd])
 
   // Run after the new transcript commits, then again after deferred content/layout settles.
   useLayoutEffect(() => {
-    if (!following.current) return
+    if (!visible || !following.current) return
     scrollToEnd()
     scheduleScroll()
-  }, [chat?.messages, chat?.status, pageLoading, atBottom, focused, scheduleScroll, scrollToEnd])
+  }, [chat?.messages, chat?.status, pageLoading, atBottom, focused, visible, scheduleScroll, scrollToEnd])
 
   useEffect(() => {
+    if (!visible) return
     const el = scrollRef.current
     const content = el?.firstElementChild
     if (!el || !content) return
@@ -225,7 +228,7 @@ export function AgentChat({ chatId }: { chatId: string }) {
       resize?.disconnect()
       mutations?.disconnect()
     }
-  }, [chatId, Boolean(chat), scheduleScroll])
+  }, [chatId, Boolean(chat), visible, scheduleScroll])
 
   if (!chat) {
     return (
@@ -261,8 +264,8 @@ export function AgentChat({ chatId }: { chatId: string }) {
 
   return (
     <div className="absolute inset-0 flex flex-col bg-bg"
-      onFocusCapture={() => useAgent.getState().markChatFocused(chatId)}
-      onPointerDownCapture={() => useAgent.getState().markChatFocused(chatId)}>
+      onFocusCapture={() => { if (visible) useAgent.getState().markChatFocused(chatId) }}
+      onPointerDownCapture={() => { if (visible) useAgent.getState().markChatFocused(chatId) }}>
       <div className="flex h-9 shrink-0 items-center gap-1.5 border-b border-line bg-bg px-2.5">
         <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-[5px] bg-accent/15 text-accent">
           <AgentProviderIcon provider={chat.provider} size={13} className="text-accent" />

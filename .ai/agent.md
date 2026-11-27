@@ -77,6 +77,9 @@ catalog in the background; empty/failed probes never clear the saved model. Inpu
   contained owning-root file links (`:line:col`/`#LlineCcol`). Entries respect `agentEnabled`; items keep
   source order and expansion. Output folds show the provider; user bubbles show `agent.you`; copies omit
   speaker labels.
+- Each pane keeps the active chat plus one previous chat mounted through React `Activity`; the limit lives
+  in `ChatPaneHost.tsx`. Hidden chats retain DOM/state, release effects and follow observers, and resume at
+  the latest message when shown again, so switching through files must not rebuild a transcript.
 - Following pauses on upward gestures or scrollbar presses and resumes on send/completion. The tail owns its
   one-second clock; the context ring uses the current snapshot while token rows show native session
   cumulative usage. Zero is valid; invalid is unavailable.

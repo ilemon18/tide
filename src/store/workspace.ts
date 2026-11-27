@@ -525,6 +525,7 @@ export const useWorkspace = create<WorkspaceStore>((set, get) => {
 
     setActiveRoot: (rootId) => {
       if (!get().roots.some((r) => r.id === rootId)) return
+      if (get().activeRootId === rootId) return
       set({ activeRootId: rootId })
       saveSession()
     },

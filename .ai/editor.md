@@ -70,7 +70,7 @@ states. EditorHost selects tab kinds; markdown helpers own contained links and i
   Closing a pane's final tab collapses the split; closing all tabs leaves one empty primary.
 - Running Agent tabs block every close path; the tab store enforces the same guard for non-UI callers.
   Restore can replace a blank Agent tab through `tabs.replaceChatTab`, preserving pane, order and pinning.
-  Details: [agent.md](./agent.md).
+  Chats persist: [agent](./agent.md).
 
 ## Markdown and CodeMirror
 
