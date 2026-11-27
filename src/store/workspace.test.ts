@@ -178,6 +178,89 @@ it('does not restore an expand-chain result into a reopened workspace with the s
   expect(useWorkspace.getState().roots[0].tree.a).toBeUndefined()
 })
 
+it('pages every ancestor until a deep file row is loaded, then commits once', async () => {
+  const rootPage = Array.from({ length: 200 }, (_, i) => entry(`root-${i}`))
+  seed({ '': dir(rootPage, 201) })
+  const parentPage = [...Array.from({ length: 500 }, (_, i) => entry(`a/f-${i}`)), entry('a/b', true)]
+  const childPage = [...Array.from({ length: 500 }, (_, i) => entry(`a/b/f-${i}`)), entry('a/b/target.ts')]
+  readDir.mockImplementation((_root, rel, offset) => {
+    if (rel === '') return Promise.resolve(offset === 200 ? page([entry('a', true)], 201) : page(rootPage, 201))
+    if (rel === 'a') return Promise.resolve(page(parentPage.slice(offset, offset + 500), 501))
+    if (rel === 'a/b') return Promise.resolve(page(childPage.slice(offset, offset + 500), 501))
+    return Promise.reject(new Error(`unexpected read ${rel}`))
+  })
+  const published = vi.fn()
+  const stop = useWorkspace.subscribe(published)
+
+  const result = await useWorkspace.getState().revealPath(root, 'a/b/target.ts', false)
+
+  expect(result).toEqual({ found: true, fallbackRel: 'a/b/target.ts' })
+  expect(readDir).toHaveBeenCalledWith(root, '', 200, 500)
+  expect(readDir).toHaveBeenCalledWith(root, 'a', 0, 500)
+  expect(readDir).toHaveBeenCalledWith(root, 'a', 500, 500)
+  expect(readDir).toHaveBeenCalledWith(root, 'a/b', 0, 500)
+  expect(readDir).toHaveBeenCalledWith(root, 'a/b', 500, 500)
+  const node = useWorkspace.getState().roots[0]
+  expect(node.expanded).toMatchObject({ '': true, a: true, 'a/b': true })
+  expect(node.tree['a/b'].entries.some((item) => item.path === 'a/b/target.ts')).toBe(true)
+  expect(published).toHaveBeenCalledTimes(1)
+  stop()
+})
+
+it('continues a reveal from the cached page and reaches the target on the next page', async () => {
+  const cached = Array.from({ length: 200 }, (_, i) => entry(`a/f-${i}`))
+  seed({ '': dir([entry('a', true)]), a: dir(cached, 201) })
+  readDir.mockResolvedValueOnce({ entries: [entry('a/target.ts')], total: 201, hasMore: false, truncated: false })
+
+  const result = await useWorkspace.getState().revealPath(root, 'a/target.ts', false)
+
+  expect(result).toEqual({ found: true, fallbackRel: 'a/target.ts' })
+  expect(readDir).toHaveBeenCalledWith(root, 'a', 200, 500)
+  expect(useWorkspace.getState().roots[0].tree.a.entries.at(-1)?.path).toBe('a/target.ts')
+})
+
+it('re-reads a stale cached prefix from offset zero when the target moved into it', async () => {
+  seed({ '': dir([entry('a', true)]), a: dir([entry('a/old-0')], 201) })
+  readDir
+    .mockResolvedValueOnce({ entries: [entry('a/old-1')], total: 2, hasMore: false, truncated: false })
+    .mockResolvedValueOnce(page([entry('a/target.ts')], 1))
+
+  const result = await useWorkspace.getState().revealPath(root, 'a/target.ts', false)
+
+  expect(result).toEqual({ found: true, fallbackRel: 'a/target.ts' })
+  expect(readDir.mock.calls.map((call) => call[2])).toEqual([1, 0])
+  expect(useWorkspace.getState().roots[0].tree.a.entries.map((item) => item.path)).toEqual(['a/target.ts'])
+})
+
+it('does not resurrect a revealed directory after its parent collapses mid-read', async () => {
+  seed({ '': dir([entry('a', true)]), a: dir([entry('a/b', true)]), 'a/b': dir([entry('a/b/old')], 2) })
+  const pending = deferred()
+  readDir.mockReturnValue(pending.promise)
+
+  const work = useWorkspace.getState().revealPath(root, 'a/b/target.ts', false)
+  await useWorkspace.getState().toggleDir(root, 'a')
+  pending.resolve(page([entry('a/b/target.ts')], 2))
+  const result = await work
+
+  expect(result).toEqual({ found: false, fallbackRel: 'a' })
+  expect(useWorkspace.getState().roots[0].tree.a).toBeDefined()
+  expect(useWorkspace.getState().roots[0].tree['a/b']).toBeUndefined()
+  expect(useWorkspace.getState().roots[0].expanded.a).toBeUndefined()
+})
+
+it('loads the target directory itself so a directory reveal arrives expanded', async () => {
+  seed({ '': dir([entry('a', true)]), a: dir([entry('a/b', true)]) })
+  readDir.mockResolvedValueOnce(page([entry('a/b/file.ts')], 1))
+
+  const result = await useWorkspace.getState().revealPath(root, 'a/b', true)
+
+  expect(result).toEqual({ found: true, fallbackRel: 'a/b' })
+  expect(readDir).toHaveBeenCalledWith(root, 'a/b', 0, 500)
+  const node = useWorkspace.getState().roots[0]
+  expect(node.expanded['a/b']).toBe(true)
+  expect(node.tree['a/b'].entries[0].path).toBe('a/b/file.ts')
+})
+
 it('keeps the centered reveal flag on tree reveal requests', () => {
   useWorkspace.setState({ treeReveal: null })
   useWorkspace.getState().requestTreeReveal({ root, rel: 'src/a.ts', isDir: false, center: true })

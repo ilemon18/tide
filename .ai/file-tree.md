@@ -32,14 +32,18 @@ Permission failures stay distinct from absence.
 
 - Loaded trees with no visible rows render no empty-folder copy or placeholder space. Unread roots keep the
   reading hint; fully collapsed roots keep the expand button.
-- Locate/open expands through `workspace.expandChain`: fetch levels in parallel, commit once; sequential
-  `expandDir` causes pop-in. Compact rows represent the deepest directory and every action targets it.
-  Invalidate `folderChain(root, dir)` on content changes or stale shapes.
+- Locate/open expands through `workspace.revealPath`: page each ancestor until the next path component is
+  loaded, fetch levels in parallel, commit once; a first-page-only `expandChain` leaves later entries
+  undrawable. Keep normal scrolling on the small page size and use the backend's maximum page size only for
+  reveal. Compact rows represent the deepest directory and every action targets it. Invalidate
+  `folderChain(root, dir)` on content changes or stale shapes.
 - Tree and chain probes share one filter: `.DS_Store` and, when hidden files are off, dot-entries. Follow
   each file once through the followed ref; scroll only its directory row. Rust `resolve_dir_chain` and
   frontend `buildRows` resolve visible rows with local bounds.
-- `TreeReveal.center` (tab double-click) re-reveals by expanding, centring the target or its compact row and
-  forcing layout even when selected; plain reveals only scroll into view when needed.
+- `TreeReveal.center` (tab double-click) re-reveals by paging to the target, centring its label vertically and
+  horizontally and forcing layout even when selected. Keep centring through late folder-chain compaction,
+  then release on the settle timer or a user scroll/pointer/key gesture; plain reveals only scroll into view
+  when needed. A missing target falls back to the deepest loaded ancestor and reports `io.notFound`.
 - `isSymlink` comes from link metadata and all symlinks are leaves, even directory links. Single click, ⌘↓
   and pane drop reject open/expand with `error.fs.symlinkUnsupported`; rename/delete/move operate on the link.
   Double-click remains the tree gesture and its second click must not repeat open/toggle or switch chats.

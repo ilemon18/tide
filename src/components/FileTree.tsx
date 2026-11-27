@@ -17,7 +17,7 @@ import { useTerminal } from '../store/terminal'
 import { useFolderChain } from '../store/folderChain'
 import { openFolderDialog } from '../lib/actions'
 import { beginFilePointerDrag, wasFileDragJustFinished } from '../lib/fileDragState'
-import { dirname, parentChain, basename, isUnder } from '../lib/paths'
+import { basename, isUnder } from '../lib/paths'
 import { t as translate, useLocale, useT } from '../i18n'
 import { copyText } from '../lib/clipboard'
 
@@ -26,11 +26,27 @@ const OVERSCAN = 10
 const INDENT = 14
 /** Wait this long after the last scroll event before resolving folder chains for the new viewport. */
 const SCROLL_IDLE_MS = 120
+/** Keep re-centring a reveal through late chain compaction, then hand control back to the user. */
+const REVEAL_CENTER_SETTLE_MS = 450
+const REVEAL_CENTER_MAX_MS = 2000
+const REVEAL_HORIZONTAL_RETRIES = 3
 
 /** Scroll offset that puts row `index` in the middle of the viewport, clamped to the list bounds. */
 export function centeredTreeTop(index: number, viewportHeight: number, rowCount: number): number {
   const max = Math.max(0, rowCount * ROW_H - viewportHeight)
   const centered = index * ROW_H - (viewportHeight - ROW_H) / 2
+  return Math.max(0, Math.min(max, centered))
+}
+
+/** Horizontal offset that centres a row label inside the tree pane, clamped to the scroll range. */
+export function centeredTreeLeft(
+  contentStart: number,
+  contentWidth: number,
+  viewportWidth: number,
+  scrollWidth: number,
+): number {
+  const max = Math.max(0, scrollWidth - viewportWidth)
+  const centered = contentStart + contentWidth / 2 - viewportWidth / 2
   return Math.max(0, Math.min(max, centered))
 }
 
@@ -289,6 +305,9 @@ export function FileTree() {
   const containerRef = useRef<HTMLDivElement>(null)
   const handledReveal = useRef(0)
   const pendingCenter = useRef<{ key: string; root: string } | null>(null)
+  const centerSettleTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const centerDeadlineTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const centerFrame = useRef<number | null>(null)
   /** The file the list was last scrolled to: survives the view switch, so coming back does not re-follow */
   const followed = useRef(remembered.followed)
   /** The first run of "scroll the selection into view" must not move the list: the restored offset wins */
@@ -346,6 +365,54 @@ export function FileTree() {
     },
     [syncScrollTop],
   )
+
+  const cancelPendingCenter = useCallback(() => {
+    pendingCenter.current = null
+    if (centerSettleTimer.current !== null) {
+      clearTimeout(centerSettleTimer.current)
+      centerSettleTimer.current = null
+    }
+    if (centerDeadlineTimer.current !== null) {
+      clearTimeout(centerDeadlineTimer.current)
+      centerDeadlineTimer.current = null
+    }
+    if (centerFrame.current !== null) {
+      cancelAnimationFrame(centerFrame.current)
+      centerFrame.current = null
+    }
+  }, [])
+
+  const beginPendingCenter = useCallback((key: string, root: string) => {
+    cancelPendingCenter()
+    pendingCenter.current = { key, root }
+    centerDeadlineTimer.current = setTimeout(cancelPendingCenter, REVEAL_CENTER_MAX_MS)
+  }, [cancelPendingCenter])
+
+  /** Measure after the virtual row mounts, then move only the horizontal viewport. */
+  const centerRevealHorizontally = useCallback(() => {
+    const el = containerRef.current
+    if (!el) return
+    if (centerFrame.current !== null) cancelAnimationFrame(centerFrame.current)
+    let retries = 0
+    const run = () => {
+      centerFrame.current = null
+      if (!pendingCenter.current) return
+      const row = el.querySelector<HTMLElement>('.tree-row[data-selected="true"]')
+      const label = row?.querySelector<HTMLElement>('[data-tree-label]')
+      if (!row || !label) {
+        if (retries < REVEAL_HORIZONTAL_RETRIES) {
+          retries += 1
+          centerFrame.current = requestAnimationFrame(run)
+        }
+        return
+      }
+      const pane = el.getBoundingClientRect()
+      const rect = label.getBoundingClientRect()
+      const contentStart = rect.left - pane.left + el.scrollLeft
+      el.scrollLeft = centeredTreeLeft(contentStart, rect.width, el.clientWidth, el.scrollWidth)
+    }
+    centerFrame.current = requestAnimationFrame(run)
+  }, [])
 
   /** Apply a newer chain snapshot only after a user scroll has gone quiet. */
   const applySettledChains = useCallback((next: Record<string, string>) => {
@@ -444,6 +511,9 @@ export function FileTree() {
     () => () => {
       if (scrollFrame.current !== null) cancelAnimationFrame(scrollFrame.current)
       if (scrollIdleTimer.current !== null) clearTimeout(scrollIdleTimer.current)
+      if (centerSettleTimer.current !== null) clearTimeout(centerSettleTimer.current)
+      if (centerDeadlineTimer.current !== null) clearTimeout(centerDeadlineTimer.current)
+      if (centerFrame.current !== null) cancelAnimationFrame(centerFrame.current)
     },
     [],
   )
@@ -473,8 +543,8 @@ export function FileTree() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Breadcrumb click: expand the directory chain level by level, then select the target; refresh the
-  // parent when the cache missed
+  // Breadcrumb click / tab double-click: page through every ancestor until the target is drawable,
+  // then select it. A single first-page read leaves deep targets missing from `rows`.
   useEffect(() => {
     if (!treeReveal || treeReveal.nonce === handledReveal.current) return
     handledReveal.current = treeReveal.nonce
@@ -487,33 +557,30 @@ export function FileTree() {
     }
     if (node.collapsed) ws.toggleRootCollapsed(root)
 
-    const chain = parentChain(rel)
-    // A directory target expands itself; a file target expands only its parent
-    const dirs = isDir ? chain : chain.slice(0, -1)
     void (async () => {
-      // Expand the whole chain at once: awaiting each level makes directories pop out one by one,
-      // which looks like a stuttering animation
-      await ws.expandChain(root, dirs)
-      if (rel) {
-        const parent = dirname(rel)
-        const entries =
-          useWorkspace.getState().roots.find((r) => r.id === root)?.tree[parent]?.entries ?? []
-        // Parent was a cache hit (not re-read): the target may be just created / renamed, so refetch once
-        if (!entries.some((entry) => entry.path === rel)) await ws.refreshDir(root, parent)
+      let result = { found: false, fallbackRel: null as string | null }
+      try {
+        result = await ws.revealPath(root, rel, isDir)
+      } catch {
+        // Fall through to the not-found fallback; never leave a handled reveal stuck.
       }
       // If something else was clicked meanwhile, the old request must not override the new selection
       if (useWorkspace.getState().treeReveal?.nonce !== nonce) return
-      const key = rel ? `${root}:${rel}` : null
+      const targetRel = result.found ? rel : result.fallbackRel
+      const key = targetRel ? `${root}:${targetRel}` : null
+      if (!result.found && rel) {
+        useUi.getState().toast(t('error.io.notFound', { path: rel }), 'error')
+      }
       if (center && key) {
-        pendingCenter.current = { key, root }
+        beginPendingCenter(key, root)
         setRevealTick((value) => value + 1)
       } else {
-        pendingCenter.current = null
+        cancelPendingCenter()
       }
       setSelected(key)
       ws.clearTreeReveal(nonce)
     })()
-  }, [treeReveal])
+  }, [beginPendingCenter, cancelPendingCenter, t, treeReveal])
 
   // A selection can point inside a merged folder chain (breadcrumb click on a middle folder): fold it onto
   // the row that is actually drawn, so the highlight and the scroll-into-view keep working. Only merged rows
@@ -634,8 +701,8 @@ export function FileTree() {
   }, [activeKey, activeRel, activeRoot, rows, scrollTreeTo])
 
   // Centered reveal: runs after the plain "selection into view" effect, so it wins the scroll.
-  // The row may have folded onto a compressed directory chain; centering the selected row still
-  // puts the file's visible representation in the middle.
+  // Keep the request alive briefly: chain compaction can replace rows after the first paint, and the
+  // target then needs to be centred again. A scroll, pointer gesture or key press releases it early.
   useLayoutEffect(() => {
     const target = pendingCenter.current
     if (!target || !selected) return
@@ -644,9 +711,11 @@ export function FileTree() {
     if (index === -1) return
     const el = containerRef.current
     if (!el) return
-    pendingCenter.current = null
     scrollTreeTo(el, centeredTreeTop(index, el.clientHeight, rows.length))
-  }, [selected, rows, revealTick, scrollTreeTo])
+    centerRevealHorizontally()
+    if (centerSettleTimer.current !== null) clearTimeout(centerSettleTimer.current)
+    centerSettleTimer.current = setTimeout(cancelPendingCenter, REVEAL_CENTER_SETTLE_MS)
+  }, [cancelPendingCenter, centerRevealHorizontally, revealTick, rows, scrollTreeTo, selected])
 
   const openRow = (row: Row) => {
     if (row.kind === 'more') {
@@ -684,6 +753,7 @@ export function FileTree() {
   })
 
   const onKeyDown = (e: React.KeyboardEvent) => {
+    cancelPendingCenter()
     const index = rows.findIndex((r) => r.key === selected)
     const row = index >= 0 ? rows[index] : null
 
@@ -763,8 +833,12 @@ export function FileTree() {
         ref={containerRef}
         tabIndex={0}
         onKeyDown={onKeyDown}
+        onPointerDown={cancelPendingCenter}
+        onWheel={cancelPendingCenter}
         onScroll={(e) => {
           const top = e.currentTarget.scrollTop
+          // A vertical scroll that we did not request wins over a pending reveal.
+          if (pendingCenter.current && Math.abs(top - latestScrollTop.current) > 0.5) cancelPendingCenter()
           // A user scroll wins over a pending reveal/follow that could not find its row yet.
           if (activeKey && followed.current !== activeKey) followed.current = activeKey
           if (selected && followedSelection.current !== selected) followedSelection.current = selected
@@ -902,6 +976,7 @@ export function FileTree() {
                   />
                 ) : (
                   <span
+                    data-tree-label="true"
                     className={`whitespace-nowrap ${row.kind === 'node' && row.isDir ? 'font-medium' : ''} ${
                       mark ? MARK_CLASS[mark] : ''
                     }`}

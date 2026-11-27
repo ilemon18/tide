@@ -1,8 +1,8 @@
 import { create } from 'zustand'
 import { getCurrentWindow } from '@tauri-apps/api/window'
-import { api, errorText, type DirEntryInfo, type RecentWorkspace } from '../lib/ipc'
+import { api, errorText, type DirEntryInfo, type DirPage, type RecentWorkspace } from '../lib/ipc'
 import { errorCode } from '../lib/ipc'
-import { basename, dirname, isUnder, joinRel } from '../lib/paths'
+import { basename, dirname, isUnder, joinRel, parentChain } from '../lib/paths'
 import { useUi } from './ui'
 import { useFileIndex } from './fileIndex'
 import { useFolderChain } from './folderChain'
@@ -23,6 +23,8 @@ function detectPrimaryWindow(): boolean {
 export const IS_PRIMARY_WINDOW = detectPrimaryWindow()
 
 const PAGE_SIZE = 200
+/** Reveal may skip many pages at once: use the backend's maximum page size to cut round-trips. */
+const REVEAL_PAGE_SIZE = 500
 /**
  * How many open folders are remembered per root. Each one costs a directory read on the next start, and
  * expanded folders keep their entries cached (pruneTree never drops them), so this stays modest.
@@ -79,6 +81,13 @@ export type TreeReveal = {
   center?: boolean
 }
 
+export type RevealPathResult = {
+  /** The target row is now present in the loaded tree */
+  found: boolean
+  /** Deepest ancestor that is present; used when the target was deleted or is unreadable */
+  fallbackRel: string | null
+}
+
 let nextRevealNonce = 1
 
 type WorkspaceStore = {
@@ -111,6 +120,12 @@ type WorkspaceStore = {
    * awaiting level by level pops dirs out one after another like a stuttering animation.
    */
   expandChain: (root: string, rels: string[], options?: { silent?: boolean }) => Promise<void>
+  /**
+   * Load every ancestor page needed to draw `rel`, then expand the chain in one commit. Unlike
+   * `expandChain`, this keeps paging until the next path component is found, so a row after the first
+   * directory page is still revealable.
+   */
+  revealPath: (root: string, rel: string, isDir: boolean) => Promise<RevealPathResult>
   loadMore: (root: string, rel: string) => Promise<void>
   /** quiet: background refresh (watcher), no toast on failure, only drop dead dirs from the cache */
   refreshDir: (root: string, rel: string, options?: { quiet?: boolean }) => Promise<void>
@@ -204,6 +219,78 @@ export const useWorkspace = create<WorkspaceStore>((set, get) => {
         entry.isSymlink === other.isSymlink && entry.ignored === other.ignored &&
         entry.size === other.size && entry.mtime === other.mtime
     })
+
+  const stateFromPage = (entries: DirEntryInfo[], page: DirPage): DirState => ({
+    entries,
+    total: page.total,
+    hasMore: page.hasMore,
+    loading: false,
+  })
+
+  /**
+   * Read a directory until `child` is in its loaded prefix. A reveal can target a row thousands of entries
+   * down; expandChain only reads the first page, which leaves the row undrawable. If a cached prefix is
+   * stale and reaching its end did not find the child, re-read from offset 0 once before giving up.
+   */
+  const readDirThroughChild = async (
+    root: string,
+    rel: string,
+    child: string | null,
+    before: DirState | undefined,
+  ): Promise<DirState | null> => {
+    const contains = (entries: DirEntryInfo[]) =>
+      child !== null && entries.some((entry) => entry.path === child)
+
+    // Already loaded, or a directory reveal only needs its first page and the cache has one.
+    if (before && (child === null || contains(before.entries))) return before
+
+    let entries: DirEntryInfo[] = before ? [...before.entries] : []
+    let total = before?.total ?? 0
+    let hasMore = before?.hasMore ?? true
+
+    const readNext = async () => {
+      const page = await api.readDir(root, rel, entries.length, REVEAL_PAGE_SIZE)
+      entries.push(...page.entries)
+      total = page.total
+      hasMore = page.hasMore
+      return page
+    }
+
+    if (!before) {
+      const page = await api.readDir(root, rel, 0, REVEAL_PAGE_SIZE)
+      entries = page.entries.slice()
+      total = page.total
+      hasMore = page.hasMore
+      if (child === null || contains(entries)) return stateFromPage(entries, page)
+    }
+
+    while (child !== null && hasMore) {
+      const page = await readNext()
+      if (page.entries.length === 0) break
+      if (contains(entries)) return stateFromPage(entries, page)
+    }
+    if (child === null) return stateFromPage(entries, { entries, total, hasMore, truncated: false })
+
+    // A cached prefix can be stale (new / renamed entry). Re-read the whole listing from the start once.
+    if (before) {
+      entries = []
+      total = 0
+      hasMore = true
+      let page = await api.readDir(root, rel, 0, REVEAL_PAGE_SIZE)
+      entries = page.entries.slice()
+      total = page.total
+      hasMore = page.hasMore
+      while (hasMore) {
+        if (contains(entries)) return stateFromPage(entries, page)
+        const next = await readNext()
+        page = next
+        if (next.entries.length === 0) break
+      }
+      if (contains(entries)) return stateFromPage(entries, page)
+    }
+
+    return stateFromPage(entries, { entries, total, hasMore, truncated: false })
+  }
 
   const runRefresh = async (root: string, job: RefreshJob) => {
     const current = () => refreshJobs.get(root) === job && get().roots.some((node) => node.id === root)
@@ -538,6 +625,73 @@ export const useWorkspace = create<WorkspaceStore>((set, get) => {
         for (const [rel, state] of loaded) if (directoryVersion(root, rel) === versions.get(rel) && n.tree[rel] === node.tree[rel]) tree[rel] = state
         return { ...n, expanded, tree }
       })
+    },
+
+    revealPath: async (root, rel, isDir) => {
+      const node = get().roots.find((r) => r.id === root)
+      if (!node) return { found: false, fallbackRel: null }
+      if (!rel) return { found: true, fallbackRel: null }
+
+      const chain = parentChain(rel)
+      // A directory target expands itself; a file target expands only its parent.
+      const dirs = isDir ? chain : chain.slice(0, -1)
+      const requests = dirs.map((dir, index) => ({
+        rel: dir,
+        child: index + 1 < chain.length ? chain[index + 1] : null,
+      }))
+      const versions = new Map(requests.map(({ rel: dir }) => [dir, directoryVersion(root, dir)]))
+      const loaded = new Map<string, DirState>()
+
+      await mapLimit(requests, 4, async ({ rel: dir, child }) => {
+        try {
+          const state = await readDirThroughChild(root, dir, child, node.tree[dir])
+          if (state) loaded.set(dir, state)
+        } catch {
+          // FileTree reports an unrevealable target with the existing not-found copy. One unreadable
+          // directory must not discard pages already loaded for its siblings.
+        }
+      })
+
+      // Commit every level together: row-by-row expansion visibly pops in on a deep chain.
+      let result: RevealPathResult = { found: false, fallbackRel: null }
+      patchRoot(root, (n) => {
+        if (n.lifetime !== node.lifetime) return n
+        const expanded = { ...n.expanded }
+        const tree = { ...n.tree }
+        const valid = new Set<string>()
+        let changed = false
+        for (const { rel: dir } of requests) {
+          if (directoryVersion(root, dir) !== versions.get(dir) || n.tree[dir] !== node.tree[dir]) continue
+          if (n.tree[dir] || loaded.has(dir)) {
+            if (!expanded[dir]) {
+              expanded[dir] = true
+              changed = true
+            }
+            valid.add(dir)
+          }
+        }
+        for (const [dir, state] of loaded) {
+          if (directoryVersion(root, dir) !== versions.get(dir) || n.tree[dir] !== node.tree[dir]) continue
+          if (tree[dir] !== state) {
+            tree[dir] = state
+            changed = true
+          }
+        }
+
+        // Walk the chain from the root so a broken ancestor does not produce a misleading fallback.
+        let fallbackRel: string | null = null
+        for (let i = 0; i + 1 < chain.length; i += 1) {
+          const parent = chain[i]
+          const child = chain[i + 1]
+          if (!valid.has(parent)) break
+          const state = tree[parent]
+          if (!state?.entries.some((entry) => entry.path === child)) break
+          fallbackRel = child
+        }
+        result = { found: fallbackRel === rel, fallbackRel }
+        return changed ? { ...n, expanded, tree } : n
+      })
+      return result
     },
 
     collapseAll: () => {

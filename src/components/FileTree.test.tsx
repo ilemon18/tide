@@ -1,11 +1,14 @@
 // @vitest-environment jsdom
 import React from 'react'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import type { RootNode } from '../store/workspace'
+import type { RootNode, TreeReveal } from '../store/workspace'
 
 const { workspace, settings, tabs, chains, toggleRootCollapsed } = vi.hoisted(() => ({
-  workspace: { roots: [] as RootNode[], treeReveal: null, toggleDir: vi.fn(), loadMore: vi.fn(), moveEntry: vi.fn() },
+  workspace: {
+    roots: [] as RootNode[], treeReveal: null as TreeReveal | null, toggleDir: vi.fn(), loadMore: vi.fn(), moveEntry: vi.fn(),
+    revealPath: vi.fn(), clearTreeReveal: vi.fn(),
+  },
   settings: { showHidden: false, compactFolders: false, agentEnabled: true },
   tabs: { tabs: [], activeId: null, openFile: vi.fn() },
   chains: { chains: {}, revision: 0 },
@@ -31,10 +34,13 @@ vi.mock('../i18n', () => ({ useT: () => (key: string) => key, useLocale: () => '
 vi.mock('./FileIcon', () => ({ FileIcon: () => null }))
 vi.mock('./Icon', () => ({ Icon: () => null }))
 vi.mock('./ContextMenu', () => ({ ContextMenu: () => null }))
-import { FileTree, ROW_H, centeredTreeTop } from './FileTree'
+import { FileTree, ROW_H, centeredTreeLeft, centeredTreeTop } from './FileTree'
 
 beforeEach(() => {
   vi.clearAllMocks()
+  workspace.treeReveal = null
+  workspace.revealPath.mockReset()
+  workspace.clearTreeReveal.mockReset()
   workspace.roots = [{ id: '/repo', name: 'Repo', isGitRepo: false, collapsed: false, expanded: {},
     tree: { '': { entries: [], total: 0, hasMore: false, loading: false } } }]
   vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
@@ -85,4 +91,30 @@ it('centers a row in the tree viewport and clamps at both ends', () => {
   expect(centeredTreeTop(50, 10 * ROW_H, 100)).toBe(50 * ROW_H - (10 * ROW_H - ROW_H) / 2)
   expect(centeredTreeTop(99, 10 * ROW_H, 100)).toBe(100 * ROW_H - 10 * ROW_H)
   expect(centeredTreeTop(3, 20 * ROW_H, 5)).toBe(0)
+})
+
+it('centers a deep row label horizontally and clamps to the scroll range', () => {
+  expect(centeredTreeLeft(0, 40, 200, 400)).toBe(0)
+  expect(centeredTreeLeft(100, 40, 200, 400)).toBe(20)
+  expect(centeredTreeLeft(350, 40, 200, 400)).toBe(200)
+})
+
+it('reveals a paged file row and centers it vertically', async () => {
+  const entries = Array.from({ length: 300 }, (_, i) => ({
+    name: `f${i}.ts`, path: `f${i}.ts`, isDir: false, isSymlink: false, ignored: false, size: 1, mtime: 1,
+  }))
+  workspace.roots = [{
+    id: '/repo', name: 'Repo', isGitRepo: false, collapsed: false, expanded: {},
+    tree: { '': { entries, total: entries.length, hasMore: false, loading: false } },
+  }]
+  workspace.treeReveal = { root: '/repo', rel: 'f299.ts', isDir: false, nonce: 1, center: true }
+  workspace.revealPath.mockResolvedValue({ found: true, fallbackRel: 'f299.ts' })
+
+  const { container } = render(<FileTree />)
+  await act(async () => {})
+
+  expect(workspace.revealPath).toHaveBeenCalledWith('/repo', 'f299.ts', false)
+  const tree = container.querySelector<HTMLElement>('.tree-pane')!
+  await waitFor(() => expect(tree.scrollTop).toBe(299 * ROW_H + ROW_H / 2))
+  expect(workspace.clearTreeReveal).toHaveBeenCalledWith(1)
 })
