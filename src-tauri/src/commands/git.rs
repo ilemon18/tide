@@ -1984,6 +1984,8 @@ pub struct CommitFile {
     pub binary: bool,
 }
 
+/// Commit metadata for the blame hover card. Per-line diffs travel separately through
+/// `git_commit_file_diff`, so a card that moves between lines reuses the same metadata.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CommitDetail {
@@ -1998,47 +2000,207 @@ pub struct CommitDetail {
     pub files: Vec<CommitFile>,
     pub additions: i32,
     pub deletions: i32,
-    /// Diff snippet of the current file in this commit (hunk content only, truncated)
-    pub file_diff: String,
     pub merge: bool,
 }
 
-const MAX_HUNK_LINES: usize = 80;
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct DiffLine {
+    /// context | add | del
+    pub kind: String,
+    pub old_line: Option<u32>,
+    pub new_line: Option<u32>,
+    /// Line content without the leading +/-/space marker
+    pub text: String,
+}
 
-/// Parse the new-file start line and count from "@@ -a,b +c,d @@"
-fn parse_hunk_header(line: &str) -> Option<(u32, u32)> {
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct DiffHunk {
+    pub old_start: u32,
+    pub old_count: u32,
+    pub new_start: u32,
+    pub new_count: u32,
+    pub header: String,
+    pub lines: Vec<DiffLine>,
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct CommitFileDiff {
+    /// Path inside the introducing commit (blame `origPath`), not the current worktree path.
+    pub path: String,
+    /// Set for rename-only commits so the card can explain the move.
+    pub renamed_from: Option<String>,
+    pub additions: i32,
+    pub deletions: i32,
+    pub hunks: Vec<DiffHunk>,
+    pub truncated: bool,
+}
+
+/// Per-hunk cap: the card scrolls, but one enormous hunk must not be shipped whole.
+const MAX_HUNK_LINES: usize = 200;
+/// Whole-file cap: the frontend caches all hunks of the commit's file version to reuse across lines.
+const MAX_DIFF_LINES: usize = 2000;
+
+/// Parse "@@ -a[,b] +c[,d] @@ …" into (old_start, old_count, new_start, new_count).
+/// An omitted count means one line; `-0,0` is the empty side of a pure addition.
+fn parse_hunk_header(line: &str) -> Option<(u32, u32, u32, u32)> {
     let rest = line.strip_prefix("@@ ")?;
     let end = rest.find(" @@")?;
     let mut parts = rest[..end].split(' ');
-    let _old = parts.next()?;
-    let new = parts.next()?;
-    let mut new_parts = new.strip_prefix('+')?.split(',');
-    let start: u32 = new_parts.next()?.parse().ok()?;
-    let count: u32 = new_parts.next().and_then(|v| v.parse().ok()).unwrap_or(1);
-    Some((start, count))
+    let old = parts.next()?.strip_prefix('-')?;
+    let new = parts.next()?.strip_prefix('+')?;
+    let range = |value: &str| -> Option<(u32, u32)> {
+        let mut bits = value.split(',');
+        let start: u32 = bits.next()?.parse().ok()?;
+        let count: u32 = bits.next().and_then(|v| v.parse().ok()).unwrap_or(1);
+        Some((start, count))
+    };
+    let (old_start, old_count) = range(old)?;
+    let (new_start, new_count) = range(new)?;
+    Some((old_start, old_count, new_start, new_count))
 }
 
-/// Commit details for the inline blame hover card: gathered in one call to avoid extra IPC
+/// A hunk contains the target when the target is inside its new-file line range. Deletion-only
+/// hunks (`new_count == 0`) never contain a line that still exists on the new side.
+fn hunk_contains(hunk: &DiffHunk, target: u32) -> bool {
+    target > 0 && hunk.new_count > 0 && target >= hunk.new_start && target < hunk.new_start + hunk.new_count
+}
+
+/// Structure a single-file unified patch. `target_line` filters to the exact hunk that contains
+/// that new-side line; a miss returns no hunks (there is deliberately no nearest-hunk fallback).
+fn parse_file_diff(patch: &str, path: &str, target_line: Option<u32>) -> CommitFileDiff {
+    let mut renamed_from = None;
+    let mut additions = 0i32;
+    let mut deletions = 0i32;
+    let mut hunks: Vec<DiffHunk> = Vec::new();
+    let mut current: Option<DiffHunk> = None;
+    let mut old_no = 0u32;
+    let mut new_no = 0u32;
+
+    for line in patch.lines() {
+        if line.starts_with("@@") {
+            if let Some(hunk) = current.take() {
+                hunks.push(hunk);
+            }
+            let Some((old_start, old_count, new_start, new_count)) = parse_hunk_header(line)
+            else {
+                continue;
+            };
+            old_no = old_start;
+            new_no = new_start;
+            current = Some(DiffHunk {
+                old_start,
+                old_count,
+                new_start,
+                new_count,
+                header: line.to_string(),
+                lines: Vec::new(),
+            });
+            continue;
+        }
+
+        if let Some(hunk) = current.as_mut() {
+            if line.is_empty() {
+                continue;
+            }
+            match line.as_bytes()[0] {
+                // No-newline marker: annotates the previous line and consumes no line number.
+                b'\\' => continue,
+                b'+' => {
+                    additions += 1;
+                    hunk.lines.push(DiffLine {
+                        kind: "add".to_string(),
+                        old_line: None,
+                        new_line: Some(new_no),
+                        text: line[1..].to_string(),
+                    });
+                    new_no = new_no.saturating_add(1);
+                }
+                b'-' => {
+                    deletions += 1;
+                    hunk.lines.push(DiffLine {
+                        kind: "del".to_string(),
+                        old_line: Some(old_no),
+                        new_line: None,
+                        text: line[1..].to_string(),
+                    });
+                    old_no = old_no.saturating_add(1);
+                }
+                b' ' => {
+                    hunk.lines.push(DiffLine {
+                        kind: "context".to_string(),
+                        old_line: Some(old_no),
+                        new_line: Some(new_no),
+                        text: line[1..].to_string(),
+                    });
+                    old_no = old_no.saturating_add(1);
+                    new_no = new_no.saturating_add(1);
+                }
+                _ => {}
+            }
+            continue;
+        }
+
+        if let Some(value) = line.strip_prefix("rename from ") {
+            renamed_from = Some(value.to_string());
+        }
+    }
+    if let Some(hunk) = current.take() {
+        hunks.push(hunk);
+    }
+
+    let mut truncated = false;
+    let mut emitted = 0usize;
+    let mut kept: Vec<DiffHunk> = Vec::new();
+    for mut hunk in hunks {
+        if let Some(target) = target_line.filter(|n| *n > 0) {
+            if !hunk_contains(&hunk, target) {
+                continue;
+            }
+        }
+        if hunk.lines.len() > MAX_HUNK_LINES || emitted + hunk.lines.len() > MAX_DIFF_LINES {
+            truncated = true;
+            let room = MAX_DIFF_LINES.saturating_sub(emitted).min(MAX_HUNK_LINES);
+            hunk.lines.truncate(room);
+        }
+        emitted += hunk.lines.len();
+        kept.push(hunk);
+        if emitted >= MAX_DIFF_LINES {
+            truncated = true;
+            break;
+        }
+    }
+
+    CommitFileDiff {
+        path: path.to_string(),
+        renamed_from,
+        additions,
+        deletions,
+        hunks: kept,
+        truncated,
+    }
+}
+
+/// Parent list of a commit; more than one parent means the diff must be taken against its first parent.
+fn commit_is_merge(root: &str, sha: &str) -> AppResult<bool> {
+    let (ok, text) = run_text(root, &["show", "-s", "--format=%P", sha])?;
+    Ok(ok && text.split_whitespace().count() > 1)
+}
+
+/// Commit details for the inline blame hover card: metadata only, no per-line diff.
 #[tauri::command(async)]
 pub fn git_commit_detail(
     state: State<'_, AppState>,
     root: String,
     sha: String,
-    rel: Option<String>,
-    line: Option<u32>,
-    orig_line: Option<u32>,
 ) -> AppResult<CommitDetail> {
     let root_path = state.authorize(&root)?;
     let root_str = root_path.to_string_lossy().to_string();
     let sha = sha.trim();
     if sha.is_empty() || sha.len() > 64 || !sha.chars().all(|c| c.is_ascii_hexdigit()) {
         return Err(AppError::c("git.invalidSha"));
-    }
-
-    // rel comes from the frontend, so it still goes through the workspace boundary check
-    if let Some(rel) = rel.as_deref().filter(|v| !v.is_empty()) {
-        let abs = crate::state::resolve_in_root(&root_path, rel)?;
-        crate::state::assert_inside(&root_path, &abs)?;
     }
 
     // Basic info: fields are NUL separated, so newlines in the commit body cannot break parsing
@@ -2068,17 +2230,10 @@ pub fn git_commit_detail(
     let parents = parts.next().unwrap_or("");
 
     // Parent count: >1 means a merge commit, whose numstat is usually empty
-    let parent_count = parents.split_whitespace().count().saturating_sub(1);
-    let merge = parent_count > 1;
-    // Merge commits are shown against the first parent
+    let merge = parents.split_whitespace().count() > 1;
     let parent_sha = format!("{sha}^1");
 
-    // For a per-file inline blame card, skip the repo-wide numstat: the card shows no file list
-    // or add/delete totals, and one more git call only makes the hover slower
-    let want_stat = rel.is_none();
-    let num_result = if !want_stat {
-        (false, Vec::new(), String::new())
-    } else if merge {
+    let num_result = if merge {
         run_bytes(
             &root_str,
             &["diff", "--numstat", "-M", parent_sha.as_str(), sha],
@@ -2119,155 +2274,6 @@ pub fn git_commit_detail(
         }
     }
 
-    // Changes of the current file in this commit: hunks only, at most 80 lines
-    let mut file_diff = String::new();
-    if let Some(rel) = rel.as_deref().filter(|v| !v.is_empty()) {
-        let diff_result = if merge {
-            run_bytes(
-                &root_str,
-                &[
-                    "diff",
-                    "--no-color",
-                    "--no-ext-diff",
-                    "--no-textconv",
-                    "--unified=2",
-                    "-M",
-                    parent_sha.as_str(),
-                    sha,
-                    "--",
-                    rel,
-                ],
-            )?
-        } else {
-            run_bytes(
-                &root_str,
-                &[
-                    "show",
-                    "--format=",
-                    "--root",
-                    "--no-color",
-                    "--no-ext-diff",
-                    "--no-textconv",
-                    "--unified=2",
-                    "-M",
-                    sha,
-                    "--",
-                    rel,
-                ],
-            )?
-        };
-        let (diff_ok, diff_out, _) = diff_result;
-        if diff_ok {
-            let text = String::from_utf8_lossy(&diff_out);
-            let lines: Vec<&str> = text.lines().collect();
-
-            // Split on @@ headers: record the new-file start line, count, and span indices in lines
-            let mut hunks: Vec<(u32, u32, usize, usize)> = Vec::new();
-            let mut open: Option<(u32, u32, usize)> = None;
-            for (index, current) in lines.iter().enumerate() {
-                if !current.starts_with("@@") {
-                    continue;
-                }
-                if let Some((start, count, begin)) = open.take() {
-                    hunks.push((start, count, begin, index));
-                }
-                if let Some((start, count)) = parse_hunk_header(current) {
-                    open = Some((start, count, index));
-                }
-            }
-            if let Some((start, count, begin)) = open {
-                hunks.push((start, count, begin, lines.len()));
-            }
-
-            let contains = |target: Option<u32>, start: u32, count: u32| -> bool {
-                match target {
-                    Some(n) if n > 0 => {
-                        if count == 0 {
-                            n >= start && n <= start.saturating_add(1)
-                        } else {
-                            n >= start && n < start.saturating_add(count)
-                        }
-                    }
-                    _ => false,
-                }
-            };
-
-            let wanted = orig_line.filter(|v| *v > 0).or(line.filter(|v| *v > 0));
-            // Prefer blame's original line number: it maps to the file version in the commit,
-            // matching diff's +c,d
-            let mut selected = orig_line
-                .filter(|v| *v > 0)
-                .and_then(|n| hunks.iter().find(|(s, c, _, _)| contains(Some(n), *s, *c)))
-                .map(|(_, _, begin, end)| (*begin, *end));
-            if selected.is_none() {
-                selected = line
-                    .filter(|v| *v > 0)
-                    .and_then(|n| hunks.iter().find(|(s, c, _, _)| contains(Some(n), *s, *c)))
-                    .map(|(_, _, begin, end)| (*begin, *end));
-            }
-            // If no hunk matched (later commits edited those lines), fall back to the nearest hunk
-            if selected.is_none() {
-                selected = wanted.and_then(|n| {
-                    hunks
-                        .iter()
-                        .min_by_key(|(s, c, _, _)| {
-                            if n < *s {
-                                *s - n
-                            } else if n >= s.saturating_add(*c) {
-                                n - s.saturating_add(*c)
-                            } else {
-                                0
-                            }
-                        })
-                        .map(|(_, _, begin, end)| (*begin, *end))
-                });
-            }
-            if selected.is_none() {
-                selected = hunks.first().map(|(_, _, begin, end)| (*begin, *end));
-            }
-
-            if let Some((begin, end)) = selected {
-                // The card shows only the change at the cursor line: advance the new-file line number
-                // from the hunk header and pick the entry for orig_line; fall back to the first actual
-                // change when the line number does not match
-                let hunk = &lines[begin..end.min(begin + MAX_HUNK_LINES)];
-                let target = orig_line.filter(|v| *v > 0);
-                let mut new_no: u32 = 0;
-                let mut chosen: Option<&str> = None;
-                for current in hunk {
-                    if current.starts_with("@@") {
-                        match parse_hunk_header(current) {
-                            Some((start, _count)) => new_no = start,
-                            None => continue,
-                        }
-                        continue;
-                    }
-                    // Marker lines like "\ No newline at end of file" do not consume a line number
-                    if current.starts_with('\\') {
-                        continue;
-                    }
-                    let marker = current.chars().next().unwrap_or(' ');
-                    let on_new_side = marker != '-';
-                    let line_no = new_no;
-                    if on_new_side {
-                        new_no = new_no.saturating_add(1);
-                    }
-                    if let Some(n) = target {
-                        if on_new_side && line_no == n {
-                            chosen = Some(current);
-                            break;
-                        }
-                    }
-                }
-                let fallback = hunk
-                    .iter()
-                    .find(|line| line.starts_with('+') || line.starts_with('-'))
-                    .copied();
-                file_diff = chosen.or(fallback).unwrap_or("").to_string();
-            }
-        }
-    }
-
     Ok(CommitDetail {
         sha: full_sha,
         short_sha,
@@ -2280,9 +2286,120 @@ pub fn git_commit_detail(
         files,
         additions,
         deletions,
-        file_diff,
         merge,
     })
+}
+
+/// Diff of one file at the commit's own path. The card passes blame's `origPath` so renames stay
+/// correct; `target_line` (new side) narrows the result to the exact hunk containing that line.
+#[tauri::command(async)]
+pub fn git_commit_file_diff(
+    state: State<'_, AppState>,
+    root: String,
+    sha: String,
+    path: String,
+    target_line: Option<u32>,
+) -> AppResult<CommitFileDiff> {
+    let root_path = state.authorize(&root)?;
+    let root_str = root_path.to_string_lossy().to_string();
+    let sha = sha.trim();
+    if sha.is_empty() || sha.len() > 64 || !sha.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err(AppError::c("git.invalidSha"));
+    }
+    let path = path.trim();
+    if path.is_empty() {
+        return Err(AppError::new("No file path"));
+    }
+    // The path comes from the frontend and may only exist in an older commit, so containment is
+    // checked against the nearest existing ancestor.
+    let abs = crate::state::resolve_in_root(&root_path, path)?;
+    crate::state::assert_inside(&root_path, &abs)?;
+
+    let merge = commit_is_merge(&root_str, sha)?;
+    let parent_sha = format!("{sha}^1");
+    let result = if merge {
+        run_bytes_with_timeout(
+            &root_str,
+            &[
+                "diff",
+                "--no-color",
+                "--no-ext-diff",
+                "--no-textconv",
+                "--unified=3",
+                "-M",
+                parent_sha.as_str(),
+                sha,
+                "--",
+                path,
+            ],
+        )?
+    } else {
+        run_bytes_with_timeout(
+            &root_str,
+            &[
+                "show",
+                "--format=",
+                "--root",
+                "--no-color",
+                "--no-ext-diff",
+                "--no-textconv",
+                "--unified=3",
+                "-M",
+                sha,
+                "--",
+                path,
+            ],
+        )?
+    };
+    let (ok, stdout, stderr) = result;
+    if !ok {
+        return Err(AppError::new(stderr.trim().to_string()));
+    }
+    Ok(parse_file_diff(
+        &String::from_utf8_lossy(&stdout),
+        path,
+        target_line,
+    ))
+}
+
+/// Working-tree card for uncommitted blame rows. `None` means the repository has no HEAD yet
+/// (an unborn branch), where `git diff HEAD` cannot run and the card shows an explanation.
+#[tauri::command(async)]
+pub fn git_working_tree_diff(
+    state: State<'_, AppState>,
+    root: String,
+    rel: String,
+) -> AppResult<Option<CommitFileDiff>> {
+    let root_path = state.authorize(&root)?;
+    let root_str = root_path.to_string_lossy().to_string();
+    let abs = crate::state::resolve_in_root(&root_path, &rel)?;
+    crate::state::assert_inside(&root_path, &abs)?;
+
+    let (head_ok, _) = run_text(&root_str, &["rev-parse", "--verify", "HEAD"])?;
+    if !head_ok {
+        return Ok(None);
+    }
+    let (ok, stdout, stderr) = run_bytes_with_timeout(
+        &root_str,
+        &[
+            "diff",
+            "--no-color",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--unified=3",
+            "HEAD",
+            "--",
+            &rel,
+        ],
+    )?;
+    if !ok {
+        return Err(AppError::new(stderr.trim().to_string()));
+    }
+    Ok(Some(parse_file_diff(
+        &String::from_utf8_lossy(&stdout),
+        &rel,
+        None,
+    )))
 }
 
 #[derive(Serialize, Clone)]
@@ -2560,7 +2677,7 @@ pub fn git_conflict_reset(
 
 #[cfg(test)]
 mod tests {
-    use super::{apply_discard_change, discard_changes, discard_changes_with, discard_paths, git_cmd, local_repo_paths, read_status, repo_paths, reset_all, revert_turn, run_text, stash_count, stash_pop, stash_push, truncate_patch, turn_changes, turn_snapshot, undo_commit, TurnRevertTarget, TurnSnapshot};
+    use super::{apply_discard_change, commit_is_merge, discard_changes, discard_changes_with, discard_paths, git_cmd, local_repo_paths, parse_file_diff, parse_hunk_header, read_status, repo_paths, reset_all, revert_turn, run_bytes_with_timeout, run_text, stash_count, stash_pop, stash_push, truncate_patch, turn_changes, turn_snapshot, undo_commit, TurnRevertTarget, TurnSnapshot};
     use std::io::Write;
     use std::path::PathBuf;
     use std::process::Stdio;
@@ -3201,4 +3318,105 @@ mod tests {
         let error = revert_turn(&repo.root, &changes.snapshot, &turn_targets(&changes)).unwrap_err();
         assert_eq!(error.code, "git.turnRevertBlocked");
     }
+
+    #[test]
+    fn parses_hunk_headers_with_and_without_counts() {
+        assert_eq!(parse_hunk_header("@@ -1,3 +4,5 @@ fn ctx"), Some((1, 3, 4, 5)));
+        assert_eq!(parse_hunk_header("@@ -7 +7 @@"), Some((7, 1, 7, 1)));
+        assert_eq!(parse_hunk_header("@@ -0,0 +1,2 @@"), Some((0, 0, 1, 2)));
+        assert_eq!(parse_hunk_header("not a hunk"), None);
+    }
+
+    #[test]
+    fn structures_add_delete_and_context_lines_and_ignores_no_newline_markers() {
+        let patch = "\
+diff --git a/a.ts b/a.ts\n\
+index 111..222 100644\n\
+--- a/a.ts\n\
++++ b/a.ts\n\
+@@ -1,2 +1,3 @@\n\
+ old\n\
+-gone\n\
++new\n\
++added\n\\ No newline at end of file\n";
+        let diff = parse_file_diff(patch, "a.ts", None);
+        assert_eq!(diff.additions, 2);
+        assert_eq!(diff.deletions, 1);
+        assert_eq!(diff.hunks.len(), 1);
+        let hunk = &diff.hunks[0];
+        assert_eq!((hunk.old_start, hunk.old_count, hunk.new_start, hunk.new_count), (1, 2, 1, 3));
+        assert_eq!(hunk.lines.len(), 4);
+        assert_eq!(hunk.lines[0].kind, "context");
+        assert_eq!(hunk.lines[0].old_line, Some(1));
+        assert_eq!(hunk.lines[0].new_line, Some(1));
+        assert_eq!(hunk.lines[1].kind, "del");
+        assert_eq!(hunk.lines[1].new_line, None);
+        assert_eq!(hunk.lines[2].kind, "add");
+        assert_eq!(hunk.lines[2].new_line, Some(2));
+        assert_eq!(hunk.lines[3].new_line, Some(3));
+        assert!(!diff.truncated);
+    }
+
+    #[test]
+    fn filters_to_the_exact_hunk_and_never_falls_back() {
+        let patch = "\
+@@ -1 +1 @@\n\
+-a\n\
++b\n\
+@@ -20 +20 @@\n\
+-c\n\
++d\n";
+        let hit = parse_file_diff(patch, "a.ts", Some(20));
+        assert_eq!(hit.hunks.len(), 1);
+        assert_eq!(hit.hunks[0].new_start, 20);
+        // The stats still describe the whole file's changes, not only the shown hunk.
+        assert_eq!(hit.additions, 2);
+        assert_eq!(hit.deletions, 2);
+
+        let miss = parse_file_diff(patch, "a.ts", Some(7));
+        assert!(miss.hunks.is_empty());
+        assert_eq!(miss.additions, 2);
+    }
+
+    #[test]
+    fn reports_rename_only_commits_without_hunks() {
+        let patch = "\
+diff --git a/old.ts b/new.ts\n\
+similarity index 100%\n\
+rename from old.ts\n\
+rename to new.ts\n";
+        let diff = parse_file_diff(patch, "new.ts", None);
+        assert_eq!(diff.renamed_from.as_deref(), Some("old.ts"));
+        assert!(diff.hunks.is_empty());
+        assert_eq!(diff.additions, 0);
+        assert_eq!(diff.deletions, 0);
+    }
+
+
+    #[test]
+    fn diffs_a_merge_commit_against_its_first_parent() {
+        let repo = TestRepo::new();
+        repo.write("base.txt", "base\n");
+        repo.commit("base");
+        repo.git(&["checkout", "-q", "-b", "side"]);
+        repo.write("side.txt", "side change\n");
+        repo.commit("side");
+        repo.git(&["checkout", "-q", "-"]);
+        repo.write("main.txt", "main change\n");
+        repo.commit("main");
+        repo.git(&["merge", "--no-ff", "-q", "-m", "merge", "side"]);
+
+        let sha = repo.git(&["rev-parse", "HEAD"]).trim().to_string();
+        assert!(commit_is_merge(repo.path(), &sha).unwrap());
+        let parent = format!("{sha}^1");
+        let (ok, out, _) = run_bytes_with_timeout(
+            repo.path(),
+            &["diff", "--no-color", "--unified=3", parent.as_str(), sha.as_str(), "--", "side.txt"],
+        )
+        .unwrap();
+        assert!(ok);
+        let diff = parse_file_diff(&String::from_utf8_lossy(&out), "side.txt", None);
+        assert!(!diff.hunks.is_empty());
+    }
+
 }

@@ -241,8 +241,7 @@ export const ko: Messages = {
   'settings.editor.formatSystemBadge': '시스템',
   'settings.editor.display': '표시',
   'settings.editor.inlineBlame': '인라인 Git blame',
-  'settings.editor.inlineBlameHint':
-    '커서가 있는 줄에 작성자와 커밋을 표시합니다. 마우스를 올리면 해당 줄의 변경을 볼 수 있습니다',
+  'settings.editor.inlineBlameHint': '커서 줄에 작성자, 시간, 커밋 메시지를 표시하며, 마우스를 올리면 커밋 세부 정보를 볼 수 있습니다',
   'settings.editor.indentGuides': '들여쓰기 안내선',
   'settings.editor.indentGuidesHint': '들여쓰기 단계마다 세로선을 그립니다(새로 여는 탭에 적용)',
   'settings.editor.onSave': '저장 시 정리',
@@ -660,7 +659,12 @@ export const ko: Messages = {
   'commit.copyShaTip': '커밋 id 복사',
   'commit.copyShaLabel': '커밋 id',
   'commit.loadingLine': '이 줄의 변경을 읽는 중…',
-  'commit.noChangeOnLine': '이 줄에는 표시할 변경이 없습니다',
+  'commit.noChangeOnLine': '이 커밋에서 이 줄은 변경되지 않았습니다',
+  'blame.you': '나',
+  'blame.uncommitted': '커밋되지 않은 변경 사항',
+  'commit.renamedFrom': '{path}에서 이름 변경됨',
+  'commit.stats': '+{additions} −{deletions}',
+  'commit.noHead': '아직 커밋이 없습니다. 비교할 HEAD가 없습니다',
 
   'terminal.title': '터미널 {index}',
   'terminal.titleWithPath': '터미널 · {name}',

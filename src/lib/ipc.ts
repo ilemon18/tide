@@ -266,11 +266,16 @@ export type BlameRange = {
   lineCount: number
   /** Line number of the range's first line in the commit that introduced it */
   origLine: number
+  /** Path the line had inside the introducing commit; rename-aware diff target */
+  origPath: string
   sha: string
   author: string
+  authorEmail: string
   authorTime: number
   summary: string
   uncommitted: boolean
+  previousSha: string | null
+  previousPath: string | null
 }
 
 export type BlameResult = {
@@ -278,9 +283,13 @@ export type BlameResult = {
   reason: string | null
   lineCount: number
   ranges: BlameRange[]
-  latest: BlameRange | null
   root: string
   rel: string
+  /** Git identity of the current user, used to render `You` */
+  currentUserName: string
+  currentUserEmail: string
+  /** Editor buffer version this result belongs to (0 for disk reads) */
+  version: number
 }
 
 export type CommitFile = {
@@ -302,8 +311,35 @@ export type CommitDetail = {
   files: CommitFile[]
   additions: number
   deletions: number
-  fileDiff: string
   merge: boolean
+}
+
+export type DiffLine = {
+  /** context | add | del */
+  kind: 'context' | 'add' | 'del'
+  oldLine: number | null
+  newLine: number | null
+  /** Line content without the leading +/-/space marker */
+  text: string
+}
+
+export type DiffHunk = {
+  oldStart: number
+  oldCount: number
+  newStart: number
+  newCount: number
+  header: string
+  lines: DiffLine[]
+}
+
+export type CommitFileDiff = {
+  /** Path inside the introducing commit (blame origPath) */
+  path: string
+  renamedFrom: string | null
+  additions: number
+  deletions: number
+  hunks: DiffHunk[]
+  truncated: boolean
 }
 
 /**
@@ -613,21 +649,16 @@ export const api = {
   gitPull: (root: string) => invoke<string>('git_pull', { root }),
   gitPush: (root: string) => invoke<string>('git_push', { root }),
   gitFetch: (root: string) => invoke<string>('git_fetch', { root }),
-  gitBlame: (root: string, rel: string) => invoke<BlameResult>('git_blame', { root, rel }),
-  gitCommitDetail: (
-    root: string,
-    sha: string,
-    rel: string | null,
-    line?: number | null,
-    origLine?: number | null,
-  ) =>
-    invoke<CommitDetail>('git_commit_detail', {
-      root,
-      sha,
-      rel,
-      line: line ?? null,
-      origLine: origLine ?? null,
-    }),
+  gitBlame: (root: string, rel: string, contents: string | null = null, version = 0) =>
+    invoke<BlameResult>('git_blame', { root, rel, contents, version }),
+  gitCommitDetail: (root: string, sha: string) =>
+    invoke<CommitDetail>('git_commit_detail', { root, sha }),
+  /** Exact hunk of a file inside a commit; pass the blame origPath, not the current path */
+  gitCommitFileDiff: (root: string, sha: string, path: string, line: number | null = null) =>
+    invoke<CommitFileDiff>('git_commit_file_diff', { root, sha, path, targetLine: line }),
+  /** Working-tree diff for uncommitted rows; null when the repository has no HEAD yet */
+  gitWorkingTreeDiff: (root: string, rel: string) =>
+    invoke<CommitFileDiff | null>('git_working_tree_diff', { root, rel }),
   gitBranches: (root: string) => invoke<GitBranches>('git_branches', { root }),
   gitCheckout: (root: string, branch: string, kind: string) =>
     invoke<string>('git_checkout', { root, branch, kind }),

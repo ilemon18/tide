@@ -24,6 +24,7 @@ import { ensureEditorState } from '../editor/openState'
 import { stickyRange } from '../editor/highlight'
 import { setEditorView, setFocusedGroup } from '../editor/viewRef'
 import { applyDiffMarks, setDiffGutterBlameProvider } from '../editor/diffGutter'
+import { setBlameContentProvider } from '../editor/blame'
 import { useFileDiffMarks, diffMarksFor } from '../store/diffMarks'
 import type { DiffMark } from '../lib/diffMarks'
 import { linkMirror, unlinkMirror, unlinkView } from '../editor/mirror'
@@ -147,6 +148,7 @@ export function EditorHost({ groupId }: { groupId: TabGroupId }) {
   const fontFamily = useSettings((s) => s.fontFamily)
   const inlineBlame = useSettings((s) => s.inlineBlame)
   const blameData = useBlame((s) => (activeId ? s.byTab[activeId] : null))
+  const blameSource = useBlame((s) => (activeId ? s.source[activeId] : undefined))
   const activeTab = tabs.find((t) => t.id === activeId) ?? null
   const hidden = isEditorHidden(activeTab)
   /** Plain files inside a Git repo get the right-edge ruler and the matching line-number gutter. */
@@ -400,9 +402,25 @@ export function EditorHost({ groupId }: { groupId: TabGroupId }) {
       signals.onOutlineReady(activeId)
       setRestoring(false)
       view.focus()
-      // A rebuilt state has no blame, apply it again
+      // A rebuilt state has no blame, apply it again. A dirty state must not inherit disk blame:
+      // hide it and ask for content-aware blame of the buffer that is actually on screen.
       const latest = useBlame.getState().byTab[activeId] ?? null
-      if (latest) applyBlameToView(view, latest)
+      const currentTab = useTabs.getState().tabs.find((tab) => tab.id === activeId)
+      const canBlame = Boolean(
+        currentTab && currentTab.kind === 'file' && !currentTab.external,
+      )
+      if (canBlame && currentTab?.dirty) {
+        // The state may have been swapped away mid-edit: its old rows (disk or an older buffer
+        // version) are not trustworthy, so hide them and re-blame the document on screen.
+        if (useSettings.getState().inlineBlame) applyBlameToView(view, null)
+        if (currentTab) {
+          void useBlame
+            .getState()
+            .fetchForBuffer(currentTab, view.state.doc.toString(), 0)
+        }
+      } else if (canBlame && latest && useSettings.getState().inlineBlame) {
+        applyBlameToView(view, latest)
+      }
       // Reveal happens only in the focused pane; the other pane syncs the doc but does not jump
       const pending = useTabs.getState().reveal
       if (pending && pending.tabId === activeId && useTabs.getState().activeGroupId === groupId) {
@@ -431,9 +449,31 @@ export function EditorHost({ groupId }: { groupId: TabGroupId }) {
 
   useEffect(() => {
     const view = viewRef.current
-    if (!view || !activeId) return
+    if (!view || !activeId || !inlineBlame) return
+    if (!activeTab || activeTab.kind !== 'file' || activeTab.external) return
+    // A dirty tab may only show blame computed from its buffer, never the saved file's rows.
+    if (activeTab?.dirty && blameSource !== 'buffer') {
+      applyBlameToView(view, null)
+      return
+    }
     applyBlameToView(view, blameData ?? null)
-  }, [blameData, activeId])
+  }, [blameData, activeId, activeTab?.dirty, blameSource, inlineBlame])
+
+  // The editor plugin asks for fresh blame about 450 ms after the user stops typing.
+  useEffect(() => {
+    const view = viewRef.current
+    if (!view) return
+    if (!activeTab || activeTab.kind !== 'file' || activeTab.external) {
+      setBlameContentProvider(view, null)
+      return
+    }
+    setBlameContentProvider(view, (contents, version) => {
+      const current = useTabs.getState().tabs.find((tab) => tab.id === activeTab.id)
+      if (!current || current.kind !== 'file') return
+      void useBlame.getState().fetchForBuffer(current, contents, version)
+    })
+    return () => setBlameContentProvider(view, null)
+  }, [activeId, stateEpoch, activeTab?.kind, activeTab?.external])
 
   // Marks arrive asynchronously after the state swap; dispatch only the gutter effect, never a full swap.
   useEffect(() => {
@@ -450,10 +490,12 @@ export function EditorHost({ groupId }: { groupId: TabGroupId }) {
       setDiffGutterBlameProvider(view, null)
       return
     }
-    setDiffGutterBlameProvider(view, () => {
+    setDiffGutterBlameProvider(view, (contents) => {
       const current = useTabs.getState().tabs.find((tab) => tab.id === activeTab.id)
       if (!current || current.kind !== 'file') return Promise.resolve(null)
-      return useBlame.getState().fetchNow(current, true, false)
+      // Force: a gutter click must still work when inline blame is off. attach=false: the card
+      // consumes this result directly, so it does not replace the tab's stored rows.
+      return useBlame.getState().fetchForBuffer(current, contents, 0, false, true)
     })
     return () => setDiffGutterBlameProvider(view, null)
   }, [activeId, stateEpoch, activeTab?.kind, activeTab?.external])
@@ -465,7 +507,13 @@ export function EditorHost({ groupId }: { groupId: TabGroupId }) {
 
   useEffect(() => {
     const view = viewRef.current
-    if (view) setBlameEnabled(view, inlineBlame)
+    const available = Boolean(activeTab && activeTab.kind === 'file' && !activeTab.external)
+    if (view) setBlameEnabled(view, inlineBlame && available)
+    // Enabling the feature must fill the blank row without waiting for another tab switch.
+    if (inlineBlame && available && activeTab) {
+      useBlame.getState().scheduleFetch(activeTab)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [inlineBlame])
 
   // The CodeMirror host changes width when the in-pane Markdown preview opens, closes, or is resized.

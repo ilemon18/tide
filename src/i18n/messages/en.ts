@@ -256,8 +256,7 @@ export const en = {
   'settings.editor.formatSystemBadge': 'system',
   'settings.editor.display': 'Display',
   'settings.editor.inlineBlame': 'Inline Git blame',
-  'settings.editor.inlineBlameHint':
-    'Shows author and commit on the cursor line; hover for that line’s change',
+  'settings.editor.inlineBlameHint': 'Shows author, time and commit message on the cursor line; hover for commit details',
   'settings.editor.indentGuides': 'Indent guides',
   'settings.editor.indentGuidesHint': 'Draws vertical lines per indent level (applies to new tabs)',
   'settings.editor.onSave': 'Clean up on save',
@@ -701,7 +700,12 @@ export const en = {
   'commit.copyShaTip': 'Copy commit id',
   'commit.copyShaLabel': 'commit id',
   'commit.loadingLine': 'Reading the change on this line…',
-  'commit.noChangeOnLine': 'No change to show for this line',
+  'commit.noChangeOnLine': 'No line change in this commit',
+  'blame.you': 'You',
+  'blame.uncommitted': 'Uncommitted changes',
+  'commit.renamedFrom': 'Renamed from {path}',
+  'commit.stats': '+{additions} −{deletions}',
+  'commit.noHead': 'No commit yet: there is no HEAD to compare the working tree with',
 
   // ---------------------------------------------------------------- Terminal panel
   'terminal.title': 'Terminal {index}',

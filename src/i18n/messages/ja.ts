@@ -241,8 +241,7 @@ export const ja: Messages = {
   'settings.editor.formatSystemBadge': 'システム',
   'settings.editor.display': '表示',
   'settings.editor.inlineBlame': '行内 Git blame',
-  'settings.editor.inlineBlameHint':
-    'カーソル行に作者とコミットを表示し、ホバーでその行の変更を表示します',
+  'settings.editor.inlineBlameHint': 'カーソル行に作者・時刻・コミットメッセージを表示し、ホバーでコミットの詳細を表示します',
   'settings.editor.indentGuides': 'インデントガイド',
   'settings.editor.indentGuidesHint': 'インデント階層ごとに縦線を描画（新しく開くタブに適用）',
   'settings.editor.onSave': '保存時の整理',
@@ -659,7 +658,12 @@ export const ja: Messages = {
   'commit.copyShaTip': 'コミット ID をコピー',
   'commit.copyShaLabel': 'コミット ID',
   'commit.loadingLine': 'この行の変更を読み込み中…',
-  'commit.noChangeOnLine': 'この行には表示できる変更がありません',
+  'commit.noChangeOnLine': 'このコミットでこの行は変更されていません',
+  'blame.you': 'あなた',
+  'blame.uncommitted': '未コミットの変更',
+  'commit.renamedFrom': '{path} から名前変更',
+  'commit.stats': '+{additions} −{deletions}',
+  'commit.noHead': 'まだコミットがありません。比較できる HEAD がありません',
 
   'terminal.title': 'ターミナル {index}',
   'terminal.titleWithPath': 'ターミナル · {name}',

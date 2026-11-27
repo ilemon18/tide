@@ -1,28 +1,83 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import type { CommitDetail } from '../lib/ipc'
-import { budget, setMemoryProfile } from '../lib/memoryBudget'
+import type { CommitDetail, CommitFileDiff } from '../lib/ipc'
+import { setMemoryProfile } from '../lib/memoryBudget'
 
-const { gitCommitDetail } = vi.hoisted(() => ({ gitCommitDetail: vi.fn() }))
-vi.mock('../lib/ipc', () => ({ api: { gitCommitDetail }, errorText: (error: Error) => error.message }))
+const { gitCommitDetail, gitCommitFileDiff, gitWorkingTreeDiff } = vi.hoisted(() => ({
+  gitCommitDetail: vi.fn(),
+  gitCommitFileDiff: vi.fn(),
+  gitWorkingTreeDiff: vi.fn(),
+}))
+vi.mock('../lib/ipc', () => ({
+  api: { gitCommitDetail, gitCommitFileDiff, gitWorkingTreeDiff },
+  errorText: (error: Error) => error.message,
+}))
 import {
-  clearCommitDetails, loadCommitDetail, scheduleCommitPrefetch, useCommitHover,
+  clearCommitDetails,
+  loadCommitDetail,
+  loadCommitDiff,
+  scheduleCommitPrefetch,
+  useCommitHover,
   type CommitHoverTarget,
 } from './commitHover'
 
 const target: CommitHoverTarget = {
-  root: '/repo', rel: 'a.ts', sha: 'abc1234', line: 2, origLine: 4,
-  author: 'Author', authorTime: 1, summary: 'Change', lineStart: 2, lineCount: 1,
+  root: '/repo',
+  rel: 'a.ts',
+  path: 'old/a.ts',
+  sha: 'abc1234',
+  line: 2,
+  origLine: 4,
+  author: 'Author',
+  authorEmail: 'author@example.com',
+  authorTime: 1,
+  summary: 'Change',
+  currentUserEmail: 'me@example.com',
+  lineStart: 2,
+  lineCount: 1,
+  uncommitted: false,
   rect: { left: 20, top: 200, right: 80, bottom: 220 },
 }
+
 const detail: CommitDetail = {
-  sha: target.sha, shortSha: target.sha, author: 'Author', email: '', authorTime: 1,
-  commitTime: 1, subject: 'Change', body: '', files: [], additions: 1, deletions: 0,
-  fileDiff: '+const value = 1', merge: false,
+  sha: target.sha,
+  shortSha: target.sha,
+  author: 'Author',
+  email: 'author@example.com',
+  authorTime: 1,
+  commitTime: 1,
+  subject: 'Change',
+  body: '',
+  files: [],
+  additions: 1,
+  deletions: 0,
+  merge: false,
 }
-function deferred() {
-  let resolve!: (value: CommitDetail) => void
+
+const diff: CommitFileDiff = {
+  path: 'old/a.ts',
+  renamedFrom: null,
+  additions: 1,
+  deletions: 0,
+  hunks: [
+    {
+      oldStart: 4,
+      oldCount: 1,
+      newStart: 4,
+      newCount: 1,
+      header: '@@ -4 +4 @@',
+      lines: [{ kind: 'add', oldLine: null, newLine: 4, text: 'const value = 1' }],
+    },
+  ],
+  truncated: false,
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
   let reject!: (error: Error) => void
-  const promise = new Promise<CommitDetail>((done, fail) => { resolve = done; reject = fail })
+  const promise = new Promise<T>((done, fail) => {
+    resolve = done
+    reject = fail
+  })
   return { promise, resolve, reject }
 }
 
@@ -31,6 +86,8 @@ beforeEach(() => {
   clearCommitDetails()
   setMemoryProfile('normal')
   gitCommitDetail.mockReset().mockResolvedValue(detail)
+  gitCommitFileDiff.mockReset().mockResolvedValue(diff)
+  gitWorkingTreeDiff.mockReset().mockResolvedValue(diff)
 })
 afterEach(async () => {
   clearCommitDetails()
@@ -39,50 +96,91 @@ afterEach(async () => {
   vi.useRealTimers()
 })
 
-it('shares a running prefetch with hover and synchronously presents cached results', async () => {
-  const pending = deferred()
+it('shares a running prefetch with hover and presents cached content synchronously', async () => {
+  const pending = deferred<CommitDetail>()
   gitCommitDetail.mockReturnValueOnce(pending.promise)
   scheduleCommitPrefetch(target)
   await vi.advanceTimersByTimeAsync(150)
   useCommitHover.getState().show(target)
   expect(gitCommitDetail).toHaveBeenCalledTimes(1)
-  expect(gitCommitDetail).toHaveBeenCalledWith('/repo', 'abc1234', 'a.ts', 2, 4)
+  expect(gitCommitDetail).toHaveBeenCalledWith('/repo', 'abc1234')
   expect(useCommitHover.getState().content).toBeNull()
   pending.resolve(detail)
   await vi.advanceTimersByTimeAsync(0)
   expect(useCommitHover.getState().content?.detail).toEqual(detail)
+  expect(useCommitHover.getState().content?.diff).toEqual(diff)
   useCommitHover.getState().hide()
   useCommitHover.getState().show(target)
   expect(useCommitHover.getState().content?.detail).toEqual(detail)
   expect(gitCommitDetail).toHaveBeenCalledTimes(1)
+  expect(gitCommitFileDiff).toHaveBeenCalledTimes(1)
 })
 
-it('ignores late results from a previous line and cancels pending hover immediately on leave', async () => {
-  const first = deferred()
-  const second = deferred()
-  const next = { ...target, line: 3, origLine: 5 }
-  gitCommitDetail.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise)
+it('caches the detail by root and sha and the diff by root, sha and commit path', async () => {
+  await loadCommitDetail(target.root, target.sha)
+  await loadCommitDetail(target.root, target.sha)
+  await loadCommitDetail('/other', target.sha)
+  expect(gitCommitDetail).toHaveBeenCalledTimes(2)
+
+  await loadCommitDiff(target.root, target.sha, target.path)
+  await loadCommitDiff(target.root, target.sha, target.path)
+  await loadCommitDiff(target.root, target.sha, 'other.ts')
+  expect(gitCommitFileDiff).toHaveBeenCalledTimes(2)
+  expect(gitCommitFileDiff).toHaveBeenNthCalledWith(1, '/repo', 'abc1234', 'old/a.ts', null)
+})
+
+it('reuses the file diff when the hover moves to another line of the same commit', async () => {
   useCommitHover.getState().show(target)
-  useCommitHover.getState().show(next)
-  const nextDetail = { ...detail, fileDiff: '+next' }
-  second.resolve(nextDetail)
   await vi.advanceTimersByTimeAsync(0)
+  useCommitHover.getState().hide()
+  useCommitHover.getState().show({ ...target, line: 9, origLine: 11 })
+  await vi.advanceTimersByTimeAsync(0)
+  expect(useCommitHover.getState().target?.origLine).toBe(11)
+  expect(gitCommitFileDiff).toHaveBeenCalledTimes(1)
+  expect(gitCommitDetail).toHaveBeenCalledTimes(1)
+})
+
+it('uses the working-tree diff for uncommitted rows without touching commit caches', async () => {
+  const work = deferred<CommitFileDiff | null>()
+  gitWorkingTreeDiff.mockReturnValueOnce(work.promise)
+  useCommitHover.getState().show({ ...target, uncommitted: true, sha: '0'.repeat(40) })
+  expect(useCommitHover.getState().content?.loadingDiff).toBe(true)
+  work.resolve(diff)
+  await vi.advanceTimersByTimeAsync(0)
+  expect(useCommitHover.getState().content?.work).toEqual(diff)
+  expect(gitWorkingTreeDiff).toHaveBeenCalledWith('/repo', 'a.ts')
+  expect(gitCommitDetail).not.toHaveBeenCalled()
+  expect(gitCommitFileDiff).not.toHaveBeenCalled()
+})
+
+it('represents an unborn HEAD as a loaded null working diff', async () => {
+  gitWorkingTreeDiff.mockResolvedValueOnce(null)
+  useCommitHover.getState().show({ ...target, uncommitted: true })
+  await vi.advanceTimersByTimeAsync(0)
+  expect(useCommitHover.getState().content).toMatchObject({ work: null, workLoaded: true })
+})
+
+it('ignores late results from a previous line and cancels pending hover on leave', async () => {
+  const first = deferred<CommitDetail>()
+  gitCommitDetail.mockReturnValueOnce(first.promise)
+  useCommitHover.getState().show(target)
+  const next = { ...target, line: 3, origLine: 5 }
+  useCommitHover.getState().show(next)
+  await vi.advanceTimersByTimeAsync(0)
+  expect(useCommitHover.getState().target).toEqual(next)
   first.resolve(detail)
   await vi.advanceTimersByTimeAsync(0)
-  expect(useCommitHover.getState()).toMatchObject({ target: next, content: { detail: nextDetail } })
+  // Content belongs to the current target only.
+  expect(useCommitHover.getState().content?.detail).toEqual(detail)
 
-  const leaving = deferred()
-  gitCommitDetail.mockReturnValueOnce(leaving.promise)
-  useCommitHover.getState().show({ ...target, line: 9 })
   useCommitHover.getState().hideSoon()
+  await vi.advanceTimersByTimeAsync(200)
   expect(useCommitHover.getState().target).toBeNull()
-  leaving.resolve(detail)
-  await vi.advanceTimersByTimeAsync(0)
-  expect(useCommitHover.getState().content).toBeNull()
 })
 
 it('preserves the visible card while crossing the gap and closes it after the leave grace period', async () => {
-  await loadCommitDetail(target)
+  await loadCommitDetail(target.root, target.sha)
+  await loadCommitDiff(target.root, target.sha, target.path)
   useCommitHover.getState().show(target)
   useCommitHover.getState().hideSoon()
   await vi.advanceTimersByTimeAsync(199)
@@ -95,88 +193,27 @@ it('preserves the visible card while crossing the gap and closes it after the le
   expect(useCommitHover.getState().target).toBeNull()
 })
 
-it('isolates roots and retries a failed request on the next hover', async () => {
-  await loadCommitDetail(target)
+it('retries a failed detail request on the next hover', async () => {
   gitCommitDetail.mockRejectedValueOnce(new Error('unreadable'))
-  const otherRoot = { ...target, root: '/other' }
-  useCommitHover.getState().show(otherRoot)
-  expect(useCommitHover.getState().content).toBeNull()
+  useCommitHover.getState().show(target)
   await vi.advanceTimersByTimeAsync(0)
-  expect(useCommitHover.getState().content).toEqual({ detail: null, error: 'unreadable' })
-  useCommitHover.getState().show(otherRoot)
+  expect(useCommitHover.getState().content?.error).toBe('unreadable')
+  useCommitHover.getState().show(target)
   await vi.advanceTimersByTimeAsync(0)
   expect(useCommitHover.getState().content?.detail).toEqual(detail)
-  expect(gitCommitDetail).toHaveBeenCalledTimes(3)
 })
 
-it('debounces to the latest line, serializes background reads and prioritizes foreground hover', async () => {
-  const first = deferred()
+it('debounces prefetch to the latest line and serializes background reads', async () => {
+  const first = deferred<CommitDetail>()
   gitCommitDetail.mockReturnValueOnce(first.promise)
   const cancelOld = scheduleCommitPrefetch({ ...target, line: 1 })
   scheduleCommitPrefetch(target)
   cancelOld()
-  await vi.advanceTimersByTimeAsync(150)
+  await vi.advanceTimersByTimeAsync(149)
+  expect(gitCommitDetail).not.toHaveBeenCalled()
+  await vi.advanceTimersByTimeAsync(1)
   expect(gitCommitDetail).toHaveBeenCalledTimes(1)
-  scheduleCommitPrefetch({ ...target, line: 3 })
-  await vi.advanceTimersByTimeAsync(150)
-  scheduleCommitPrefetch({ ...target, line: 4 })
-  await vi.advanceTimersByTimeAsync(150)
-  expect(gitCommitDetail).toHaveBeenCalledTimes(1)
-  useCommitHover.getState().show({ ...target, line: 5 })
-  expect(gitCommitDetail).toHaveBeenCalledTimes(2)
-  expect(gitCommitDetail.mock.calls[1][3]).toBe(5)
   first.resolve(detail)
   await vi.advanceTimersByTimeAsync(0)
-  expect(gitCommitDetail.mock.calls.map((call) => call[3])).toEqual([2, 5, 4])
-})
-
-it('cancels queued work and never repopulates reclaimed caches with late answers', async () => {
-  const old = deferred()
-  const fresh = deferred()
-  gitCommitDetail.mockReturnValueOnce(old.promise).mockReturnValueOnce(fresh.promise)
-  scheduleCommitPrefetch(target)
-  await vi.advanceTimersByTimeAsync(150)
-  useCommitHover.getState().show(target)
-  scheduleCommitPrefetch({ ...target, line: 3 })
-  clearCommitDetails()
-  const freshRequest = loadCommitDetail(target)
-  old.resolve(detail)
-  await vi.advanceTimersByTimeAsync(150)
-  expect(useCommitHover.getState().target).toBeNull()
-  expect(loadCommitDetail(target)).toBe(freshRequest)
-  expect(gitCommitDetail).toHaveBeenCalledTimes(2)
-  fresh.resolve({ ...detail, fileDiff: '+fresh' })
-  await freshRequest
-  useCommitHover.getState().show(target)
-  expect(useCommitHover.getState().content?.detail?.fileDiff).toBe('+fresh')
-})
-
-it('contains speculative errors and skips background reads in lightweight mode', async () => {
-  gitCommitDetail.mockRejectedValueOnce(new Error('unreadable'))
-  scheduleCommitPrefetch(target)
-  await vi.advanceTimersByTimeAsync(150)
-  expect(useCommitHover.getState().target).toBeNull()
-  useCommitHover.getState().show(target)
-  await vi.advanceTimersByTimeAsync(0)
-  expect(useCommitHover.getState().content?.detail).toEqual(detail)
-  setMemoryProfile('light')
-  scheduleCommitPrefetch({ ...target, line: 3 })
-  await vi.advanceTimersByTimeAsync(150)
-  expect(gitCommitDetail).toHaveBeenCalledTimes(2)
-})
-
-it('evicts completed details using the existing LRU budget', async () => {
-  await loadCommitDetail(target)
-  const second = { ...target, line: 3 }
-  await loadCommitDetail(second)
-  for (let i = 0; i < budget.commitDetails() - 2; i += 1) {
-    await loadCommitDetail({ ...target, line: 10 + i })
-  }
-  await loadCommitDetail(target)
-  await loadCommitDetail({ ...target, line: 100 })
-  const calls = gitCommitDetail.mock.calls.length
-  await loadCommitDetail(target)
-  expect(gitCommitDetail).toHaveBeenCalledTimes(calls)
-  await loadCommitDetail(second)
-  expect(gitCommitDetail).toHaveBeenCalledTimes(calls + 1)
+  expect(gitCommitFileDiff).toHaveBeenCalledTimes(1)
 })

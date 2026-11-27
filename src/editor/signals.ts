@@ -9,7 +9,6 @@ export const signals = {
   /** Document edited: the split view mirrors the change into the other panel (received by mirror.ts) */
   onDocChanged: (_id: string, _update: ViewUpdate) => {},
   onSaved: (_root: string, _rel: string) => {},
-  onBlameRefresh: (_id: string) => {},
   /** The document changed: the structure tree recomputes after a short debounce */
   onOutlineDirty: (_id: string) => {},
   /** A tab's EditorState was just mounted; refresh the outline without waiting for a keystroke */

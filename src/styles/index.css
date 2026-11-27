@@ -906,7 +906,8 @@
   color: color-mix(in srgb, var(--c-muted) 80%, transparent);
   /* Hit testing must stay open so hovering shows the full commit info; the widget's ignoreEvent already makes the editor ignore events */
   pointer-events: auto;
-  cursor: default;
+  cursor: pointer;
+  user-select: none;
   white-space: nowrap;
   opacity: 0.9;
   /* Commit titles can be long: ellipsize the overflow so the line doesn't push the code out of sight */
@@ -915,6 +916,12 @@
   overflow: hidden;
   text-overflow: ellipsis;
   vertical-align: bottom;
+}
+
+.cm-blame:hover {
+  color: var(--c-accent);
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
 }
 
 .cm-flash {

@@ -2,9 +2,10 @@ import { RangeSet, RangeSetBuilder, StateEffect, StateField, type Extension, typ
 import { EditorView, GutterMarker, gutter } from '@codemirror/view'
 import type { DiffMark, DiffMarkKind } from '../lib/diffMarks'
 import type { BlameResult } from '../lib/ipc'
-import { blameField, showBlameAtLine, showBlameRange } from './blame'
+import { isBlameAwaiting, showBlameAtLine, showBlameRange } from './blame'
 
-type BlameProvider = () => Promise<BlameResult | null>
+/** Receives the current buffer so a dirty row is never blamed from disk. */
+type BlameProvider = (contents: string) => Promise<BlameResult | null>
 const blameProviders = new WeakMap<EditorView, BlameProvider>()
 let clickSequence = 0
 
@@ -123,11 +124,11 @@ export const diffMarksGutter: Extension = [
           bottom: rect.bottom,
         }
         const sequence = ++clickSequence
-        const blame = view.state.field(blameField, false)
-        if (!showBlameAtLine(view, lineNumber, anchor) && (!blame || blame.disabled)) {
+        // After a keystroke the stored rows describe the previous document: always re-blame the buffer.
+        if (isBlameAwaiting(view.state) || !showBlameAtLine(view, lineNumber, anchor)) {
           const provider = blameProviders.get(view)
           if (provider) {
-            void provider()
+            void provider(view.state.doc.toString())
               .then((data) => {
                 if (sequence === clickSequence && data) showBlameRange(data, lineNumber, anchor)
               })

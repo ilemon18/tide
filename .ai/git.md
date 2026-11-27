@@ -4,6 +4,8 @@ scope:
   - .ai/git.md
   - src/store/git.ts
   - src/store/git.test.ts
+  - src/store/blame.ts
+  - src/store/blame.test.ts
   - src/store/commitHover*.ts
   - src/components/CommitHoverCard*.tsx
   - src/components/AgentTurnChanges*.tsx
@@ -18,6 +20,7 @@ scope:
   - src/components/diffHighlight.ts
   - src/lib/conflictFiles.ts
   - src/editor/conflicts.ts
+  - src-tauri/src/commands/blame.rs
   - src-tauri/src/commands/git.rs
   - src-tauri/src/paths.rs
   - src-tauri/src/proc.rs
@@ -54,10 +57,18 @@ policy. DiffView/diffScroll own positioning; `editor/conflicts` owns resolution 
 
 ## Blame and discard
 
-- `store/commitHover` owns requests, hover intent and completed content, sharing details by
-  root/SHA/path/lines and evicting with `memoryBudget.commitDetails`. Foreground reads immediately; background
-  prefetch is serial with only the latest target; failures stay silent. Clicking a change bar selects the
-  line and opens the commit card; uncommitted lines stay closed. Editor scheduling: [editor.md](./editor.md).
+- `git_blame(root, rel, contents, version)` is content-aware: open / save / watcher read the file on disk,
+  while a dirty buffer goes through `blame --contents -` about 450 ms after typing stops. Request sequence
+  numbers and the result `version` drop stale answers, so a shifted line never keeps the old commit. Disk
+  results cache by `root|rel|mtime` under `memoryBudget.blameEntries`; buffer results stay on their tab.
+  Porcelain maps `filename` to `origPath` (the rename-aware diff target) and keeps `previous`; 40/64-digit
+  SHAs and all-zero uncommitted rows are parsed. `stateCache` applies results; editor scheduling:
+  [editor.md](./editor.md).
+- `store/commitHover` owns hover intent and completed content: details cache by `root|sha`, file diffs by
+  `root|sha|path` (all hunks, selected client-side by line) under `memoryBudget.commitDetails`. Diff requests
+  use blame's commit path and never fall back to a nearby hunk; an uncommitted row uses its own working-tree
+  diff. Foreground reads immediately; background prefetch is serial with only the latest target; failures stay
+  silent. Clicking a change bar selects the line and opens the commit card, including uncommitted rows.
 - `discardAllChanges` confirms, snapshots, hides changes optimistically, suppresses refresh and suspends
   saves. `git_discard_changes` validates every path, conflict, placeholder and Git category before mutation;
   drift rejects the snapshot. Tracked files restore from the index; untracked files are probed with

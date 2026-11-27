@@ -241,8 +241,7 @@ export const es: Messages = {
   'settings.editor.formatSystemBadge': 'sistema',
   'settings.editor.display': 'Visualización',
   'settings.editor.inlineBlame': 'Blame de Git en línea',
-  'settings.editor.inlineBlameHint':
-    'Muestra autor y commit en la línea del cursor; pasa el ratón para ver el cambio',
+  'settings.editor.inlineBlameHint': 'Muestra autor, hora y mensaje del commit en la línea del cursor; pasa el ratón para ver los detalles del commit',
   'settings.editor.indentGuides': 'Guías de sangría',
   'settings.editor.indentGuidesHint':
     'Dibuja líneas verticales por nivel de sangría (se aplica a las pestañas nuevas)',
@@ -670,7 +669,12 @@ export const es: Messages = {
   'commit.copyShaTip': 'Copiar el id del commit',
   'commit.copyShaLabel': 'el id del commit',
   'commit.loadingLine': 'Leyendo el cambio de esta línea…',
-  'commit.noChangeOnLine': 'Esta línea no tiene cambios que mostrar',
+  'commit.noChangeOnLine': 'Este commit no cambió esta línea',
+  'blame.you': 'Tú',
+  'blame.uncommitted': 'Cambios sin confirmar',
+  'commit.renamedFrom': 'Renombrado desde {path}',
+  'commit.stats': '+{additions} −{deletions}',
+  'commit.noHead': 'Aún no hay commits: el árbol de trabajo no tiene HEAD con el que comparar',
 
   'terminal.title': 'Terminal {index}',
   'terminal.titleWithPath': 'Terminal · {name}',

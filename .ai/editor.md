@@ -76,7 +76,13 @@ states. EditorHost selects tab kinds; markdown helpers own contained links and i
   split ChangeSets. Never store views/states in zustand or share a state between views.
 - The gutter mirrors the right-edge DiffRuler: `store/diffMarks` caches full-patch marks per root+rel and
   `editor/diffGutter` renders one bar per changed line. Marked rows are click targets ([git.md](./git.md));
-  marks are disk-based and EditorHost reapplies them after state swaps.
+  marks are disk-based and EditorHost reapplies them after state swaps. Gutter blame providers receive the
+  current buffer, so a dirty row is never blamed from disk.
+- Inline blame is GitLens current-line only: `editor/blame` draws one widget on the cursor line (no per-line
+  gutter blame, no whole-file list), hides it immediately on a doc change, and asks the content provider
+  after a ~450 ms idle. Results carry a doc version; stale ones are ignored. A 60-second timer refreshes the
+  relative time, and hover/click open the commit card. EditorHost wires the provider only for project file
+  tabs and re-applies blame after state swaps, while dirty states never inherit disk rows.
 - ⌘/Ctrl-click resolves an import path, then an identifier chain to its import line with a sticky highlight;
   the scan is bounded to 2000 lines / 256KB and cached. Reconfigure theme/font/blame/wrap through
   Compartments; rebuilding state discards undo. Blame/hover: [git.md](./git.md).

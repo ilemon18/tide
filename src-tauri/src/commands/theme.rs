@@ -60,7 +60,7 @@ pub struct Settings {
     pub show_hidden: bool,
     /// Folders holding no files (just one subfolder each) draw as a single row; on by default
     pub compact_folders: bool,
-    /// GitLens-style inline blame, on by default
+    /// GitLens-style current-line blame; opt-in (off by default)
     pub inline_blame: bool,
     /// Terminal WebGL renderer (uses more VRAM, off by default)
     pub terminal_webgl: bool,

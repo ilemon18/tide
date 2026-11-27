@@ -352,6 +352,8 @@ fn main() {
             commands::git::git_push,
             commands::git::git_fetch,
             commands::git::git_commit_detail,
+            commands::git::git_commit_file_diff,
+            commands::git::git_working_tree_diff,
             commands::git::git_branches,
             commands::git::git_checkout,
             commands::git::git_branch_create,

@@ -28,3 +28,37 @@ export function truncate(text: string, max: number): string {
   if (text.length <= max) return text
   return `${text.slice(0, max)}…`
 }
+
+const graphemeSegmenter =
+  typeof Intl.Segmenter === 'function'
+    ? new Intl.Segmenter(undefined, { granularity: 'grapheme' })
+    : null
+
+/**
+ * Truncate by user-perceived characters, so an emoji family or a CJK glyph is never split.
+ * Falls back to code points where Intl.Segmenter is unavailable.
+ */
+export function truncateGraphemes(text: string, max: number): string {
+  if (max <= 0) return ''
+  if (graphemeSegmenter) {
+    let out = ''
+    let count = 0
+    for (const { segment } of graphemeSegmenter.segment(text)) {
+      if (count >= max) return `${out}…`
+      out += segment
+      count += 1
+    }
+    return text
+  }
+  const chars = Array.from(text)
+  if (chars.length <= max) return text
+  return `${chars.slice(0, max).join('')}…`
+}
+
+/** Absolute local date/time for tooltips; empty for a missing timestamp */
+export function absoluteTime(unixSeconds: number, locale?: string): string {
+  if (!unixSeconds) return ''
+  const date = new Date(unixSeconds * 1000)
+  if (Number.isNaN(date.getTime())) return ''
+  return date.toLocaleString(locale)
+}

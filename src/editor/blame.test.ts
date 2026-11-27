@@ -3,19 +3,69 @@ import { EditorState } from '@codemirror/state'
 import { EditorView } from '@codemirror/view'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { BlameResult } from '../lib/ipc'
-const { gitCommitDetail } = vi.hoisted(() => ({ gitCommitDetail: vi.fn() }))
-vi.mock('../lib/ipc', () => ({ api: { gitCommitDetail }, errorText: (error: Error) => error.message }))
-vi.mock('../i18n', () => ({ t: (key: string) => key, currentLocale: () => 'en' }))
+const { gitCommitDetail, gitCommitFileDiff, gitWorkingTreeDiff } = vi.hoisted(() => ({
+  gitCommitDetail: vi.fn(),
+  gitCommitFileDiff: vi.fn(),
+  gitWorkingTreeDiff: vi.fn(),
+}))
+vi.mock('../lib/ipc', () => ({
+  api: { gitCommitDetail, gitCommitFileDiff, gitWorkingTreeDiff },
+  errorText: (error: Error) => error.message,
+}))
+vi.mock('../i18n', () => ({
+  t: (key: string) =>
+    key === 'time.justNow'
+      ? 'just now'
+      : key === 'blame.you'
+        ? 'You'
+        : key === 'blame.uncommitted'
+          ? 'Uncommitted changes'
+          : key,
+  currentLocale: () => 'en',
+}))
 vi.mock('./locale', () => ({ hasLocaleEffect: () => false, watchLocale: () => () => {} }))
 import { clearCommitDetails, useCommitHover } from '../store/commitHover'
-import { blameExtension, setBlameEffect } from './blame'
-import { diffMarksGutter, setDiffGutterBlameProvider, setDiffMarksEffect } from './diffGutter'
+import {
+  blameExtension,
+  blameField,
+  formatBlameText,
+  setBlameContentProvider,
+  setBlameEffect,
+} from './blame'
 
-const data: BlameResult = {
-  root: '/repo', rel: 'a.ts', disabled: false, reason: null, lineCount: 3, latest: null,
-  ranges: [{ startLine: 1, lineCount: 3, origLine: 10, sha: 'abc1234', author: 'Author',
-    authorTime: 1, summary: 'Change', uncommitted: false }],
+const NOW = Date.parse('2026-01-01T00:00:00Z')
+const threeDaysAgo = Math.floor(NOW / 1000) - 3 * 86400 - 10
+
+function blame(overrides: Partial<BlameResult> = {}): BlameResult {
+  return {
+    root: '/repo',
+    rel: 'a.ts',
+    disabled: false,
+    reason: null,
+    lineCount: 3,
+    currentUserName: 'Tester',
+    currentUserEmail: 'me@example.com',
+    version: 0,
+    ranges: [
+      {
+        startLine: 1,
+        lineCount: 3,
+        origLine: 10,
+        origPath: 'old/a.ts',
+        sha: 'a'.repeat(40),
+        author: 'Author',
+        authorEmail: 'author@example.com',
+        authorTime: threeDaysAgo,
+        summary: 'Change',
+        uncommitted: false,
+        previousSha: null,
+        previousPath: null,
+      },
+    ],
+    ...overrides,
+  }
 }
+
 const views: EditorView[] = []
 function createView() {
   const view = new EditorView({
@@ -28,9 +78,31 @@ function createView() {
 
 beforeEach(() => {
   vi.useFakeTimers()
+  vi.setSystemTime(NOW)
   clearCommitDetails()
-  gitCommitDetail.mockReset().mockResolvedValue({ fileDiff: '+change' })
-  // These are scheduling/selection tests; native layout is outside their scope.
+  gitCommitDetail.mockReset().mockResolvedValue({
+    sha: 'a'.repeat(40),
+    shortSha: 'aaaaaaa',
+    author: 'Author',
+    email: 'author@example.com',
+    authorTime: threeDaysAgo,
+    commitTime: threeDaysAgo,
+    subject: 'Change',
+    body: '',
+    files: [],
+    additions: 1,
+    deletions: 0,
+    merge: false,
+  })
+  gitCommitFileDiff.mockReset().mockResolvedValue({
+    path: 'old/a.ts',
+    renamedFrom: null,
+    additions: 1,
+    deletions: 0,
+    hunks: [],
+    truncated: false,
+  })
+  gitWorkingTreeDiff.mockReset().mockResolvedValue(null)
   vi.spyOn(EditorView.prototype, 'requestMeasure').mockImplementation(() => {})
 })
 afterEach(async () => {
@@ -42,135 +114,114 @@ afterEach(async () => {
   vi.useRealTimers()
 })
 
-it('prefetches after blame arrives and maps the latest cursor line to its original line', async () => {
+it('renders GitLens current-line blame without a SHA', () => {
   const view = createView()
-  view.dispatch({ effects: setBlameEffect.of(data) })
-  await vi.advanceTimersByTimeAsync(100)
-  view.dispatch({ selection: { anchor: view.state.doc.line(2).from } })
-  await vi.advanceTimersByTimeAsync(100)
-  view.dispatch({ selection: { anchor: view.state.doc.line(3).from } })
-  await vi.advanceTimersByTimeAsync(149)
-  expect(gitCommitDetail).not.toHaveBeenCalled()
-  await vi.advanceTimersByTimeAsync(1)
-  expect(gitCommitDetail).toHaveBeenCalledExactlyOnceWith('/repo', 'abc1234', 'a.ts', 3, 12)
-  expect(useCommitHover.getState().target).toBeNull()
+  view.dispatch({ effects: setBlameEffect.of(blame()) })
+  const text = view.dom.querySelector('.cm-blame')?.textContent
+  expect(text).toBe('Author, 3 days ago • Change')
+  expect(text).not.toContain('aaaaaaa')
 })
 
-it('waits for the existing typing idle period before prefetching again', async () => {
+it('renders the current user as You', () => {
   const view = createView()
+  const data = blame()
+  data.ranges[0].authorEmail = 'me@example.com'
   view.dispatch({ effects: setBlameEffect.of(data) })
+  expect(view.dom.querySelector('.cm-blame')?.textContent).toBe('You, 3 days ago • Change')
+})
+
+it('renders uncommitted rows as You, Uncommitted changes', () => {
+  const view = createView()
+  const data = blame()
+  data.ranges[0].uncommitted = true
+  data.ranges[0].sha = '0'.repeat(40)
+  view.dispatch({ effects: setBlameEffect.of(data) })
+  expect(view.dom.querySelector('.cm-blame')?.textContent).toBe('You, Uncommitted changes')
+})
+
+it('truncates long summaries by grapheme', () => {
+  const range = blame().ranges[0]
+  range.summary = '😀'.repeat(60)
+  const text = formatBlameText(range, blame())
+  const summary = text.split(' • ')[1]
+  const graphemes = [...new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(summary)]
+  expect(graphemes).toHaveLength(51)
+  expect(graphemes.at(-1)?.segment).toBe('…')
+})
+
+it('hides the old rows immediately and only asks for new blame after the idle delay', async () => {
+  const view = createView()
+  view.dispatch({ effects: setBlameEffect.of(blame()) })
+  const provider = vi.fn()
+  setBlameContentProvider(view, provider)
+
   view.dispatch({ changes: { from: 0, insert: 'x' } })
-  await vi.advanceTimersByTimeAsync(719)
-  expect(gitCommitDetail).not.toHaveBeenCalled()
-  await vi.advanceTimersByTimeAsync(150)
-  expect(gitCommitDetail).not.toHaveBeenCalled()
+  expect(view.dom.querySelector('.cm-blame')).toBeNull()
+  // A selection change while waiting must not resurrect the previous document's rows.
+  view.dispatch({ selection: { anchor: view.state.doc.line(2).from } })
+  expect(view.dom.querySelector('.cm-blame')).toBeNull()
+  await vi.advanceTimersByTimeAsync(449)
+  expect(provider).not.toHaveBeenCalled()
   await vi.advanceTimersByTimeAsync(1)
-  expect(gitCommitDetail).toHaveBeenCalledTimes(1)
+  expect(provider).toHaveBeenCalledWith(view.state.doc.toString(), 1)
 })
 
-it('cancels pending prefetch when switching file state, disabling blame or destroying the view', async () => {
+it('ignores a buffer result from an older document version', () => {
   const view = createView()
-  view.dispatch({ effects: setBlameEffect.of(data) })
-  view.setState(EditorState.create({ doc: 'other file', extensions: blameExtension }))
-  await vi.advanceTimersByTimeAsync(150)
-  expect(gitCommitDetail).not.toHaveBeenCalled()
-  view.dispatch({ effects: setBlameEffect.of(data) })
-  view.dispatch({ effects: setBlameEffect.of(null) })
-  await vi.advanceTimersByTimeAsync(150)
-  expect(gitCommitDetail).not.toHaveBeenCalled()
-  view.dispatch({ effects: setBlameEffect.of(data) })
-  view.destroy()
-  views.splice(views.indexOf(view), 1)
-  await vi.advanceTimersByTimeAsync(150)
-  expect(gitCommitDetail).not.toHaveBeenCalled()
+  view.dispatch({ effects: setBlameEffect.of(blame()) })
+  view.dispatch({ changes: { from: 0, insert: 'x' } })
+  // Version 0 (or an older buffer version) must not clear the waiting state.
+  view.dispatch({ effects: setBlameEffect.of({ ...blame(), version: 0 }) })
+  expect(view.dom.querySelector('.cm-blame')).toBeNull()
+  const current = view.state.field(blameField).version
+  view.dispatch({ effects: setBlameEffect.of({ ...blame(), version: current }) })
+  expect(view.dom.querySelector('.cm-blame')?.textContent).toContain('Change')
 })
 
-it('skips uncommitted and disabled blame and cancels a pending hover on cursor movement', async () => {
+it('refreshes the relative time after a minute of inactivity', async () => {
   const view = createView()
-  view.dispatch({ effects: setBlameEffect.of({ ...data, disabled: true }) })
-  await vi.advanceTimersByTimeAsync(150)
-  view.dispatch({ effects: setBlameEffect.of({
-    ...data, ranges: [{ ...data.ranges[0], uncommitted: true }],
-  }) })
-  await vi.advanceTimersByTimeAsync(150)
-  expect(gitCommitDetail).not.toHaveBeenCalled()
+  const data = blame()
+  data.ranges[0].authorTime = Math.floor(NOW / 1000) - 30
   view.dispatch({ effects: setBlameEffect.of(data) })
-  let resolve!: (value: { fileDiff: string }) => void
-  gitCommitDetail.mockReturnValueOnce(new Promise((done) => { resolve = done }))
+  expect(view.dom.querySelector('.cm-blame')?.textContent).toBe('Author, just now • Change')
+  await vi.advanceTimersByTimeAsync(60_000)
+  expect(view.dom.querySelector('.cm-blame')?.textContent).toBe('Author, 1 minute ago • Change')
+})
+
+it('uses the blame origPath for the hover diff target', () => {
+  const view = createView()
+  view.dispatch({ effects: setBlameEffect.of(blame()) })
   const anchor = view.dom.querySelector('.cm-blame')!
   anchor.dispatchEvent(new MouseEvent('mouseenter'))
-  expect(useCommitHover.getState().target?.line).toBe(1)
-  view.dispatch({ selection: { anchor: view.state.doc.line(2).from } })
-  expect(useCommitHover.getState().target).toBeNull()
-  resolve({ fileDiff: '+old line' })
-  await vi.advanceTimersByTimeAsync(0)
-  expect(useCommitHover.getState().content).toBeNull()
+  const target = useCommitHover.getState().target
+  expect(target?.rel).toBe('a.ts')
+  expect(target?.path).toBe('old/a.ts')
+  expect(target?.origLine).toBe(10)
 })
 
-it('opens the blame card when a changed-line gutter bar is clicked', async () => {
+it('opens the card on click as well as hover', () => {
+  const view = createView()
+  view.dispatch({ effects: setBlameEffect.of(blame()) })
+  const anchor = view.dom.querySelector('.cm-blame')!
+  anchor.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+  expect(useCommitHover.getState().target).not.toBeNull()
+})
+
+it('opens an uncommitted card without a commit sha', async () => {
   const view = new EditorView({
     state: EditorState.create({
-      doc: 'first\nsecond\nthird',
-      extensions: [blameExtension, diffMarksGutter],
+      doc: 'first\nsecond',
+      extensions: [blameExtension],
     }),
     parent: document.body,
   })
   views.push(view)
-  view.dispatch({
-    effects: [
-      setBlameEffect.of(data),
-      setDiffMarksEffect.of([{ from: 2, to: 2, kind: 'mod' }]),
-    ],
-  })
-
-  const row = view.dom.querySelector<HTMLElement>('.cm-diff-gutter-hit')
-  expect(row).toBeTruthy()
-  // jsdom has no layout, so resolve the clicked row's line explicitly for CodeMirror's gutter handler.
-  vi.spyOn(view, 'lineBlockAtHeight').mockReturnValue(view.lineBlockAt(view.state.doc.line(2).from))
-  row!.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
-
-  expect(view.state.selection.main.head).toBe(view.state.doc.line(2).from)
-  expect(useCommitHover.getState().target?.line).toBe(2)
-  expect(gitCommitDetail).toHaveBeenCalledWith('/repo', 'abc1234', 'a.ts', 2, 11)
-})
-
-it('fetches blame on demand when inline blame is not mounted', async () => {
-  const view = new EditorView({
-    state: EditorState.create({ doc: 'first\nsecond\nthird', extensions: [diffMarksGutter] }),
-    parent: document.body,
-  })
-  views.push(view)
-  setDiffGutterBlameProvider(view, () => Promise.resolve(data))
-  view.dispatch({ effects: setDiffMarksEffect.of([{ from: 2, to: 2, kind: 'mod' }]) })
-
-  const row = view.dom.querySelector<HTMLElement>('.cm-diff-gutter-hit')
-  expect(row).toBeTruthy()
-  vi.spyOn(view, 'lineBlockAtHeight').mockReturnValue(view.lineBlockAt(view.state.doc.line(2).from))
-  row!.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
-  await vi.advanceTimersByTimeAsync(0)
-
-  expect(useCommitHover.getState().target?.line).toBe(2)
-  expect(gitCommitDetail).toHaveBeenCalledWith('/repo', 'abc1234', 'a.ts', 2, 11)
-})
-
-it.each(['disable', 'replace', 'destroy', 'new commit'])('invalidates a pending hover on editor %s', async (action) => {
-  const view = createView()
+  const data = blame()
+  data.ranges[0].uncommitted = true
+  data.ranges[0].sha = '0'.repeat(40)
   view.dispatch({ effects: setBlameEffect.of(data) })
-  let resolve!: (value: { fileDiff: string }) => void
-  gitCommitDetail.mockReturnValueOnce(new Promise((done) => { resolve = done }))
   view.dom.querySelector('.cm-blame')!.dispatchEvent(new MouseEvent('mouseenter'))
-  expect(useCommitHover.getState().target).not.toBeNull()
-  if (action === 'disable') view.dispatch({ effects: setBlameEffect.of(null) })
-  else if (action === 'replace') view.setState(EditorState.create({ doc: 'next', extensions: blameExtension }))
-  else if (action === 'new commit') view.dispatch({ effects: setBlameEffect.of({
-    ...data, ranges: [{ ...data.ranges[0], sha: 'def5678' }],
-  }) })
-  else {
-    view.destroy()
-    views.splice(views.indexOf(view), 1)
-  }
-  resolve({ fileDiff: '+old file' })
-  await vi.advanceTimersByTimeAsync(0)
-  expect(useCommitHover.getState().target).toBeNull()
-  expect(useCommitHover.getState().content).toBeNull()
+  const target = useCommitHover.getState().target
+  expect(target?.uncommitted).toBe(true)
+  expect(target?.rel).toBe('a.ts')
 })

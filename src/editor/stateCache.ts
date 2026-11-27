@@ -299,7 +299,12 @@ export async function createFileState(opts: CreateFileOpts): Promise<EditorState
         ? importLinkExtension(() => ({ root: opts.root, rel: slot.rel }))
         : [],
       themeCompartment.of(currentThemeExtension()),
-      blameCompartment.of(opts.inlineBlame && feature.inlineBlame() ? blameExtension : []),
+      // External files have no project blame; keep the editor (and its refresh timer) off.
+      blameCompartment.of(
+        opts.inlineBlame && feature.inlineBlame() && opts.importLinks !== false
+          ? blameExtension
+          : [],
+      ),
       flashExtension,
       EditorView.updateListener.of((update) => {
         const contextGroup = getGroupOfView(update.view)
@@ -327,7 +332,6 @@ export async function createFileState(opts: CreateFileOpts): Promise<EditorState
             signals.onCursor(slot.id, line.number, head - line.from + 1)
           }
         }
-        if (update.selectionSet) signals.onBlameRefresh(slot.id)
       }),
       ...(opts.readOnly
         ? [

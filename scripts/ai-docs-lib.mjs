@@ -45,7 +45,9 @@ export const ROUTING_FIXTURES = Object.freeze([
     name: 'Inline blame hover',
     paths: ['src/store/commitHover.ts', 'src/store/commitHover.test.ts',
       'src/components/CommitHoverCard.tsx', 'src/components/CommitHoverCard.test.tsx',
-      'src/editor/blame.ts', 'src/editor/blame.test.ts'],
+      'src/editor/blame.ts', 'src/editor/blame.test.ts',
+      'src/store/blame.ts', 'src/store/blame.test.ts',
+      'src-tauri/src/commands/blame.rs'],
     expected: ['editor.md', 'git.md'],
   },
   {
