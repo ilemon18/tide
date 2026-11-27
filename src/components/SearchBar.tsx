@@ -7,6 +7,7 @@ import {
   replaceNext,
   setSearchQuery,
 } from '@codemirror/search'
+import { EditorView } from '@codemirror/view'
 import { getEditorView } from '../editor/viewRef'
 import { Icon } from './Icon'
 import { useT } from '../i18n'
@@ -42,9 +43,10 @@ function OptionToggle({
 }
 
 /**
- * Last find text and options, kept across openings (the bar unmounts when it closes). Reopening shows what was
- * searched last, already selected, so a new search can be typed over it — VSCode does the same. The replace
- * text is deliberately not kept: a stale "Replace all" value would be too easy to fire by accident.
+ * Last find text and options, kept across openings (the bar unmounts when it closes). Reopening shows what the
+ * user searched last, already selected, so a new search can be typed over it. The editor selection is never
+ * copied into the box: opening ⌘F must leave the query exactly as the user left it. The replace text is
+ * deliberately not kept: a stale "Replace all" value would be too easy to fire by accident.
  */
 const lastFind = { query: '', caseSensitive: false, wholeWord: false, regex: false }
 
@@ -63,16 +65,10 @@ export function SearchBar({ onClose, focusSeq }: Props) {
   const inputRef = useRef<HTMLInputElement>(null)
   const replaceRef = useRef<HTMLInputElement>(null)
 
-  // The editor selection beats the remembered text: searching what is selected is the most common intent.
+  // Never seed the query from the editor selection: the find box only ever contains what the user typed.
   // Runs on open and on every later ⌘F (the bar unmounts when it closes, so `lastFind` carries the previous
-  // query over), and always selects the box content so a new search can be typed straight over it.
+  // query over), and selects the box content so a new search can be typed straight over it.
   useEffect(() => {
-    const view = getEditorView()
-    const selection = view?.state.selection.main
-    if (view && selection && !selection.empty) {
-      const text = view.state.sliceDoc(selection.from, selection.to)
-      if (text && !text.includes('\n')) setQuery(text)
-    }
     const id = requestAnimationFrame(() => {
       inputRef.current?.focus()
       inputRef.current?.select()
@@ -129,8 +125,6 @@ export function SearchBar({ onClose, focusSeq }: Props) {
   const step = (dir: 1 | -1) => {
     const view = getEditorView()
     if (!view) return
-    if (dir === 1) findNext(view)
-    else findPrevious(view)
     const q = new SearchQuery({
       search: query,
       caseSensitive,
@@ -138,6 +132,17 @@ export function SearchBar({ onClose, focusSeq }: Props) {
       wholeWord,
       replace: replacement,
     })
+    // Enter can arrive before the query effect has run; publish it first so the jump always uses what is
+    // visible in the box.
+    view.dispatch({ effects: setSearchQuery.of(q) })
+    const found = dir === 1 ? findNext(view) : findPrevious(view)
+    if (found) {
+      // findNext/findPrevious scroll just enough to reveal the match; a confirmed jump should land in the
+      // middle of the viewport instead, so keep the find box focused while the editor moves around it.
+      view.dispatch({
+        effects: EditorView.scrollIntoView(view.state.selection.main.from, { y: 'center' }),
+      })
+    }
     recount(q)
   }
 

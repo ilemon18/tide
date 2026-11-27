@@ -10,6 +10,7 @@ scope:
   - src/components/EditorArea.tsx
   - src/components/TabBar.tsx
   - src/components/TabBar.test.tsx
+  - src/components/SearchBar*
   - src/components/MarkdownPreview.tsx
   - src/components/MarkdownRenderer.tsx
   - src/editor/**
@@ -83,14 +84,14 @@ states. EditorHost selects tab kinds; markdown helpers own contained links and i
   `editor/diffGutter` renders one bar per changed line. Marked rows are click targets ([git.md](./git.md));
   marks are disk-based and EditorHost reapplies them after state swaps. Gutter blame providers receive the
   current buffer, so a dirty row is never blamed from disk.
-- Inline blame is GitLens current-line only: `editor/blame` draws one widget on the cursor line (no per-line
-  gutter blame, no whole-file list), hides it immediately on a doc change, and asks the content provider
-  after a ~450 ms idle. Results carry a doc version; stale ones are ignored. A 60-second timer refreshes the
-  relative time, and hover/click open the commit card. EditorHost wires the provider only for project file
-  tabs and re-applies blame after state swaps, while dirty states never inherit disk rows.
-- ⌘/Ctrl-click resolves an import path, then an identifier chain to its import line with a sticky highlight;
-  the scan is bounded to 2000 lines / 256KB and cached. Reconfigure theme/font/blame/wrap through
-  Compartments; rebuilding state discards undo. Blame/hover: [git.md](./git.md).
+- Inline blame is GitLens current-line only: `editor/blame` draws one widget on the cursor line (no gutter or
+  whole-file list), hides it on doc changes, and queries after a ~450 ms idle. Results carry a doc version;
+  stale ones are ignored. A 60-second timer refreshes relative time, and hover/click opens the commit card.
+  EditorHost wires it only for project files and re-applies after state swaps; dirty states inherit no rows.
+- ⌘/Ctrl-click resolves an import path then an identifier chain to its import line with a sticky highlight;
+  the scan is cached and bounded to 2000 lines / 256KB. Theme/font/blame/wrap use Compartments; rebuilding
+  state discards undo. Blame/hover: [git.md](./git.md).
+- ⌘F never seeds from the selection; confirmed jumps center the match.
 
 ## Formatting
 
